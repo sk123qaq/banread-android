@@ -3,6 +3,7 @@ package app.banread.model
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.Serializable
+import java.io.File
 
 // ==================== Deep Module 1: :module-library ====================
 
@@ -15,6 +16,11 @@ interface LibraryVault {
     suspend fun resolveFootnote(workId: WorkId, currentOrdinal: ChapterOrdinal, markerOrHref: String): FootnoteDetail?
     suspend fun overrideProfile(workId: WorkId, profile: ReadProfileId, literatureSubKind: String?)
     suspend fun loadGatedChapterInputs(workId: WorkId, gate: SpoilerGate): GatedBookSlice
+    suspend fun listWorks(): List<WorkSummary>
+    fun observeWorks(): Flow<List<WorkSummary>>
+    suspend fun getWorkSummary(workId: WorkId): WorkSummary?
+    suspend fun resolveCoverFile(workId: WorkId): File?
+    suspend fun deleteWork(workId: WorkId): Result<Unit>
 }
 
 data class ImportedWork(
@@ -26,6 +32,10 @@ data class ImportedWork(
     val clothColor: String,
     val supportedModes: Set<ReadingSurfaceMode>,
     val isScannedPdf: Boolean = false,
+    val coverRel: String? = null,
+    val coverWidth: Int? = null,
+    val coverHeight: Int? = null,
+    val coverDisplayMode: CoverDisplayMode = classifyCoverDisplayMode(coverRel, coverWidth, coverHeight),
 )
 
 data class ReflowPrepProgress(
@@ -195,14 +205,57 @@ data class TokenEstimate(
 
 interface AiRuntime {
     fun streamCompletion(request: LlmPromptRequest): Flow<LlmStreamEvent>
-    suspend fun saveProviderConfig(config: ProviderConfig, rawApiKey: String)
+    suspend fun saveProviderConfig(config: ProviderConfig, rawApiKey: String? = null)
+    suspend fun getProviderSummary(providerId: String): ProviderSummary?
     suspend fun listProviderProfiles(): List<ProviderSummary>
+    suspend fun setDefaultCompanion(providerId: String)
+    suspend fun setDefaultVision(providerId: String)
+    suspend fun deleteProviderConfig(providerId: String): DeletedProviderSnapshot?
+    suspend fun restoreDeletedProvider(snapshot: DeletedProviderSnapshot): Boolean
+    suspend fun listAvailableModels(
+        kind: ProviderKind,
+        endpoint: String,
+        rawApiKey: String? = null,
+        existingProviderId: String? = null,
+    ): Result<List<DiscoveredModel>>
+    suspend fun listAvailableModels(providerId: String): Result<List<DiscoveredModel>>
+    suspend fun testProviderConnection(
+        kind: ProviderKind,
+        endpoint: String,
+        rawApiKey: String? = null,
+        modelId: String? = null,
+        existingProviderId: String? = null,
+    ): Result<ProviderConnectionStatus>
+    suspend fun testProviderConnection(providerId: String): Result<ProviderConnectionStatus>
 }
 
 /** Seam 2: OpenAiCompatAdapter / GeminiAdapter / AnthropicAdapter / OllamaAdapter / ScriptedLlmFakeAdapter */
 interface LlmProviderPort {
     val capabilities: ProviderCapabilities
     fun stream(endpoint: String, apiKey: String, payload: LlmPromptRequest): Flow<LlmStreamEvent>
+    suspend fun listModels(endpoint: String, apiKey: String): Result<List<DiscoveredModel>> =
+        Result.failure(UnsupportedOperationException("Model discovery not implemented"))
+    suspend fun testConnection(
+        endpoint: String,
+        apiKey: String,
+        modelId: String? = null,
+    ): Result<ProviderConnectionStatus> {
+        val startMs = System.currentTimeMillis()
+        return listModels(endpoint, apiKey).map { models ->
+            val elapsedMs = (System.currentTimeMillis() - startMs).coerceAtLeast(0L)
+            val msg = if (modelId.isNullOrBlank() || models.any { it.id == modelId }) {
+                "Connected (${models.size} models)"
+            } else {
+                "Connected (${models.size} models; '$modelId' not listed)"
+            }
+            ProviderConnectionStatus(
+                ok = true,
+                latencyMs = elapsedMs,
+                modelCount = models.size,
+                message = msg,
+            )
+        }
+    }
 }
 
 /** Seam 3: TinkKeystoreVaultAdapter / InMemorySecretVaultAdapter */
@@ -233,6 +286,11 @@ data class ProviderConfig(
     val endpoint: String,
     val modelId: String,
     val capabilities: ProviderCapabilities,
+    val providerPresetId: String? = null,
+    val thinkingLevel: ThinkingLevel = ThinkingLevel.OFF,
+    val isDefaultCompanion: Boolean = false,
+    val isDefaultVision: Boolean = false,
+    val requiresApiKey: Boolean = kind != ProviderKind.OLLAMA,
 )
 
 data class ProviderSummary(
@@ -242,7 +300,17 @@ data class ProviderSummary(
     val modelId: String,
     val hasApiKey: Boolean,
     val capabilities: ProviderCapabilities,
-)
+    val providerPresetId: String? = null,
+    val endpoint: String = "",
+    val thinkingLevel: ThinkingLevel = ThinkingLevel.OFF,
+    val isDefaultCompanion: Boolean = false,
+    val isDefaultVision: Boolean = false,
+    val maskedApiKey: String = if (hasApiKey) "••••" else "本地免 Key",
+    val requiresApiKey: Boolean = kind != ProviderKind.OLLAMA,
+) {
+    val model: String get() = modelId
+    val supportsVision: Boolean get() = capabilities.supportsVision
+}
 
 data class LlmPromptRequest(
     val providerId: String? = null,
@@ -251,6 +319,7 @@ data class LlmPromptRequest(
     val imagePngBytes: ByteArray? = null,
     val expectJson: Boolean = false,
     val maxOutputTokens: Int? = null,
+    val thinkingLevel: ThinkingLevel = ThinkingLevel.OFF,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -260,7 +329,8 @@ data class LlmPromptRequest(
             userPrompt == other.userPrompt &&
             imagePngBytes.contentEquals(other.imagePngBytes) &&
             expectJson == other.expectJson &&
-            maxOutputTokens == other.maxOutputTokens
+            maxOutputTokens == other.maxOutputTokens &&
+            thinkingLevel == other.thinkingLevel
     }
 
     override fun hashCode(): Int {
@@ -270,6 +340,7 @@ data class LlmPromptRequest(
         result = 31 * result + (imagePngBytes?.contentHashCode() ?: 0)
         result = 31 * result + expectJson.hashCode()
         result = 31 * result + (maxOutputTokens ?: 0)
+        result = 31 * result + thinkingLevel.hashCode()
         return result
     }
 }
