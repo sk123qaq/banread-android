@@ -131,6 +131,7 @@
 
   function applyViewport(vp) {
     state.viewport = vp;
+    document.body.dataset.viewport = vp;
     const frame = document.getElementById('device-shell');
     if (frame) frame.setAttribute('data-viewport', vp);
     if (vp === 'eink-pad') {
@@ -160,10 +161,384 @@
     }
   }
 
+  /* BYOK 弹窗状态与服务商预设工具函数 */
+  const THINKING_LABELS = { off: '关', low: '低', medium: '中', high: '高', max: '极高' };
+  const byokFormState = {
+    editingId: null,
+    providerId: 'deepseek',
+    protocol: 'openai_compat',
+    thinkingLevel: 'high',
+    fetchedModels: [],
+    fetchState: 'idle',
+    fetchHost: '',
+    fetchTimer: null,
+    filterQuery: '',
+    keyVisible: false,
+    _prepared: false
+  };
+
+  function getByokProvider(id) {
+    const list = DATA.byokProviders || [];
+    return list.find((p) => p.id === id) || list[0];
+  }
+
+  function formatHostPath(url) {
+    return String(url || '').trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+  }
+
+  function getByokEndpointPreview(baseUrl, protocol) {
+    const clean = String(baseUrl || '').trim().replace(/\/+$/, '') || 'https://api.openai.com/v1';
+    return '模型查询：GET ' + clean + (protocol === 'ollama' ? '/api/tags' : '/models');
+  }
+
+  function getByokThinkingHint(protocol) {
+    if (protocol === 'anthropic') return 'Anthropic 映射 → thinking: { type, budget_tokens }';
+    if (protocol === 'gemini') return 'Gemini 映射 → generationConfig.thinkingConfig';
+    if (protocol === 'ollama') return 'Ollama 映射 → think / options.reasoning';
+    return 'OpenAI / OpenCode 映射 → reasoning_effort';
+  }
+
+  function thinkingBadgeText(level) {
+    return '思考: ' + (THINKING_LABELS[level] || '中');
+  }
+
+  function maskByokKey(rawKey, providerPreset) {
+    const k = String(rawKey || '').trim();
+    if ((!k || k === '本地免 Key') && providerPreset && !providerPreset.requiresKey) return '本地免 Key';
+    if (!k) return 'sk-••••0000';
+    if (k.includes('••••')) return k;
+    const prefix = k.startsWith('sk-ant-') ? 'sk-ant-' : k.startsWith('sk-oc-') ? 'sk-oc-' : k.startsWith('AIza') ? 'AIza' : k.slice(0, 3);
+    const tail = k.slice(-4);
+    return prefix + '••••' + tail;
+  }
+
+  function renderByokProviderGroups() {
+    const wrap = document.getElementById('byok-provider-groups');
+    if (!wrap) return;
+    const list = DATA.byokProviders || [];
+    const groups = [
+      { key: 'proxy', label: '聚合 / 代理' },
+      { key: 'official', label: '官方直连' }
+    ];
+    wrap.innerHTML = groups
+      .map((g) => {
+        const items = list.filter((p) => p.group === g.key);
+        return (
+          '<div class="byok-prov-group">' +
+          '<span class="byok-prov-group-lbl">' +
+          RD.esc(g.label) +
+          '</span>' +
+          '<div class="byok-prov-chips">' +
+          items
+            .map(
+              (p) =>
+                '<button type="button" class="byok-prov-chip" data-byok-provider="' +
+                RD.esc(p.id) +
+                '" aria-pressed="' +
+                (byokFormState.providerId === p.id ? 'true' : 'false') +
+                '">' +
+                RD.esc(p.name) +
+                '</button>'
+            )
+            .join('') +
+          '</div></div>'
+        );
+      })
+      .join('');
+    wrap.querySelectorAll('[data-byok-provider]').forEach((btn) => {
+      btn.addEventListener('click', () => applyByokProviderPreset(btn.dataset.byokProvider));
+    });
+  }
+
+  function syncByokFormControls() {
+    const prov = getByokProvider(byokFormState.providerId);
+    document.querySelectorAll('#byok-provider-groups [data-byok-provider]').forEach((btn) => {
+      btn.setAttribute('aria-pressed', btn.dataset.byokProvider === byokFormState.providerId ? 'true' : 'false');
+    });
+    document.querySelectorAll('#byok-protocol-seg [data-byok-proto]').forEach((btn) => {
+      btn.setAttribute('aria-pressed', btn.dataset.byokProto === byokFormState.protocol ? 'true' : 'false');
+    });
+    document.querySelectorAll('#byok-thinking-seg [data-byok-think]').forEach((btn) => {
+      btn.setAttribute('aria-pressed', btn.dataset.byokThink === byokFormState.thinkingLevel ? 'true' : 'false');
+    });
+
+    const baseInp = document.getElementById('byok-base-url');
+    const epHint = document.getElementById('byok-endpoint-hint');
+    if (epHint && baseInp) {
+      epHint.textContent = getByokEndpointPreview(baseInp.value, byokFormState.protocol);
+    }
+
+    const thHint = document.getElementById('byok-thinking-hint');
+    if (thHint) {
+      thHint.textContent = getByokThinkingHint(byokFormState.protocol);
+    }
+
+    const keyInp = document.getElementById('byok-key');
+    const keyToggle = document.getElementById('btn-byok-toggle-key');
+    if (keyInp) {
+      const needKey = byokFormState.protocol !== 'ollama' && (!prov || prov.requiresKey);
+      if (needKey) {
+        keyInp.setAttribute('required', '');
+        keyInp.placeholder = 'sk-...';
+      } else {
+        keyInp.removeAttribute('required');
+        keyInp.placeholder = '本地 Ollama 无需填写 Key';
+      }
+      keyInp.type = byokFormState.keyVisible ? 'text' : 'password';
+    }
+    if (keyToggle) {
+      keyToggle.textContent = byokFormState.keyVisible ? '隐藏' : '显示';
+      keyToggle.setAttribute('aria-pressed', String(byokFormState.keyVisible));
+    }
+
+    const fetchBtn = document.getElementById('btn-byok-fetch-models');
+    if (fetchBtn) {
+      fetchBtn.disabled = byokFormState.fetchState === 'loading';
+      fetchBtn.textContent = byokFormState.fetchState === 'loading' ? '查询中…' : '查询可用模型';
+    }
+  }
+
+  function renderByokCandidates() {
+    const statusEl = document.getElementById('byok-fetch-status');
+    const listEl = document.getElementById('byok-model-candidates');
+    if (!statusEl || !listEl) return;
+
+    if (byokFormState.fetchState === 'loading') {
+      statusEl.hidden = false;
+      statusEl.textContent = '正在向 ' + byokFormState.fetchHost + ' 查询可用模型…';
+      listEl.hidden = true;
+      listEl.innerHTML = '';
+      return;
+    }
+
+    if (byokFormState.fetchState === 'done' && byokFormState.fetchedModels.length) {
+      const q = byokFormState.filterQuery.trim().toLowerCase();
+      const visible = q
+        ? byokFormState.fetchedModels.filter((m) => m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q))
+        : byokFormState.fetchedModels;
+      const curModel = (document.getElementById('byok-model-id')?.value || '').trim();
+      statusEl.hidden = false;
+      statusEl.textContent =
+        '已从 ' +
+        byokFormState.fetchHost +
+        ' 拉取 ' +
+        byokFormState.fetchedModels.length +
+        ' 个可用模型' +
+        (q ? '（匹配 ' + visible.length + ' 项）' : ' · 点击条目直接填入');
+      listEl.hidden = false;
+      listEl.innerHTML = visible.length
+        ? visible
+            .map(
+              (m) =>
+                '<button type="button" role="option" class="byok-cand-item' +
+                (curModel === m.id ? ' is-selected' : '') +
+                '" aria-selected="' +
+                (curModel === m.id ? 'true' : 'false') +
+                '" data-cand-model="' +
+                RD.esc(m.id) +
+                '">' +
+                '<span class="byok-cand-id">' +
+                RD.esc(m.id) +
+                '</span>' +
+                '<span class="byok-cand-tags">' +
+                (m.tags || [])
+                  .map(
+                    (tag) =>
+                      '<span class="cap-pill' +
+                      (tag === 'Vision' ? ' vlm' : tag === '思考' ? ' think' : '') +
+                      '">' +
+                      RD.esc(tag) +
+                      '</span>'
+                  )
+                  .join('') +
+                '</span></button>'
+            )
+            .join('')
+        : '<div style="padding:10px;font-size:11.5px;color:var(--ink-3)">无匹配候选模型，可直接使用当前输入 ID</div>';
+
+      listEl.querySelectorAll('[data-cand-model]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const picked = byokFormState.fetchedModels.find((m) => m.id === btn.dataset.candModel);
+          if (!picked) return;
+          const modelInp = document.getElementById('byok-model-id');
+          const nameInp = document.getElementById('byok-name');
+          const visionChk = document.getElementById('byok-vision');
+          if (modelInp) modelInp.value = picked.id;
+          if (nameInp) nameInp.value = picked.name;
+          if (visionChk) visionChk.checked = Boolean(picked.vision);
+          byokFormState.thinkingLevel = picked.thinking || 'medium';
+          byokFormState.filterQuery = '';
+          syncByokFormControls();
+          renderByokCandidates();
+        });
+      });
+      return;
+    }
+
+    statusEl.hidden = true;
+    statusEl.textContent = '';
+    listEl.hidden = true;
+    listEl.innerHTML = '';
+  }
+
+  function applyByokProviderPreset(providerId) {
+    const prov = getByokProvider(providerId);
+    if (!prov) return;
+    if (byokFormState.fetchTimer) {
+      clearTimeout(byokFormState.fetchTimer);
+      byokFormState.fetchTimer = null;
+    }
+    byokFormState.providerId = prov.id;
+    byokFormState.protocol = prov.protocol;
+    byokFormState.fetchedModels = [];
+    byokFormState.fetchState = 'idle';
+    byokFormState.filterQuery = '';
+
+    const first = (prov.models && prov.models[0]) || { id: '', name: prov.name, vision: false, thinking: 'medium' };
+    byokFormState.thinkingLevel = first.thinking || 'medium';
+
+    const baseInp = document.getElementById('byok-base-url');
+    const modelInp = document.getElementById('byok-model-id');
+    const nameInp = document.getElementById('byok-name');
+    const keyInp = document.getElementById('byok-key');
+    const visChk = document.getElementById('byok-vision');
+
+    if (baseInp) baseInp.value = prov.baseUrl;
+    if (modelInp) modelInp.value = first.id;
+    if (nameInp) nameInp.value = first.name;
+    if (visChk) visChk.checked = Boolean(first.vision);
+    if (keyInp) {
+      if (!prov.requiresKey) {
+        keyInp.value = '';
+      } else if (!keyInp.value.trim()) {
+        keyInp.value = 'sk-demo-8842';
+      }
+    }
+
+    syncByokFormControls();
+    renderByokCandidates();
+  }
+
+  function prepareByokModal(modelIdToEdit) {
+    if (byokFormState.fetchTimer) {
+      clearTimeout(byokFormState.fetchTimer);
+      byokFormState.fetchTimer = null;
+    }
+    const existing = modelIdToEdit ? state.models.find((m) => m.id === modelIdToEdit) : null;
+    const titleEl = document.getElementById('dlg-byok-title');
+    if (titleEl) titleEl.textContent = existing ? '编辑 BYOK 模型' : '添加 BYOK 模型';
+
+    byokFormState.editingId = existing ? existing.id : null;
+    byokFormState.fetchedModels = [];
+    byokFormState.fetchState = 'idle';
+    byokFormState.filterQuery = '';
+    byokFormState.keyVisible = false;
+
+    renderByokProviderGroups();
+
+    if (existing) {
+      const prov = getByokProvider(existing.providerId || 'custom');
+      byokFormState.providerId = prov.id;
+      byokFormState.protocol = existing.protocol || prov.protocol;
+      byokFormState.thinkingLevel = existing.thinkingLevel || 'medium';
+
+      const baseInp = document.getElementById('byok-base-url');
+      const modelInp = document.getElementById('byok-model-id');
+      const nameInp = document.getElementById('byok-name');
+      const keyInp = document.getElementById('byok-key');
+      const visChk = document.getElementById('byok-vision');
+
+      if (baseInp) baseInp.value = existing.baseUrl || prov.baseUrl;
+      if (modelInp) modelInp.value = existing.modelId || '';
+      if (nameInp) nameInp.value = existing.name || '';
+      if (visChk) visChk.checked = Array.isArray(existing.capabilities) && existing.capabilities.includes('Vision');
+      if (keyInp) keyInp.value = prov.requiresKey ? existing.maskedKey || 'sk-demo-8842' : '';
+
+      syncByokFormControls();
+      renderByokCandidates();
+    } else {
+      const keyInp = document.getElementById('byok-key');
+      if (keyInp) keyInp.value = 'sk-demo-8842';
+      applyByokProviderPreset('deepseek');
+    }
+    byokFormState._prepared = true;
+  }
+
+  function openByokModal(modelIdToEdit) {
+    prepareByokModal(modelIdToEdit || null);
+    openModal('dlg-byok');
+  }
+
+  function bindByokDialogEvents() {
+    document.querySelectorAll('#byok-protocol-seg [data-byok-proto]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        byokFormState.protocol = btn.dataset.byokProto;
+        syncByokFormControls();
+      });
+    });
+
+    document.querySelectorAll('#byok-thinking-seg [data-byok-think]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        byokFormState.thinkingLevel = btn.dataset.byokThink;
+        syncByokFormControls();
+      });
+    });
+
+    const baseInp = document.getElementById('byok-base-url');
+    if (baseInp) {
+      baseInp.addEventListener('input', () => syncByokFormControls());
+    }
+
+    const keyToggle = document.getElementById('btn-byok-toggle-key');
+    if (keyToggle) {
+      keyToggle.addEventListener('click', () => {
+        byokFormState.keyVisible = !byokFormState.keyVisible;
+        syncByokFormControls();
+      });
+    }
+
+    const modelInp = document.getElementById('byok-model-id');
+    if (modelInp) {
+      modelInp.addEventListener('input', () => {
+        if (byokFormState.fetchState === 'done') {
+          byokFormState.filterQuery = modelInp.value;
+          renderByokCandidates();
+        }
+      });
+    }
+
+    const fetchBtn = document.getElementById('btn-byok-fetch-models');
+    if (fetchBtn) {
+      fetchBtn.addEventListener('click', () => {
+        const prov = getByokProvider(byokFormState.providerId);
+        const rawBase = document.getElementById('byok-base-url')?.value || prov.baseUrl;
+        const hostLabel = formatHostPath(rawBase) || formatHostPath(prov.baseUrl);
+        if (byokFormState.fetchTimer) clearTimeout(byokFormState.fetchTimer);
+        byokFormState.fetchHost = hostLabel;
+        byokFormState.fetchState = 'loading';
+        byokFormState.filterQuery = '';
+        syncByokFormControls();
+        renderByokCandidates();
+
+        byokFormState.fetchTimer = setTimeout(() => {
+          byokFormState.fetchTimer = null;
+          byokFormState.fetchedModels = (prov.models || []).map((m) => Object.assign({}, m));
+          byokFormState.fetchState = 'done';
+          syncByokFormControls();
+          renderByokCandidates();
+        }, 280);
+      });
+    }
+  }
+
   /* 原生 <dialog> 统一管理（含 closedby="any" 降级 & returnValue 重置） */
   function openModal(id) {
     const dlg = document.getElementById(id);
     if (!dlg) return;
+    if (id === 'dlg-byok' && !byokFormState._prepared) {
+      prepareByokModal(null);
+    }
+    if (id === 'dlg-byok') byokFormState._prepared = false;
     dlg.removeAttribute('data-closing');
     if (typeof dlg.showModal === 'function') {
       if (!dlg.open) dlg.showModal();
@@ -252,22 +627,49 @@
         } else if (dlg.id === 'dlg-byok' && rv === 'save') {
           const name = document.getElementById('byok-name').value.trim();
           const modelId = document.getElementById('byok-model-id').value.trim();
+          const baseUrl = (document.getElementById('byok-base-url').value || '').trim();
           const key = document.getElementById('byok-key').value.trim();
           const vision = document.getElementById('byok-vision').checked;
+          const prov = getByokProvider(byokFormState.providerId);
           if (name && modelId) {
-            const tail = key.slice(-4) || '0000';
-            state.models.push({
-              id: 'm-' + Date.now(),
+            const caps = [];
+            if (prov && (prov.group === 'proxy' || !prov.requiresKey)) {
+              caps.push(prov.requiresKey ? prov.badge : '100% 离线');
+            }
+            if (vision) caps.push('Vision');
+            const maskedKey = maskByokKey(key, prov);
+            const payload = {
               name,
-              provider: 'Custom BYOK',
+              providerId: prov ? prov.id : 'custom',
+              provider: prov ? prov.name : 'Custom BYOK',
+              protocol: byokFormState.protocol,
+              baseUrl: baseUrl || (prov ? prov.baseUrl : 'https://api.openai.com/v1'),
               modelId,
-              maskedKey: 'sk-••••' + tail,
-              capabilities: vision ? ['Vision', '自定义'] : ['文本'],
-              isDefaultCompanion: false,
-              isDefaultVision: false,
-              latency: '刚刚加密保存'
-            });
-            RD.toast('已加密保存模型：' + name);
+              thinkingLevel: byokFormState.thinkingLevel || 'medium',
+              maskedKey,
+              capabilities: caps
+            };
+            if (byokFormState.editingId) {
+              const idx = state.models.findIndex((m) => m.id === byokFormState.editingId);
+              if (idx >= 0) {
+                Object.assign(state.models[idx], payload, { latency: '配置已更新' });
+                if (!vision) state.models[idx].isDefaultVision = false;
+                RD.toast('已更新模型配置：' + name);
+              }
+            } else {
+              state.models.push(
+                Object.assign(
+                  {
+                    id: 'm-' + Date.now(),
+                    isDefaultCompanion: false,
+                    isDefaultVision: false,
+                    latency: '刚刚加密保存'
+                  },
+                  payload
+                )
+              );
+              RD.toast('已加密保存模型：' + name);
+            }
             renderApp();
           }
         } else if (dlg.id === 'dlg-qr-bind' && rv === 'connect') {
@@ -278,6 +680,8 @@
         }
       });
     });
+
+    bindByokDialogEvents();
 
     document.querySelectorAll('[data-close-dialog]').forEach((btn) => {
       btn.addEventListener('click', () => closeModal(btn.dataset.closeDialog));
@@ -2243,33 +2647,50 @@
       '<section class="settings-section">' +
       '<div class="settings-section-head"><h2>BYOK 模型与加密密钥库</h2><span class="cap-pill">Tink + Android Keystore</span></div>' +
       state.models
-        .map(
-          (m) =>
-            '<div class="settings-card">' +
+        .map((m) => {
+          const isVision = Array.isArray(m.capabilities) && m.capabilities.includes('Vision');
+          const thinkLabel = thinkingBadgeText(m.thinkingLevel || 'medium');
+          const pills = [thinkLabel].concat(m.capabilities || []);
+          return (
+            '<div class="settings-card" data-model-card="' +
+            RD.esc(m.id) +
+            '">' +
             '<div class="model-head-row">' +
-            '<div class="model-title-wrap"><strong>' +
+            '<div class="model-title-wrap"><span class="prov-badge">' +
+            RD.esc(m.provider) +
+            '</span><strong>' +
             RD.esc(m.name) +
             '</strong> <span class="mono muted" style="font-size:11px">' +
             RD.esc(m.maskedKey) +
             '</span></div>' +
             '<div class="model-caps">' +
-            m.capabilities.map((c) => '<span class="cap-pill' + (c === 'Vision' ? ' vlm' : '') + '">' + RD.esc(c) + '</span>').join('') +
+            pills
+              .map(
+                (c) =>
+                  '<span class="cap-pill' +
+                  (c === 'Vision' ? ' vlm' : c.startsWith('思考:') ? ' think' : '') +
+                  '">' +
+                  RD.esc(c) +
+                  '</span>'
+              )
+              .join('') +
             '</div></div>' +
             '<div class="wb-sub">' +
-            RD.esc(m.provider) +
-            ' · <code class="mono">' +
+            '<span class="mono">' +
+            RD.esc(formatHostPath(m.baseUrl || '')) +
+            '</span> · <code class="mono">' +
             RD.esc(m.modelId) +
             '</code> · <span style="color:var(--pine)">' +
             RD.esc(m.latency) +
             '</span></div>' +
             '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap">' +
-            '<div style="display:flex;gap:6px;font-size:11.5px">' +
+            '<div style="display:flex;gap:8px;font-size:11.5px">' +
             '<label><input type="radio" name="def-comp" data-def-comp="' +
             RD.esc(m.id) +
             '"' +
             (m.isDefaultCompanion ? ' checked' : '') +
             '> 默认伴读</label>' +
-            (m.capabilities.includes('Vision')
+            (isVision
               ? '<label><input type="radio" name="def-vlm" data-def-vlm="' +
                 RD.esc(m.id) +
                 '"' +
@@ -2277,11 +2698,16 @@
                 '> 默认视觉 VLM</label>'
               : '') +
             '</div>' +
+            '<div style="display:flex;gap:6px">' +
+            '<button type="button" class="wb-btn" data-edit-model="' +
+            RD.esc(m.id) +
+            '">编辑</button>' +
             '<button type="button" class="wb-btn" data-test-model="' +
             RD.esc(m.id) +
             '">测试连通性</button>' +
-            '</div></div>'
-        )
+            '</div></div></div>'
+          );
+        })
         .join('') +
       '</section>' +
       '<section class="settings-section">' +
@@ -2325,7 +2751,10 @@
       '</div></section></div>' +
       renderBottomNav('settings');
 
-    root.querySelector('#btn-add-byok').addEventListener('click', () => openModal('dlg-byok'));
+    root.querySelector('#btn-add-byok').addEventListener('click', () => openByokModal(null));
+    root.querySelectorAll('[data-edit-model]').forEach((b) => {
+      b.addEventListener('click', () => openByokModal(b.dataset.editModel));
+    });
     root.querySelectorAll('[data-def-comp]').forEach((r) => {
       r.addEventListener('change', () => {
         state.models.forEach((m) => { m.isDefaultCompanion = m.id === r.dataset.defComp; });

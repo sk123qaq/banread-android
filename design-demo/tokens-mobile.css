@@ -2428,6 +2428,25 @@ details.thinking-box p { margin: 5px 0 0; line-height: 1.55; }
   color: var(--pine);
 }
 .cap-pill.vlm { background: var(--indigo); color: #F7F5EE; }
+.cap-pill.think {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+.prov-badge {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  flex-shrink: 0;
+  padding: 1px 6px;
+  margin-right: 5px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  background: var(--paper-deep);
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+  vertical-align: 1px;
+}
 .persp-idx {
   display: inline-flex;
   align-items: center;
@@ -2469,6 +2488,27 @@ dialog.zoom-modal.zoom-dialog {
 dialog.app-dialog {
   width: min(92vw, 370px);
   max-height: 85dvh;
+}
+dialog.app-dialog.dlg-byok-dialog {
+  width: min(94vw, 412px);
+  max-height: 92dvh;
+}
+dialog.app-dialog.dlg-byok-dialog .dlg-body {
+  padding: 11px 15px;
+  gap: 8px;
+}
+body[data-viewport="phone-360"] dialog.app-dialog.dlg-byok-dialog,
+.device-frame[data-viewport="phone-360"] ~ dialog.app-dialog.dlg-byok-dialog {
+  width: min(94vw, 344px);
+}
+#form-byok {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 dialog.zoom-modal.zoom-dialog {
   width: min(94vw, 1080px);
@@ -2529,6 +2569,7 @@ dialog.zoom-dialog,
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  flex: none;
 }
 .dlg-head h1, .dlg-head h2 {
   font-family: var(--serif);
@@ -2537,13 +2578,21 @@ dialog.zoom-dialog,
 }
 .dlg-body {
   padding: 14px 16px;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
   font-size: 13px;
   line-height: 1.65;
   color: var(--ink-2);
   display: flex;
   flex-direction: column;
   gap: 10px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--ink-3) 35%, transparent) transparent;
 }
 .dlg-actions {
   padding: 10px 16px 14px;
@@ -2552,17 +2601,176 @@ dialog.zoom-dialog,
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
+  flex: none;
 }
 .dlg-field {
   display: flex;
   flex-direction: column;
   gap: 4px;
   font-size: 12px;
+  min-width: 0;
+  max-width: 100%;
 }
 .dlg-field input, .dlg-field select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   padding: 7px 10px;
   border-radius: 7px;
   border: 1px solid var(--line-strong);
+}
+
+/* BYOK 服务商芯片、协议、思考等级与可用模型列表 */
+.byok-prov-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+.byok-prov-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.byok-prov-group-lbl {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--ink-3);
+}
+.byok-prov-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.byok-prov-chip {
+  padding: 4px 9px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line-strong);
+  background: var(--paper);
+  color: var(--ink-2);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.byok-prov-chip:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.byok-prov-chip[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--surface);
+  border-color: var(--ink);
+}
+.byok-seg-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  min-width: 0;
+}
+.byok-seg-row button {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.byok-seg-row button[aria-pressed="true"] {
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 700;
+  box-shadow: var(--shadow-control);
+}
+.byok-input-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+.byok-input-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.byok-input-row button {
+  flex: none;
+  white-space: nowrap;
+}
+.byok-hint {
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--ink-3);
+  word-break: break-all;
+}
+.byok-fetch-status {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--pine);
+}
+.byok-candidates {
+  max-height: 126px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--paper);
+  display: flex;
+  flex-direction: column;
+  scrollbar-width: thin;
+}
+.byok-cand-item {
+  width: 100%;
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  text-align: left;
+  color: var(--ink);
+  min-width: 0;
+}
+.byok-cand-item:last-child { border-bottom: 0; }
+.byok-cand-item:hover { background: var(--surface-hover); }
+.byok-cand-item.is-selected {
+  background: var(--cinnabar-soft);
+  box-shadow: inset 3px 0 0 var(--cinnabar);
+}
+.byok-cand-id {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.byok-cand-tags {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+}
+.byok-check-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink);
+}
+html[data-theme="eink"] .byok-prov-chip[aria-pressed="true"] {
+  background: #000000;
+  color: #FFFFFF;
+}
   background: var(--paper);
   color: var(--ink);
 }

@@ -160,28 +160,72 @@
     </form>
   </dialog>
 
-  <!-- 原生 <dialog> 5：BYOK 添加 / 编辑模型 -->
-  <dialog class="app-dialog" id="dlg-byok" closedby="any" aria-labelledby="dlg-byok-title">
+  <!-- 原生 <dialog> 5：BYOK 添加 / 编辑模型（含服务商、Base URL、查询模型与思考等级） -->
+  <dialog class="app-dialog dlg-byok-dialog" id="dlg-byok" closedby="any" aria-labelledby="dlg-byok-title">
     <div class="dlg-head">
-      <h1 id="dlg-byok-title">添加 / 编辑 BYOK 模型</h1>
+      <h1 id="dlg-byok-title">添加 BYOK 模型</h1>
       <button type="button" class="wb-btn" data-close-dialog="dlg-byok">关闭</button>
     </div>
     <form method="dialog" id="form-byok">
       <div class="dlg-body">
+        <div class="dlg-field">
+          <span>服务商预设</span>
+          <div class="byok-prov-groups" id="byok-provider-groups"></div>
+        </div>
+
+        <div class="dlg-field">
+          <span>API 协议</span>
+          <div class="byok-seg-row" id="byok-protocol-seg" role="group" aria-label="API 协议">
+            <button type="button" data-byok-proto="openai_compat" aria-pressed="true">OpenAI 兼容</button>
+            <button type="button" data-byok-proto="gemini" aria-pressed="false">Gemini</button>
+            <button type="button" data-byok-proto="anthropic" aria-pressed="false">Anthropic</button>
+            <button type="button" data-byok-proto="ollama" aria-pressed="false">Ollama</button>
+          </div>
+        </div>
+
+        <label class="dlg-field">
+          <span>Base URL</span>
+          <input type="url" class="mono" id="byok-base-url" required placeholder="https://api.openai.com/v1">
+          <div class="byok-hint mono" id="byok-endpoint-hint">模型查询：GET https://api.deepseek.com/v1/models</div>
+        </label>
+
+        <div class="dlg-field">
+          <span>API Key（Tink + Android Keystore 硬件加密）</span>
+          <div class="byok-input-row">
+            <input type="password" class="mono" id="byok-key" required placeholder="sk-...">
+            <button type="button" class="wb-btn" id="btn-byok-toggle-key" aria-pressed="false">显示</button>
+          </div>
+        </div>
+
+        <div class="dlg-field">
+          <span>模型 ID（支持手填或拉取可用模型）</span>
+          <div class="byok-input-row">
+            <input type="text" class="mono" id="byok-model-id" required placeholder="输入或筛选 model_id">
+            <button type="button" class="btn btn-surface btn-sm" id="btn-byok-fetch-models">查询可用模型</button>
+          </div>
+          <div class="byok-fetch-status" id="byok-fetch-status" hidden></div>
+          <div class="byok-candidates" id="byok-model-candidates" role="listbox" aria-label="可用模型列表" hidden></div>
+        </div>
+
+        <div class="dlg-field">
+          <span>思考等级（Thinking / Reasoning Level）</span>
+          <div class="byok-seg-row byok-think-seg" id="byok-thinking-seg" role="group" aria-label="思考等级">
+            <button type="button" data-byok-think="off" aria-pressed="false">关</button>
+            <button type="button" data-byok-think="low" aria-pressed="false">低</button>
+            <button type="button" data-byok-think="medium" aria-pressed="true">中</button>
+            <button type="button" data-byok-think="high" aria-pressed="false">高</button>
+            <button type="button" data-byok-think="max" aria-pressed="false">极高</button>
+          </div>
+          <div class="byok-hint mono" id="byok-thinking-hint">OpenAI / OpenCode 映射 → reasoning_effort</div>
+        </div>
+
         <label class="dlg-field">
           <span>显示名称</span>
-          <input type="text" id="byok-name" required value="OpenAI GPT-4o">
+          <input type="text" id="byok-name" required value="DeepSeek Reasoner">
         </label>
-        <label class="dlg-field">
-          <span>模型 ID</span>
-          <input type="text" id="byok-model-id" required value="gpt-4o">
-        </label>
-        <label class="dlg-field">
-          <span>API Key（Tink + Keystore 硬件加密）</span>
-          <input type="password" id="byok-key" required value="sk-proj-demo-8842">
-        </label>
-        <label style="display:flex;align-items:center;gap:6px;font-size:12px">
-          <input type="checkbox" id="byok-vision" checked> 支持视觉图片理解（Vision / PDF 框选）
+
+        <label class="byok-check-row">
+          <input type="checkbox" id="byok-vision"> 支持视觉图片理解（Vision / PDF 框选）
         </label>
       </div>
       <div class="dlg-actions">

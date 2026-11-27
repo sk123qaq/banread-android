@@ -1177,14 +1177,182 @@
       }
     },
 
+    byokProviders: [
+      {
+        id: 'opencode',
+        name: 'OpenCode Zen',
+        group: 'proxy',
+        groupLabel: '聚合 / 代理',
+        protocol: 'openai_compat',
+        baseUrl: 'https://opencode.ai/zen/v1',
+        modelsEndpoint: '/models',
+        requiresKey: true,
+        badge: '聚合网关',
+        models: [
+          { id: 'claude-sonnet-4-5', name: 'OpenCode · Claude Sonnet 4.5', vision: true, thinking: 'medium', tags: ['Vision', '思考', '200K'] },
+          { id: 'gpt-5.2', name: 'OpenCode · GPT-5.2', vision: true, thinking: 'medium', tags: ['Vision', '思考', '256K'] },
+          { id: 'gemini-2.5-pro', name: 'OpenCode · Gemini 2.5 Pro', vision: true, thinking: 'high', tags: ['Vision', '思考', '1M'] },
+          { id: 'deepseek-reasoner', name: 'OpenCode · DeepSeek Reasoner', vision: false, thinking: 'high', tags: ['思考', '128K'] },
+          { id: 'qwen3-coder', name: 'OpenCode · Qwen3 Coder', vision: false, thinking: 'off', tags: ['256K'] }
+        ]
+      },
+      {
+        id: 'openrouter',
+        name: 'OpenRouter',
+        group: 'proxy',
+        groupLabel: '聚合 / 代理',
+        protocol: 'openai_compat',
+        baseUrl: 'https://openrouter.ai/api/v1',
+        modelsEndpoint: '/models',
+        requiresKey: true,
+        badge: '聚合网关',
+        models: [
+          { id: 'anthropic/claude-sonnet-4.5', name: 'OpenRouter · Claude Sonnet 4.5', vision: true, thinking: 'medium', tags: ['Vision', '思考'] },
+          { id: 'openai/o3-mini', name: 'OpenRouter · o3-mini', vision: false, thinking: 'high', tags: ['思考'] },
+          { id: 'google/gemini-2.5-flash', name: 'OpenRouter · Gemini 2.5 Flash', vision: true, thinking: 'low', tags: ['Vision', '思考'] },
+          { id: 'deepseek/deepseek-r1', name: 'OpenRouter · DeepSeek R1', vision: false, thinking: 'high', tags: ['思考'] }
+        ]
+      },
+      {
+        id: 'siliconflow',
+        name: '硅基流动',
+        group: 'proxy',
+        groupLabel: '聚合 / 代理',
+        protocol: 'openai_compat',
+        baseUrl: 'https://api.siliconflow.cn/v1',
+        modelsEndpoint: '/models',
+        requiresKey: true,
+        badge: '聚合网关',
+        models: [
+          { id: 'Pro/deepseek-ai/DeepSeek-R1', name: '硅基流动 · DeepSeek R1', vision: false, thinking: 'high', tags: ['思考'] },
+          { id: 'Qwen/Qwen2.5-VL-72B-Instruct', name: '硅基流动 · Qwen2.5-VL 72B', vision: true, thinking: 'off', tags: ['Vision'] },
+          { id: 'Qwen/Qwen3-32B', name: '硅基流动 · Qwen3 32B', vision: false, thinking: 'medium', tags: ['思考'] }
+        ]
+      },
+      {
+        id: 'custom',
+        name: '自定义兼容网关',
+        group: 'proxy',
+        groupLabel: '聚合 / 代理',
+        protocol: 'openai_compat',
+        baseUrl: 'https://your-gateway.example/v1',
+        modelsEndpoint: '/models',
+        requiresKey: true,
+        badge: '自建网关',
+        models: [
+          { id: 'custom/claude-sonnet', name: '自定义网关 · Claude Sonnet', vision: true, thinking: 'medium', tags: ['Vision', '思考'] },
+          { id: 'custom/deepseek-r1', name: '自定义网关 · DeepSeek R1', vision: false, thinking: 'high', tags: ['思考'] },
+          { id: 'custom/qwen3-max', name: '自定义网关 · Qwen3 Max', vision: false, thinking: 'medium', tags: ['128K'] }
+        ]
+      },
+      {
+        id: 'deepseek',
+        name: 'DeepSeek',
+        group: 'official',
+        groupLabel: '官方直连',
+        protocol: 'openai_compat',
+        baseUrl: 'https://api.deepseek.com/v1',
+        modelsEndpoint: '/models',
+        requiresKey: true,
+        badge: '官方直连',
+        models: [
+          { id: 'deepseek-reasoner', name: 'DeepSeek Reasoner', vision: false, thinking: 'high', tags: ['思考', '128K'] },
+          { id: 'deepseek-chat', name: 'DeepSeek Chat', vision: false, thinking: 'off', tags: ['128K'] }
+        ]
+      },
+      {
+        id: 'openai',
+        name: 'OpenAI',
+        group: 'official',
+        groupLabel: '官方直连',
+        protocol: 'openai_compat',
+        baseUrl: 'https://api.openai.com/v1',
+        modelsEndpoint: '/models',
+        requiresKey: true,
+        badge: '官方直连',
+        models: [
+          { id: 'gpt-4.1', name: 'OpenAI GPT-4.1', vision: true, thinking: 'off', tags: ['Vision', '1M'] },
+          { id: 'o4-mini', name: 'OpenAI o4-mini', vision: true, thinking: 'high', tags: ['Vision', '思考', '200K'] },
+          { id: 'gpt-4o', name: 'OpenAI GPT-4o', vision: true, thinking: 'off', tags: ['Vision', '128K'] }
+        ]
+      },
+      {
+        id: 'gemini',
+        name: 'Google Gemini',
+        group: 'official',
+        groupLabel: '官方直连',
+        protocol: 'gemini',
+        baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+        modelsEndpoint: '/models',
+        requiresKey: true,
+        badge: '官方直连',
+        models: [
+          { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', vision: true, thinking: 'high', tags: ['Vision', '思考', '1M'] },
+          { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', vision: true, thinking: 'low', tags: ['Vision', '思考', '1M'] },
+          { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash-Lite', vision: true, thinking: 'off', tags: ['Vision', '1M'] }
+        ]
+      },
+      {
+        id: 'anthropic',
+        name: 'Anthropic',
+        group: 'official',
+        groupLabel: '官方直连',
+        protocol: 'anthropic',
+        baseUrl: 'https://api.anthropic.com/v1',
+        modelsEndpoint: '/models',
+        requiresKey: true,
+        badge: '官方直连',
+        models: [
+          { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5', vision: true, thinking: 'medium', tags: ['Vision', '思考', '200K'] },
+          { id: 'claude-3-7-sonnet-20250219', name: 'Claude 3.7 Sonnet', vision: true, thinking: 'medium', tags: ['Vision', '思考', '200K'] },
+          { id: 'claude-3-5-haiku', name: 'Claude 3.5 Haiku', vision: false, thinking: 'off', tags: ['200K'] }
+        ]
+      },
+      {
+        id: 'ollama',
+        name: 'Ollama 本地',
+        group: 'official',
+        groupLabel: '官方直连',
+        protocol: 'ollama',
+        baseUrl: 'http://127.0.0.1:11434',
+        modelsEndpoint: '/api/tags',
+        requiresKey: false,
+        badge: '本地免 Key',
+        models: [
+          { id: 'qwen3:14b', name: 'Ollama 本地 qwen3:14b', vision: false, thinking: 'medium', tags: ['思考', '本地'] },
+          { id: 'deepseek-r1:14b', name: 'Ollama 本地 deepseek-r1:14b', vision: false, thinking: 'high', tags: ['思考', '本地'] },
+          { id: 'gemma3:12b', name: 'Ollama 本地 gemma3:12b', vision: true, thinking: 'off', tags: ['Vision', '本地'] }
+        ]
+      }
+    ],
+
     byokModels: [
+      {
+        id: 'opencode',
+        name: 'OpenCode Zen · Claude Sonnet 4.5',
+        providerId: 'opencode',
+        provider: 'OpenCode Zen',
+        protocol: 'openai_compat',
+        baseUrl: 'https://opencode.ai/zen/v1',
+        modelId: 'claude-sonnet-4-5',
+        thinkingLevel: 'medium',
+        maskedKey: 'sk-oc-••••4f1a',
+        capabilities: ['聚合网关', 'Vision'],
+        isDefaultCompanion: false,
+        isDefaultVision: false,
+        latency: '164ms · 连通正常'
+      },
       {
         id: 'deepseek',
         name: 'DeepSeek Reasoner',
-        provider: 'DeepSeek API',
+        providerId: 'deepseek',
+        provider: 'DeepSeek',
+        protocol: 'openai_compat',
+        baseUrl: 'https://api.deepseek.com/v1',
         modelId: 'deepseek-reasoner',
+        thinkingLevel: 'high',
         maskedKey: 'sk-••••9f2a',
-        capabilities: ['思考流', '长文本'],
+        capabilities: ['长文本'],
         isDefaultCompanion: true,
         isDefaultVision: false,
         latency: '182ms · 连通正常'
@@ -1192,8 +1360,12 @@
       {
         id: 'gemini',
         name: 'Gemini 2.5 Flash',
-        provider: 'Google AI Studio',
+        providerId: 'gemini',
+        provider: 'Google Gemini',
+        protocol: 'gemini',
+        baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
         modelId: 'gemini-2.5-flash',
+        thinkingLevel: 'low',
         maskedKey: 'AIza••••4k8M',
         capabilities: ['Vision', '快速响应'],
         isDefaultCompanion: false,
@@ -1201,23 +1373,16 @@
         latency: '214ms · VLM 正常'
       },
       {
-        id: 'claude',
-        name: 'Claude 3.7 Sonnet',
-        provider: 'Anthropic',
-        modelId: 'claude-3-7-sonnet',
-        maskedKey: 'sk-ant-••••71c0',
-        capabilities: ['精细文本', 'Vision'],
-        isDefaultCompanion: false,
-        isDefaultVision: false,
-        latency: '未测试'
-      },
-      {
         id: 'ollama',
         name: 'Ollama 本地 qwen3:14b',
-        provider: 'Local HTTP (127.0.0.1:11434)',
+        providerId: 'ollama',
+        provider: 'Ollama 本地',
+        protocol: 'ollama',
+        baseUrl: 'http://127.0.0.1:11434',
         modelId: 'qwen3:14b',
-        maskedKey: 'local-no-key',
-        capabilities: ['100% 离线', '隐私本地'],
+        thinkingLevel: 'medium',
+        maskedKey: '本地免 Key',
+        capabilities: ['100% 离线'],
         isDefaultCompanion: false,
         isDefaultVision: false,
         latency: '94ms · 本地就绪'
