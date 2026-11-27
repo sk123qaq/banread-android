@@ -3,7 +3,10 @@ package app.banread.reader
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.os.Looper
 import android.view.KeyEvent
+import android.webkit.ValueCallback
+import android.webkit.WebView
 import androidx.test.core.app.ApplicationProvider
 import app.banread.library.LibraryVaultFactory
 import app.banread.model.AppFailure
@@ -30,11 +33,15 @@ import app.banread.model.TextQuote
 import app.banread.model.TypographyProfile
 import app.banread.model.WorkId
 import app.banread.model.registry.ProfileRegistry
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -47,8 +54,9 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows
 import org.robolectric.annotation.Config
-import java.io.ByteArrayOutputStream
+import java.io.Closeable
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
@@ -98,6 +106,13 @@ class ReaderEngineContractTest {
             allowInMemory = true,
             fontManager = fontManager,
         )
+    }
+
+    @After
+    fun tearDown() {
+        (readerEngine as? Closeable)?.close()
+        fontManager.close()
+        (vault as? Closeable)?.close()
     }
 
     @Test
@@ -234,9 +249,13 @@ class ReaderEngineContractTest {
             allowInMemory = true,
             fontManager = fontManager,
         )
-        reopenedEngine.open(imported.workId, ReadingSurfaceMode.REFLOWABLE)
-        assertEquals(1, freshRenderer.lastRenderedDecorations.size)
-        assertEquals("关键伏笔段落", freshRenderer.lastRenderedDecorations[0].comment)
+        try {
+            reopenedEngine.open(imported.workId, ReadingSurfaceMode.REFLOWABLE)
+            assertEquals(1, freshRenderer.lastRenderedDecorations.size)
+            assertEquals("关键伏笔段落", freshRenderer.lastRenderedDecorations[0].comment)
+        } finally {
+            (reopenedEngine as? Closeable)?.close()
+        }
     }
 
     @Test
@@ -274,6 +293,20 @@ class ReaderEngineContractTest {
             assertTrue(css.contains("text-spacing-trim: auto;"))
             assertTrue(css.contains(""""palt" 1, "halt" 1"""))
             assertTrue(css.contains("p:not(.no-indent)"))
+
+            // Bug 2 regression: NOTES chapter footnotes must NOT be hidden unconditionally
+            assertTrue(
+                "Missing body:not([data-chapter-role=\"notes\"]) footnote rule",
+                css.contains("""body:not([data-chapter-role="notes"]) aside[epub|type~="footnote"]"""),
+            )
+            assertFalse(
+                "CSS must not contain unconditional aside[epub|type~=\"footnote\"] rule",
+                Regex("""(?m)^\s*aside\[epub\|type~="footnote"\]""").containsMatchIn(css),
+            )
+
+            // Bug 3 regression: html, body must not apply horizontal padding (column gap owns margins)
+            assertFalse("CSS must not set padding-left on html, body", css.contains("padding-left:"))
+            assertFalse("CSS must not set padding-right on html, body", css.contains("padding-right:"))
 
             if (theme == ReaderTheme.EINK_HIGH_CONTRAST) {
                 assertTrue(css.contains("transition: none !important;"))
@@ -404,12 +437,299 @@ class ReaderEngineContractTest {
         assertNotNull(pkgStatus)
     }
 
+    @Test
+    fun `regression - Bug 1 single navigation dispatch on goTo with pulse and zero on both adapters`() = runTest {
+        val bcBook = buildMultiChapterBcBook(tempFolder.newFile("B0201.bcbook"), chapterCount = 4)
+        val imported = vault.ingestStudyPack(bcBook.absolutePath).getOrThrow()
+
+        // 1. FakeRendererAdapter counts exactly 1 navigate per goTo
+        readerEngine.open(imported.workId, ReadingSurfaceMode.REFLOWABLE)
+        fakeRenderer.navigateCount = 0
+        val anchor = vault.resolveAnchor(imported.workId, ChapterOrdinal(3), BlockId("B01"))
+        readerEngine.goTo(anchor, highlightPulseMs = 500L)
+        assertEquals(1, fakeRenderer.navigateCount)
+        readerEngine.goTo(anchor, highlightPulseMs = 0L)
+        assertEquals(2, fakeRenderer.navigateCount)
+
+        // 2. FoliateWebAdapter + WebView dispatches BanReadBridge.goToAnchor exactly once per goTo
+        val recordedScripts = mutableListOf<String>()
+        val recordingWebView = object : WebView(context) {
+            override fun evaluateJavascript(script: String, resultCallback: ValueCallback<String>?) {
+                recordedScripts += script
+                super.evaluateJavascript(script, resultCallback)
+            }
+        }
+        val webAdapter = FoliateWebAdapter(context, filesRoot)
+        webAdapter.attachWebView(recordingWebView)
+        val bridgeObj = Shadows.shadowOf(recordingWebView).getJavascriptInterface("BanReadNative")
+        val onReady = bridgeObj.javaClass.getDeclaredMethod("onBridgeReady", String::class.java)
+        onReady.invoke(bridgeObj, "{}")
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+        val webEngine = ReaderEngineFactory.create(
+            context = context,
+            filesRoot = filesRoot,
+            libraryVault = vault,
+            rendererPort = webAdapter,
+            allowInMemory = true,
+            fontManager = fontManager,
+        )
+        try {
+            webEngine.open(imported.workId, ReadingSurfaceMode.REFLOWABLE)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            recordedScripts.clear()
+
+            webEngine.goTo(anchor, highlightPulseMs = 750L)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            val pulseCalls = recordedScripts.filter { it.contains("BanReadBridge.goToAnchor") }
+            assertEquals("Expected single goToAnchor call for pulse > 0", 1, pulseCalls.size)
+            assertTrue(pulseCalls.single().endsWith(", 750);"))
+
+            recordedScripts.clear()
+            webEngine.goTo(anchor, highlightPulseMs = 0L)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            val zeroCalls = recordedScripts.filter { it.contains("BanReadBridge.goToAnchor") }
+            assertEquals("Expected single goToAnchor call for pulse == 0", 1, zeroCalls.size)
+            assertTrue(zeroCalls.single().endsWith(", 0);"))
+
+            // Bug 3 regression: horizontalMarginDp forwarded in updateStyles bridge call
+            recordedScripts.clear()
+            webEngine.applyTypography(
+                TypographyProfile(
+                    fontFamily = "Noto Serif CJK SC",
+                    fontSizeSp = 19f,
+                    lineHeightMultiplier = 1.6f,
+                    paragraphSpacingDp = 12f,
+                    horizontalMarginDp = 24f,
+                ),
+            )
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            val styleCall = recordedScripts.single { it.contains("BanReadBridge.updateStyles") }
+            assertTrue("Expected horizontalMarginPx 24.0 in updateStyles call: $styleCall", styleCall.contains(", 24.0);"))
+        } finally {
+            (webEngine as? Closeable)?.close()
+        }
+    }
+
+    @Test
+    fun `regression - Bugs 3 4 5 reader_bridge JS finite progress, gap margin, BlockOffset overlays, openSeq guard`() = runTest {
+        val bridgeFile = File("src/main/assets/reader/reader_bridge.js")
+        assumeTrue("reader_bridge.js not found from CWD", bridgeFile.isFile)
+
+        // Also check Kotlin-side FoliateWebAdapter.onRelocated accepts finite progress and BlockOffset decorations
+        val webAdapter = FoliateWebAdapter(context, filesRoot)
+        val recordedScripts = mutableListOf<String>()
+        val recordingWebView = object : WebView(context) {
+            override fun evaluateJavascript(script: String, resultCallback: ValueCallback<String>?) {
+                recordedScripts += script
+                super.evaluateJavascript(script, resultCallback)
+            }
+        }
+        webAdapter.attachWebView(recordingWebView)
+        val bridgeObj = Shadows.shadowOf(recordingWebView).getJavascriptInterface("BanReadNative")
+        bridgeObj.javaClass.getDeclaredMethod("onBridgeReady", String::class.java).invoke(bridgeObj, "{}")
+        val relocatedDeferred = async(start = CoroutineStart.UNDISPATCHED) {
+            webAdapter.locationEvents.first()
+        }
+        bridgeObj.javaClass.getDeclaredMethod("onRelocated", String::class.java).invoke(
+            bridgeObj,
+            """{"ordinal":3,"href":"OEBPS/ch_03.xhtml","progression":0.5,"totalProgression":0.4,"cfi":"epubcfi(/6/6!/4/2)","blockId":"B01","textQuote":{"prefix":"","exact":"hello","suffix":""}}""",
+        )
+        val relocated = relocatedDeferred.await() as ReadingAnchor.ReflowCfi
+        assertEquals(ChapterOrdinal(3), relocated.ordinal)
+        assertEquals(0.5f, relocated.progression, 0.001f)
+        assertEquals(0.4f, relocated.totalProgression, 0.001f)
+
+        webAdapter.renderDecorations(
+            listOf(
+                NoteLogEntry(
+                    noteId = "blk-1",
+                    workId = WorkId("B0104"),
+                    deviceId = DeviceId("d1"),
+                    anchor = ReadingAnchor.BlockOffset(ChapterOrdinal(3), BlockId("B01"), 0, 5, "alpha"),
+                    colorToken = "YELLOW",
+                    comment = "c1",
+                    updatedAtEpochMs = 1L,
+                ),
+                NoteLogEntry(
+                    noteId = "blk-2",
+                    workId = WorkId("B0104"),
+                    deviceId = DeviceId("d1"),
+                    anchor = ReadingAnchor.BlockOffset(ChapterOrdinal(3), BlockId("B02"), 0, 5, "beta"),
+                    colorToken = "BLUE",
+                    comment = "c2",
+                    updatedAtEpochMs = 2L,
+                ),
+            ),
+        )
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        val decCall = recordedScripts.last { it.contains("BanReadBridge.renderDecorations") }
+        assertTrue(decCall.contains("B01"))
+        assertTrue(decCall.contains("B02"))
+
+        // Run Node verification directly against reader_bridge.js
+        val nodeTestScript = tempFolder.newFile("verify_bridge.js")
+        nodeTestScript.writeText(
+            """
+            const assert = require('assert');
+            const fs = require('fs');
+            const vm = require('vm');
+
+            const nativeCalls = [];
+            const createdViews = [];
+            let epubInitResolver = null;
+
+            class FakeRenderer {
+                constructor() {
+                    this.attrs = {};
+                    this.scrolled = false;
+                    this.pages = 6;
+                    this.page = 3;
+                    this.start = 0;
+                    this.viewSize = 1000;
+                    this.styles = '';
+                }
+                setAttribute(k, v) { this.attrs[k] = String(v); }
+                removeAttribute(k) { delete this.attrs[k]; }
+                setStyles(s) { this.styles = s; }
+                getContents() { return [{ index: 0, doc: { body: { getAttribute: () => '3' } } }]; }
+                async goTo() {}
+            }
+
+            class FakeView {
+                constructor() {
+                    this.listeners = {};
+                    this.renderer = new FakeRenderer();
+                    this.book = { sections: [{ id: 'OEBPS/ch_03.xhtml' }] };
+                    this.addedAnnotations = [];
+                    this.inited = false;
+                    createdViews.push(this);
+                }
+                addEventListener(type, fn) {
+                    (this.listeners[type] = this.listeners[type] || []).push(fn);
+                }
+                emit(type, detail) {
+                    for (const fn of (this.listeners[type] || [])) fn({ detail, preventDefault() {} });
+                }
+                async open() {}
+                async init() { this.inited = true; }
+                async goTo() {}
+                async addAnnotation(item) { this.addedAnnotations.push(item); }
+                async deleteAnnotation() {}
+                close() {}
+                remove() {}
+            }
+
+            const sandbox = {
+                console,
+                Map,
+                Promise,
+                Set,
+                RegExp,
+                JSON,
+                Math,
+                Number,
+                String,
+                Array,
+                Object,
+                TypeError,
+                setTimeout,
+                clearTimeout,
+                fetch: async () => ({ ok: true, text: async () => '', blob: async () => ({}) }),
+                document: {
+                    getElementById: () => ({ appendChild() {} }),
+                    createElement: () => new FakeView(),
+                },
+                BanReadNative: {
+                    onBridgeReady: (p) => nativeCalls.push(['onBridgeReady', JSON.parse(p)]),
+                    onRelocated: (p) => nativeCalls.push(['onRelocated', JSON.parse(p)]),
+                    onError: (p) => nativeCalls.push(['onError', p]),
+                },
+                Foliate: {
+                    Overlayer: { highlight: () => {}, underline: () => {}, squiggly: () => {} },
+                    EPUB: class {
+                        constructor(loader) { this.loader = loader; }
+                        init() {
+                            assert.ok(this.loader.getSize('x') > 0, 'getSize must be > 0');
+                            return new Promise((res) => { epubInitResolver = res; });
+                        }
+                    },
+                },
+            };
+            sandbox.globalThis = sandbox;
+            vm.runInNewContext(fs.readFileSync(${org.json.JSONObject.quote(bridgeFile.absolutePath)}, 'utf8'), sandbox);
+
+            (async () => {
+                const bridge = sandbox.BanReadBridge;
+
+                // Bug 5 concurrency guard: start openBook #1 (hangs in EPUB.init), then openBook #2
+                const p1 = bridge.openBook('https://appassets.androidplatform.net/books/B1/');
+                const firstView = createdViews[0];
+                const firstResolve = epubInitResolver;
+
+                const p2 = bridge.openBook('https://appassets.androidplatform.net/books/B2/');
+                const secondView = createdViews[1];
+                const secondResolve = epubInitResolver;
+
+                secondResolve({ sections: [{ id: 'OEBPS/ch_03.xhtml' }] });
+                await p2;
+                firstResolve({ sections: [{ id: 'OEBPS/ch_01.xhtml' }] });
+                await p1;
+
+                assert.strictEqual(secondView.inited, true, 'newer openBook should initialize');
+                assert.strictEqual(firstView.inited, false, 'stale openBook must not initialize');
+
+                // Bug 3: updateStyles forwards horizontalMarginPx -> gap = (marginPx * 2) + 'px'
+                bridge.updateStyles('body {}', 'SLIDE', 24);
+                assert.strictEqual(secondView.renderer.attrs.gap, '48px');
+
+                // Bug 4: NaN fraction must produce finite 0, valid fraction & pages must produce finite unit numbers
+                secondView.renderer.pages = 0;
+                secondView.emit('relocate', { fraction: NaN, section: { current: 0 } });
+                secondView.renderer.pages = 6;
+                secondView.renderer.page = 3;
+                secondView.emit('relocate', { fraction: 0.4, section: { current: 0 } });
+
+                const relocated = nativeCalls.filter(c => c[0] === 'onRelocated').map(c => c[1]);
+                assert.strictEqual(relocated.length, 2);
+                assert.strictEqual(relocated[0].progression, 0);
+                assert.strictEqual(relocated[0].totalProgression, 0);
+                assert.strictEqual(relocated[1].progression, 0.5);
+                assert.strictEqual(relocated[1].totalProgression, 0.4);
+
+                // Bug 5: BlockOffset notes without cfi resolve to #blockId and do not collide in same chapter
+                await bridge.renderDecorations([
+                    { noteId: 'n1', anchor: { ordinal: 3, blockId: 'B01' }, colorToken: 'YELLOW', comment: 'a' },
+                    { noteId: 'n2', anchor: { ordinal: 3, blockId: 'B02' }, colorToken: 'BLUE', comment: 'b' }
+                ]);
+                assert.deepStrictEqual(
+                    secondView.addedAnnotations.map(a => a.value),
+                    ['OEBPS/ch_03.xhtml#B01', 'OEBPS/ch_03.xhtml#B02']
+                );
+
+                // create-overlay applies annotations in a microtask
+                secondView.addedAnnotations = [];
+                secondView.emit('create-overlay', { index: 0 });
+                assert.strictEqual(secondView.addedAnnotations.length, 0);
+                await Promise.resolve();
+                assert.strictEqual(secondView.addedAnnotations.length, 2);
+            })().catch(err => { console.error(err); process.exit(1); });
+            """.trimIndent(),
+        )
+        val proc = ProcessBuilder("node", nodeTestScript.absolutePath)
+            .redirectErrorStream(true)
+            .start()
+        val output = proc.inputStream.bufferedReader().readText()
+        assertEquals("Node reader_bridge regression failed: $output", 0, proc.waitFor())
+    }
+
     private class FakeRendererAdapter : BookRendererPort {
         private val _locationEvents = MutableSharedFlow<ReadingAnchor>(extraBufferCapacity = 32)
         override val locationEvents: Flow<ReadingAnchor> = _locationEvents.asSharedFlow()
 
         var loadedAssetRoot: String? = null
         var lastNavigatedAnchor: ReadingAnchor? = null
+        var navigateCount: Int = 0
         var lastCssPayload: String = ""
         var lastRenderedDecorations: List<NoteLogEntry> = emptyList()
 
@@ -419,6 +739,7 @@ class ReaderEngineContractTest {
         }
 
         override suspend fun navigate(anchor: ReadingAnchor) {
+            navigateCount++
             lastNavigatedAnchor = anchor
         }
 

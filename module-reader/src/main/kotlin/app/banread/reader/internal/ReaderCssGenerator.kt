@@ -17,7 +17,6 @@ internal object ReaderCssGenerator {
         val clampedFontSizeSp = typography.fontSizeSp.coerceIn(12f, 36f)
         val clampedLineHeight = typography.lineHeightMultiplier.coerceIn(1.2f, 2.4f)
         val clampedParaSpacingDp = typography.paragraphSpacingDp.coerceAtLeast(0f)
-        val clampedMarginDp = typography.horizontalMarginDp.coerceAtLeast(0f)
 
         val palette = ThemePalette.colorsFor(theme)
         val textAlignCss = when (alignment) {
@@ -56,10 +55,11 @@ internal object ReaderCssGenerator {
                 font-family: $fontFamilyCss !important;
                 font-size: ${clampedFontSizeSp}px !important;
                 line-height: $clampedLineHeight !important;
-                padding-left: ${clampedMarginDp}px !important;
-                padding-right: ${clampedMarginDp}px !important;
                 color-scheme: ${if (palette.isDark) "dark" else "light"};
                 ${if (palette.isEink) "font-weight: 500 !important;" else ""}
+            }
+            body {
+                margin: 0;
             }
             a:link, a:visited {
                 color: ${palette.linkHex} !important;
@@ -108,10 +108,10 @@ internal object ReaderCssGenerator {
 
         sb.appendLine(
             """
-            aside[epub|type~="endnote"],
-            aside[epub|type~="footnote"],
-            aside[epub|type~="note"],
-            aside[epub|type~="rearnote"] {
+            body:not([data-chapter-role="notes"]) aside[epub|type~="endnote"],
+            body:not([data-chapter-role="notes"]) aside[epub|type~="footnote"],
+            body:not([data-chapter-role="notes"]) aside[epub|type~="note"],
+            body:not([data-chapter-role="notes"]) aside[epub|type~="rearnote"] {
                 display: none !important;
             }
             """.trimIndent(),

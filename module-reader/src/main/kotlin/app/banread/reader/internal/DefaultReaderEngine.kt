@@ -26,6 +26,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -34,6 +35,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import java.io.Closeable
 import java.io.File
 import java.util.UUID
 
@@ -45,7 +47,8 @@ internal class DefaultReaderEngine(
     private val deviceId: DeviceId,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     collectorDispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
-) : ReaderEngine {
+    private val ownsDatabase: Boolean = false,
+) : ReaderEngine, Closeable {
 
     private val dao = db.readerDao()
     private val mutex = Mutex()
@@ -234,9 +237,10 @@ internal class DefaultReaderEngine(
     override suspend fun goTo(anchor: ReadingAnchor, highlightPulseMs: Long) {
         val activeWorkId = _activeState.value.workId ?: return
         applyCursorObservation(activeWorkId, anchor)
-        rendererPort.navigate(anchor)
         if (highlightPulseMs > 0L && rendererPort is app.banread.reader.FoliateWebAdapter) {
             rendererPort.navigateWithPulse(anchor, highlightPulseMs)
+        } else {
+            rendererPort.navigate(anchor)
         }
     }
 
@@ -449,8 +453,17 @@ internal class DefaultReaderEngine(
         )
         if (rendererPort is app.banread.reader.FoliateWebAdapter) {
             rendererPort.setThemeContext(currentTheme)
+            rendererPort.setHorizontalMarginDp(currentTypography.horizontalMarginDp)
         }
         rendererPort.updateStyles(css)
+    }
+
+    override fun close() {
+        locationCollectorJob?.cancel()
+        engineScope.cancel()
+        if (ownsDatabase) {
+            db.close()
+        }
     }
 
     private suspend fun adaptAnchorForMode(

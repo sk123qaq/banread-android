@@ -2,6 +2,8 @@ package app.banread.reader
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -38,6 +40,7 @@ class FoliateWebAdapter(
 ) : BookRendererPort {
 
     private val appContext = context.applicationContext ?: context
+    private val mainHandler = Handler(Looper.getMainLooper())
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
@@ -68,6 +71,9 @@ class FoliateWebAdapter(
 
     @Volatile
     private var lastCssPayload = ""
+
+    @Volatile
+    private var horizontalMarginDp = 16f
 
     private val assetLoader: WebViewAssetLoader = WebViewAssetLoader.Builder()
         .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(appContext))
@@ -125,13 +131,17 @@ class FoliateWebAdapter(
         val effective = ThemePalette.effectivePaginationMode(activeTheme, mode)
         if (lastCssPayload.isNotEmpty()) {
             evaluateBridge(
-                "window.BanReadBridge && window.BanReadBridge.updateStyles(${JSONObject.quote(lastCssPayload)}, ${JSONObject.quote(effective.name)});",
+                "window.BanReadBridge && window.BanReadBridge.updateStyles(${JSONObject.quote(lastCssPayload)}, ${JSONObject.quote(effective.name)}, $horizontalMarginDp);",
             )
         }
     }
 
     internal fun setThemeContext(theme: ReaderTheme) {
         activeTheme = theme
+    }
+
+    internal fun setHorizontalMarginDp(marginDp: Float) {
+        horizontalMarginDp = marginDp.coerceAtLeast(0f)
     }
 
     fun prevPage() {
@@ -166,7 +176,7 @@ class FoliateWebAdapter(
         lastCssPayload = cssPayload
         val effectiveMode = ThemePalette.effectivePaginationMode(activeTheme, requestedPaginationMode)
         evaluateBridge(
-            "window.BanReadBridge && window.BanReadBridge.updateStyles(${JSONObject.quote(cssPayload)}, ${JSONObject.quote(effectiveMode.name)});",
+            "window.BanReadBridge && window.BanReadBridge.updateStyles(${JSONObject.quote(cssPayload)}, ${JSONObject.quote(effectiveMode.name)}, $horizontalMarginDp);",
         )
     }
 
@@ -184,14 +194,22 @@ class FoliateWebAdapter(
             pendingScripts.add(script)
             return
         }
-        webView.post { webView.evaluateJavascript(script, null) }
+        runOnMain { webView.evaluateJavascript(script, null) }
     }
 
     private fun flushPendingScripts() {
         val webView = attachedWebView ?: return
         while (true) {
             val next = pendingScripts.poll() ?: break
-            webView.post { webView.evaluateJavascript(next, null) }
+            runOnMain { webView.evaluateJavascript(next, null) }
+        }
+    }
+
+    private fun runOnMain(block: () -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            block()
+        } else {
+            mainHandler.post(block)
         }
     }
 

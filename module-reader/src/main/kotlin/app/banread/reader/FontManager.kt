@@ -10,6 +10,7 @@ import app.banread.reader.internal.SfntFontParser
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.Closeable
 import java.io.File
 import java.util.UUID
 
@@ -22,7 +23,8 @@ class FontManager internal constructor(
     private val filesRoot: File,
     internal val db: ReaderDatabase,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-) {
+    private val ownsDatabase: Boolean = false,
+) : Closeable {
     private val dao = db.readerDao()
 
     suspend fun importFont(sourceUriOrFile: String): Result<RegisteredFont> = withContext(ioDispatcher) {
@@ -102,5 +104,11 @@ class FontManager internal constructor(
             cssFontFamily = displayName,
             assetUrl = "https://appassets.androidplatform.net/user-fonts/$fileName",
         )
+    }
+
+    override fun close() {
+        if (ownsDatabase) {
+            db.close()
+        }
     }
 }

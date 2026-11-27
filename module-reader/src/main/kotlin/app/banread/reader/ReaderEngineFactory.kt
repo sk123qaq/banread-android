@@ -29,6 +29,7 @@ object ReaderEngineFactory {
             filesRoot = filesRoot,
             db = db,
             ioDispatcher = ioDispatcher,
+            ownsDatabase = allowInMemory,
         )
     }
 
@@ -53,6 +54,7 @@ object ReaderEngineFactory {
             deviceId = deviceId,
             ioDispatcher = ioDispatcher,
             collectorDispatcher = collectorDispatcher,
+            ownsDatabase = allowInMemory && fontManager == null,
         )
     }
 }

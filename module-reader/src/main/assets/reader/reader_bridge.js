@@ -82,11 +82,20 @@
         currentBookUrl: null,
         currentCss: '',
         paginationMode: 'SLIDE',
+        horizontalMarginPx: 16,
         annotations: [],
-        annotationsByCfi: new Map(),
+        annotationsById: new Map(),
+        openSeq: 0,
         activePulseTimer: null,
         selectionTimer: null
     };
+
+    function finiteUnit(v) {
+        if (typeof v !== 'number' || !Number.isFinite(v)) return 0;
+        if (v < 0) return 0;
+        if (v > 1) return 1;
+        return v;
+    }
 
     function notifyNative(method, payload) {
         try {
@@ -121,7 +130,7 @@
                 });
             },
             getSize: function () {
-                return 0;
+                return 1024;
             }
         };
     }
@@ -200,10 +209,22 @@
         return { color: resolvedColor, underlineStyle: underlineStyle };
     }
 
+    function applyGapMargin() {
+        var renderer = state.view && state.view.renderer;
+        if (!renderer) return;
+        var marginPx = (typeof state.horizontalMarginPx === 'number'
+            && Number.isFinite(state.horizontalMarginPx)
+            && state.horizontalMarginPx >= 0)
+            ? state.horizontalMarginPx
+            : 16;
+        renderer.setAttribute('gap', (marginPx * 2) + 'px');
+    }
+
     function applyPaginationMode(mode) {
         state.paginationMode = mode || 'SLIDE';
         var renderer = state.view && state.view.renderer;
         if (!renderer) return;
+        applyGapMargin();
         if (state.paginationMode === 'VERTICAL_SCROLL') {
             renderer.setAttribute('flow', 'scrolled');
             renderer.removeAttribute('animated');
@@ -290,6 +311,8 @@
     }
 
     async function openBook(bookUrl, initialAnchorJson) {
+        var seq = ++state.openSeq;
+        var view = null;
         try {
             var root = document.getElementById('reader-root');
             if (state.view) {
@@ -299,11 +322,12 @@
             }
             state.currentBookUrl = bookUrl;
 
-            var view = document.createElement('foliate-view');
+            view = document.createElement('foliate-view');
             root.appendChild(view);
             state.view = view;
 
             view.addEventListener('load', function (e) {
+                if (seq !== state.openSeq) return;
                 var detail = e.detail || {};
                 applyPaginationMode(state.paginationMode);
                 if (state.currentCss && view.renderer && view.renderer.setStyles) {
@@ -313,6 +337,7 @@
             });
 
             view.addEventListener('relocate', function (e) {
+                if (seq !== state.openSeq) return;
                 var detail = e.detail || {};
                 var current = resolveCurrentDoc();
                 var doc = current ? current.doc : null;
@@ -322,11 +347,24 @@
                 var href = section ? section.id : ('OEBPS/ch_' + String(ordinal).padStart(2, '0') + '.xhtml');
                 var blockId = detail.range ? findBlockIdForNode(detail.range.startContainer) : null;
                 var textQuote = extractTextQuoteFromRange(detail.range);
+                var totalProgression = finiteUnit(detail.fraction);
+                var renderer = view.renderer;
+                var progression = 0;
+                if (renderer) {
+                    if (renderer.scrolled) {
+                        var viewSize = renderer.viewSize;
+                        progression = (typeof viewSize === 'number' && Number.isFinite(viewSize) && viewSize > 0)
+                            ? finiteUnit(renderer.start / viewSize)
+                            : 0;
+                    } else if (typeof renderer.pages === 'number' && renderer.pages > 2) {
+                        progression = finiteUnit((renderer.page - 1) / Math.max(1, renderer.pages - 2));
+                    }
+                }
                 notifyNative('onRelocated', {
                     ordinal: ordinal,
                     href: href,
-                    progression: typeof detail.size === 'number' && detail.size > 0 ? Math.min(1, Math.max(0, detail.fraction || 0)) : (detail.fraction || 0),
-                    totalProgression: typeof detail.fraction === 'number' ? detail.fraction : 0,
+                    progression: progression,
+                    totalProgression: totalProgression,
                     cfi: detail.cfi || '',
                     blockId: blockId,
                     textQuote: textQuote
@@ -334,6 +372,7 @@
             });
 
             view.addEventListener('link', function (e) {
+                if (seq !== state.openSeq) return;
                 var detail = e.detail || {};
                 if (isFootnoteElement(detail.a, detail.href)) {
                     e.preventDefault();
@@ -350,7 +389,10 @@
 
             view.addEventListener('create-overlay', function (e) {
                 var detail = e.detail || {};
-                applyAllAnnotationsToCurrentOverlay(detail.index);
+                Promise.resolve().then(function () {
+                    if (seq !== state.openSeq) return;
+                    applyAllAnnotationsToCurrentOverlay(detail.index);
+                });
             });
 
             view.addEventListener('draw-annotation', function (e) {
@@ -373,9 +415,23 @@
             if (typeof bookUrl === 'string' && bookUrl.endsWith('/')) {
                 var loader = makeAssetDirectoryLoader(bookUrl);
                 bookOrUrl = await new globalThis.Foliate.EPUB(loader).init();
+                if (seq !== state.openSeq) {
+                    if (view && state.view !== view) {
+                        try { view.close(); } catch (_) {}
+                        try { view.remove(); } catch (_) {}
+                    }
+                    return;
+                }
             }
 
             await view.open(bookOrUrl);
+            if (seq !== state.openSeq) {
+                if (view && state.view !== view) {
+                    try { view.close(); } catch (_) {}
+                    try { view.remove(); } catch (_) {}
+                }
+                return;
+            }
             if (view.book && view.book.transformTarget) {
                 view.book.transformTarget.addEventListener('data', function (ev) {
                     ev.detail.data = Promise.resolve(ev.detail.data).catch(function () { return ''; });
@@ -392,8 +448,11 @@
             } else {
                 await view.init({ showTextStart: false });
             }
+            if (seq !== state.openSeq) return;
         } catch (err) {
-            notifyNative('onError', String(err && err.message ? err.message : err));
+            if (seq === state.openSeq) {
+                notifyNative('onError', String(err && err.message ? err.message : err));
+            }
         }
     }
 
@@ -438,8 +497,12 @@
         }
     }
 
-    function updateStyles(cssPayload, paginationMode) {
+    function updateStyles(cssPayload, paginationMode, horizontalMarginPx) {
         state.currentCss = cssPayload || '';
+        if (typeof horizontalMarginPx === 'number' && Number.isFinite(horizontalMarginPx) && horizontalMarginPx >= 0) {
+            state.horizontalMarginPx = horizontalMarginPx;
+        }
+        applyGapMargin();
         if (paginationMode) applyPaginationMode(paginationMode);
         if (state.view && state.view.renderer && state.view.renderer.setStyles) {
             state.view.renderer.setStyles(state.currentCss);
@@ -454,12 +517,14 @@
             }
         }
         state.annotations = [];
-        state.annotationsByCfi.clear();
+        state.annotationsById.clear();
         for (var j = 0; j < list.length; j++) {
             var entry = list[j];
             if (!entry || entry.deletedAtEpochMs != null) continue;
             var anchor = entry.anchor || {};
-            var value = anchor.cfi || anchor.href || '';
+            var value = anchor.cfi || (anchor.blockId
+                ? ((anchor.href || ('OEBPS/ch_' + String(anchor.ordinal || 1).padStart(2, '0') + '.xhtml')) + '#' + anchor.blockId)
+                : '');
             if (!value) continue;
             var item = {
                 value: value,
@@ -468,7 +533,7 @@
                 comment: entry.comment || ''
             };
             state.annotations.push(item);
-            state.annotationsByCfi.set(value, item);
+            state.annotationsById.set(entry.noteId || (value + '#' + j), item);
             if (state.view) {
                 try { await state.view.addAnnotation(item); } catch (_) {}
             }
