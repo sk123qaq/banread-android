@@ -26,10 +26,14 @@ import app.banread.model.SpoilerGate
 import app.banread.model.TextQuote
 import app.banread.model.WorkId
 import app.banread.model.WorkOutline
+import app.banread.model.WorkSummary
+import app.banread.model.classifyCoverDisplayMode
 import app.banread.model.registry.ProfileRegistry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
@@ -47,6 +51,7 @@ internal class RoomLibraryVault private constructor(
     private val filesRoot: File,
     private val profileRegistry: ProfileRegistry,
     private val db: LibraryDatabase,
+    private val pdfCoverRenderer: PdfCoverRenderer = AndroidPdfCoverRenderer(),
 ) : LibraryVault, Closeable {
 
     private val dao = db.libraryDao()
@@ -162,6 +167,12 @@ internal class RoomLibraryVault private constructor(
             val effectiveSubKind = if (preserveOverride) existing!!.literatureSubKind else manifest.subKind.ifBlank { null }
             val effectiveProfileSource = if (preserveOverride) "USER_OVERRIDE" else "DESKTOP"
 
+            val (validatedCoverRel, coverWidth, coverHeight) = extractAndPersistBcBookCover(
+                workIdRaw = manifest.uid.raw,
+                unpackDir = unpackDir,
+                manifestCoverRel = manifest.coverRel,
+            )
+
             val modes = setOf(ReadingSurfaceMode.REFLOWABLE)
             val workEntity = WorkEntity(
                 workId = manifest.uid.raw,
@@ -173,7 +184,9 @@ internal class RoomLibraryVault private constructor(
                 literatureSubKind = effectiveSubKind,
                 profileSource = effectiveProfileSource,
                 clothColor = manifest.clothColor,
-                coverRel = manifest.coverRel,
+                coverRel = validatedCoverRel,
+                coverWidth = coverWidth,
+                coverHeight = coverHeight,
                 originalFilePath = storedPackFile.absolutePath,
                 compiledRootPath = compiledRoot.absolutePath,
                 format = "BCBOOK",
@@ -196,14 +209,12 @@ internal class RoomLibraryVault private constructor(
             )
 
             if (supersededWorkId != null) {
-                File(filesRoot, "compiled/$supersededWorkId").deleteRecursively()
-                val oldOriginal = existing?.originalFilePath?.takeIf { it.isNotBlank() }?.let(::File)
-                if (oldOriginal != null &&
-                    oldOriginal.exists() &&
-                    oldOriginal.canonicalPath != storedPackFile.canonicalPath
-                ) {
-                    oldOriginal.delete()
-                }
+                deleteWorkFilesOnDisk(
+                    workIdRaw = supersededWorkId,
+                    originalFilePath = existing?.originalFilePath?.takeIf {
+                        runCatching { File(it).canonicalPath != storedPackFile.canonicalPath }.getOrDefault(false)
+                    },
+                )
             }
 
             Result.success(workEntity.toImportedWork())
@@ -314,6 +325,14 @@ internal class RoomLibraryVault private constructor(
                         ),
                     )
 
+                    val epubCover = parsed.cover?.let { cover ->
+                        persistCoverBytes(
+                            workIdRaw = workId.raw,
+                            relPath = "cover.${cover.formatExt}",
+                            bytes = cover.bytes,
+                        )?.let { (rel, _) -> Triple(rel, cover.width, cover.height) }
+                    }
+
                     val modes = setOf(ReadingSurfaceMode.REFLOWABLE)
                     val workEntity = WorkEntity(
                         workId = workId.raw,
@@ -325,7 +344,9 @@ internal class RoomLibraryVault private constructor(
                         literatureSubKind = resolvedProfile.subKind.ifBlank { null },
                         profileSource = "AUTO",
                         clothColor = clothColor,
-                        coverRel = null,
+                        coverRel = epubCover?.first,
+                        coverWidth = epubCover?.second,
+                        coverHeight = epubCover?.third,
                         originalFilePath = destFile.absolutePath,
                         compiledRootPath = compiledRoot.absolutePath,
                         format = "EPUB",
@@ -424,6 +445,8 @@ internal class RoomLibraryVault private constructor(
                     val clothColor = profileRegistry.clothColor(workId.raw)
                     val modes = setOf(ReadingSurfaceMode.PDF_FIXED)
 
+                    val pdfCover = extractAndPersistPdfCover(workIdRaw = workId.raw, pdfFile = destFile)
+
                     val workEntity = WorkEntity(
                         workId = workId.raw,
                         bookSourceSha256 = sourceHash.sha256Hex,
@@ -434,7 +457,9 @@ internal class RoomLibraryVault private constructor(
                         literatureSubKind = resolvedProfile.subKind.ifBlank { null },
                         profileSource = "AUTO",
                         clothColor = clothColor,
-                        coverRel = null,
+                        coverRel = pdfCover?.first,
+                        coverWidth = pdfCover?.second,
+                        coverHeight = pdfCover?.third,
                         originalFilePath = destFile.absolutePath,
                         compiledRootPath = "",
                         format = "PDF",
@@ -734,6 +759,111 @@ internal class RoomLibraryVault private constructor(
         )
     }
 
+    override suspend fun listWorks(): List<WorkSummary> = withContext(Dispatchers.IO) {
+        dao.listAllWorks().map { it.toWorkSummary() }
+    }
+
+    override fun observeWorks(): Flow<List<WorkSummary>> =
+        dao.observeAllWorks()
+            .map { list -> list.map { it.toWorkSummary() } }
+            .flowOn(Dispatchers.IO)
+
+    override suspend fun getWorkSummary(workId: WorkId): WorkSummary? = withContext(Dispatchers.IO) {
+        dao.findWorkById(workId.raw)?.toWorkSummary()
+    }
+
+    override suspend fun resolveCoverFile(workId: WorkId): File? = withContext(Dispatchers.IO) {
+        val work = dao.findWorkById(workId.raw) ?: return@withContext null
+        resolveVerifiedCoverFile(work.workId, work.coverRel)
+    }
+
+    override suspend fun deleteWork(workId: WorkId): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val existing = dao.findWorkById(workId.raw)
+            dao.deleteWorkTree(workId.raw)
+            deleteWorkFilesOnDisk(workId.raw, existing?.originalFilePath)
+        }
+    }
+
+    private fun workSandboxDir(workIdRaw: String): File = File(filesRoot, "works/$workIdRaw")
+
+    private fun persistCoverBytes(workIdRaw: String, relPath: String, bytes: ByteArray): Pair<String, File>? {
+        val safeRel = LocalBookInspector.resolveSafeCoverZipPath("", relPath) ?: return null
+        val sandbox = workSandboxDir(workIdRaw).apply { mkdirs() }
+        val target = File(sandbox, safeRel)
+        val sandboxCanonical = sandbox.canonicalFile.toPath()
+        val targetCanonical = target.canonicalFile.toPath()
+        if (!targetCanonical.startsWith(sandboxCanonical) || targetCanonical == sandboxCanonical) {
+            return null
+        }
+        target.parentFile?.mkdirs()
+        target.writeBytes(bytes)
+        return safeRel to target
+    }
+
+    private fun extractAndPersistBcBookCover(
+        workIdRaw: String,
+        unpackDir: File,
+        manifestCoverRel: String?,
+    ): Triple<String?, Int?, Int?> {
+        if (manifestCoverRel.isNullOrBlank()) return Triple(null, null, null)
+        val safeRel = LocalBookInspector.resolveSafeCoverZipPath("", manifestCoverRel)
+            ?: return Triple(null, null, null)
+        val srcFile = File(unpackDir, safeRel)
+        val unpackCanonical = unpackDir.canonicalFile.toPath()
+        val srcCanonical = runCatching { srcFile.canonicalFile.toPath() }.getOrNull()
+            ?: return Triple(null, null, null)
+        if (!srcCanonical.startsWith(unpackCanonical) || !srcFile.isFile) {
+            return Triple(null, null, null)
+        }
+        if (srcFile.length() <= 0L || srcFile.length() > ImageHeaderInspector.MAX_COVER_BYTES) {
+            return Triple(null, null, null)
+        }
+        val bytes = runCatching { srcFile.readBytes() }.getOrNull() ?: return Triple(null, null, null)
+        val inspected = ImageHeaderInspector.inspect(bytes) ?: return Triple(null, null, null)
+        val persisted = persistCoverBytes(workIdRaw, safeRel, bytes) ?: return Triple(null, null, null)
+        return Triple(persisted.first, inspected.width, inspected.height)
+    }
+
+    private suspend fun extractAndPersistPdfCover(
+        workIdRaw: String,
+        pdfFile: File,
+    ): Triple<String, Int, Int>? {
+        val pngBytes = runCatching {
+            pdfCoverRenderer.renderPageZeroPng(pdfFile, MAX_PDF_COVER_WIDTH_PX)
+        }.getOrNull() ?: return null
+        if (pngBytes.isEmpty() || pngBytes.size.toLong() > ImageHeaderInspector.MAX_COVER_BYTES) return null
+        val inspected = ImageHeaderInspector.inspect(pngBytes) ?: return null
+        val persisted = persistCoverBytes(workIdRaw, "cover.${inspected.format}", pngBytes) ?: return null
+        return Triple(persisted.first, inspected.width, inspected.height)
+    }
+
+    private fun resolveVerifiedCoverFile(workIdRaw: String, coverRel: String?): File? {
+        if (coverRel.isNullOrBlank()) return null
+        val safeRel = LocalBookInspector.resolveSafeCoverZipPath("", coverRel) ?: return null
+        val sandbox = workSandboxDir(workIdRaw)
+        if (!sandbox.isDirectory) return null
+        val candidate = File(sandbox, safeRel)
+        val sandboxCanonical = runCatching { sandbox.canonicalFile.toPath() }.getOrNull() ?: return null
+        val candCanonical = runCatching { candidate.canonicalFile.toPath() }.getOrNull() ?: return null
+        if (!candCanonical.startsWith(sandboxCanonical) || !candidate.isFile) return null
+        return candidate
+    }
+
+    private fun deleteWorkFilesOnDisk(workIdRaw: String, originalFilePath: String?) {
+        workSandboxDir(workIdRaw).deleteRecursively()
+        File(filesRoot, "compiled/$workIdRaw").deleteRecursively()
+        File(filesRoot, "study_packs/$workIdRaw").deleteRecursively()
+        val orig = originalFilePath?.takeIf { it.isNotBlank() }?.let(::File)
+        if (orig != null && orig.exists()) {
+            val rootCanonical = runCatching { filesRoot.canonicalFile.toPath() }.getOrNull()
+            val origCanonical = runCatching { orig.canonicalFile.toPath() }.getOrNull()
+            if (rootCanonical != null && origCanonical != null && origCanonical.startsWith(rootCanonical)) {
+                orig.delete()
+            }
+        }
+    }
+
     private fun copySourceToFile(uriOrPath: String, dest: File) {
         dest.parentFile?.mkdirs()
         if (uriOrPath.startsWith("content://")) {
@@ -898,6 +1028,35 @@ internal class RoomLibraryVault private constructor(
             clothColor = clothColor,
             supportedModes = modes,
             isScannedPdf = isScannedPdf,
+            coverRel = coverRel,
+            coverWidth = coverWidth,
+            coverHeight = coverHeight,
+            coverDisplayMode = classifyCoverDisplayMode(coverRel, coverWidth, coverHeight),
+        )
+    }
+
+    private fun WorkEntity.toWorkSummary(): WorkSummary {
+        val modes = json.decodeFromString(ListSerializer(ReadingSurfaceMode.serializer()), supportedModesJson).toSet()
+        val verifiedFile = resolveVerifiedCoverFile(workId, coverRel)
+        val effectiveRel = if (verifiedFile != null) coverRel else null
+        val effectiveWidth = if (verifiedFile != null) coverWidth else null
+        val effectiveHeight = if (verifiedFile != null) coverHeight else null
+        return WorkSummary(
+            workId = WorkId(workId),
+            title = title,
+            author = author,
+            readProfileId = ReadProfileId(readProfileId),
+            literatureSubKind = literatureSubKind,
+            clothColor = clothColor,
+            format = format,
+            supportedModes = modes,
+            isScannedPdf = isScannedPdf,
+            coverRel = effectiveRel,
+            coverWidth = effectiveWidth,
+            coverHeight = effectiveHeight,
+            coverDisplayMode = classifyCoverDisplayMode(effectiveRel, effectiveWidth, effectiveHeight),
+            coverFilePath = verifiedFile?.absolutePath,
+            addedAtMs = addedAtMs,
         )
     }
 
@@ -920,11 +1079,14 @@ internal class RoomLibraryVault private constructor(
     }
 
     companion object {
+        private const val MAX_PDF_COVER_WIDTH_PX = 480
+
         fun create(
             context: Context,
             filesRoot: File,
             profileRegistry: ProfileRegistry,
             allowInMemory: Boolean,
+            pdfCoverRenderer: PdfCoverRenderer = AndroidPdfCoverRenderer(),
         ): RoomLibraryVault {
             filesRoot.mkdirs()
             val db = LibraryDatabase.build(context, allowInMemory = allowInMemory)
@@ -933,6 +1095,7 @@ internal class RoomLibraryVault private constructor(
                 filesRoot = filesRoot,
                 profileRegistry = profileRegistry,
                 db = db,
+                pdfCoverRenderer = pdfCoverRenderer,
             )
         }
     }

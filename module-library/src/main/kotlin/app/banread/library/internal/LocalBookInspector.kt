@@ -109,6 +109,13 @@ internal object LocalBookInspector {
 
     // ==================== EPUB ====================
 
+    data class ExtractedEpubCover(
+        val formatExt: String,
+        val bytes: ByteArray,
+        val width: Int,
+        val height: Int,
+    )
+
     data class ParsedEpubBook(
         val title: String,
         val author: String,
@@ -116,6 +123,7 @@ internal object LocalBookInspector {
         val chapters: List<RoleAndSplit.RawChapterCandidate>,
         val blockIdToHtmlIds: Map<Int, Map<String, Set<String>>>, // pre-merge candidate index -> blockId -> htmlIds
         val images: Map<String, ByteArray>,
+        val cover: ExtractedEpubCover? = null,
     )
 
     fun parseEpub(epubFile: File): ParsedEpubBook {
@@ -222,6 +230,13 @@ internal object LocalBookInspector {
                 throw AppFailureException(AppFailure.UnsupportedDrmOrFormat("EPUB produced no readable chapters"))
             }
 
+            val cover = extractEpubCover(
+                zip = zip,
+                entryMap = entryMap,
+                opfDir = opfDir,
+                opf = opf,
+            )
+
             return ParsedEpubBook(
                 title = opf.title.ifBlank { epubFile.nameWithoutExtension },
                 author = opf.author,
@@ -229,7 +244,87 @@ internal object LocalBookInspector {
                 chapters = rawCandidates,
                 blockIdToHtmlIds = htmlIdMap,
                 images = images,
+                cover = cover,
             )
+        }
+    }
+
+    private fun extractEpubCover(
+        zip: ZipFile,
+        entryMap: Map<String, ZipEntry>,
+        opfDir: String,
+        opf: ParsedOpf,
+    ): ExtractedEpubCover? {
+        val candidates = buildList {
+            // (a) EPUB3 <item properties="...cover-image...">
+            opf.manifestById.values.firstOrNull { item ->
+                item.properties.split(Regex("\\s+")).any { it == "cover-image" }
+            }?.let { add(it) }
+
+            // (b) EPUB2 <meta name="cover" content="id"> -> manifest <item>
+            opf.metaCoverId?.let { coverId ->
+                opf.manifestById[coverId]?.let { add(it) }
+            }
+
+            // (c) Fallback manifest image <item> whose id or href contains "cover"
+            opf.manifestById.values.filter { item ->
+                val isImage = item.mediaType.startsWith("image/", ignoreCase = true) || isImagePath(item.href)
+                isImage && (item.id.contains("cover", ignoreCase = true) || item.href.contains("cover", ignoreCase = true))
+            }.forEach { add(it) }
+        }.distinctBy { it.id }
+
+        for (candidate in candidates) {
+            val safeZipPath = resolveSafeCoverZipPath(opfDir, candidate.href) ?: continue
+            val entry = entryMap[safeZipPath] ?: continue
+            if (entry.isDirectory) continue
+            if (entry.size > ImageHeaderInspector.MAX_COVER_BYTES) continue
+            val bytes = readBoundedBytes(zip.getInputStream(entry), ImageHeaderInspector.MAX_COVER_BYTES) ?: continue
+            val inspected = ImageHeaderInspector.inspect(bytes) ?: continue
+            return ExtractedEpubCover(
+                formatExt = inspected.format,
+                bytes = bytes,
+                width = inspected.width,
+                height = inspected.height,
+            )
+        }
+        return null
+    }
+
+    internal fun resolveSafeCoverZipPath(baseDir: String, rawHref: String): String? {
+        val cleanHref = rawHref.substringBefore('#').substringBefore('?').trim()
+        if (cleanHref.isEmpty()) return null
+        if (cleanHref.startsWith("/") || cleanHref.startsWith("\\") || '\\' in cleanHref || "://" in cleanHref) {
+            return null
+        }
+        val rawSegments = cleanHref.split('/')
+        if (rawSegments.any { it == ".." }) {
+            return null
+        }
+        val combined = if (baseDir.isEmpty()) cleanHref else "$baseDir/$cleanHref"
+        val resolvedParts = mutableListOf<String>()
+        for (seg in combined.split('/')) {
+            when (seg) {
+                "", "." -> Unit
+                ".." -> return null
+                else -> resolvedParts += seg
+            }
+        }
+        return resolvedParts.joinToString("/").takeIf { it.isNotEmpty() }
+    }
+
+    private fun readBoundedBytes(input: InputStream, maxBytes: Long): ByteArray? {
+        return input.use { stream ->
+            val buf = ByteArray(8192)
+            val out = java.io.ByteArrayOutputStream()
+            var total = 0L
+            while (true) {
+                val read = stream.read(buf)
+                if (read <= 0) break
+                total += read
+                if (total > maxBytes) return null
+                out.write(buf, 0, read)
+            }
+            out.toByteArray()
         }
     }
 
@@ -271,13 +366,20 @@ internal object LocalBookInspector {
         return null
     }
 
-    private data class OpfManifestItem(val id: String, val href: String, val mediaType: String)
+    private data class OpfManifestItem(
+        val id: String,
+        val href: String,
+        val mediaType: String,
+        val properties: String = "",
+    )
+
     private data class ParsedOpf(
         val title: String,
         val author: String,
         val subjects: List<String>,
         val manifestById: Map<String, OpfManifestItem>,
         val spineIdRefs: List<String>,
+        val metaCoverId: String? = null,
     )
 
     private fun parseOpf(input: InputStream): ParsedOpf {
@@ -287,6 +389,7 @@ internal object LocalBookInspector {
         val subjects = mutableListOf<String>()
         val manifest = linkedMapOf<String, OpfManifestItem>()
         val spine = mutableListOf<String>()
+        var metaCoverId: String? = null
 
         var event = parser.eventType
         while (event != XmlPullParser.END_DOCUMENT) {
@@ -305,12 +408,20 @@ internal object LocalBookInspector {
                         val s = readTextSafe(parser).trim()
                         if (s.isNotEmpty()) subjects += s
                     }
+                    "meta" -> {
+                        val metaName = parser.getAttributeValue(null, "name").orEmpty()
+                        val metaContent = parser.getAttributeValue(null, "content").orEmpty()
+                        if (metaName.equals("cover", ignoreCase = true) && metaContent.isNotBlank() && metaCoverId == null) {
+                            metaCoverId = metaContent.trim()
+                        }
+                    }
                     "item" -> {
                         val id = parser.getAttributeValue(null, "id").orEmpty()
                         val href = parser.getAttributeValue(null, "href").orEmpty()
                         val mediaType = parser.getAttributeValue(null, "media-type").orEmpty()
+                        val properties = parser.getAttributeValue(null, "properties").orEmpty()
                         if (id.isNotEmpty() && href.isNotEmpty()) {
-                            manifest[id] = OpfManifestItem(id, href, mediaType)
+                            manifest[id] = OpfManifestItem(id, href, mediaType, properties)
                         }
                     }
                     "itemref" -> {
@@ -327,6 +438,7 @@ internal object LocalBookInspector {
             subjects = subjects,
             manifestById = manifest,
             spineIdRefs = spine,
+            metaCoverId = metaCoverId,
         )
     }
 
