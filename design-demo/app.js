@@ -11,7 +11,7 @@
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
 
-  RD.toast = (message) => {
+  RD.toast = (message, options) => {
     let node = document.getElementById('demo-toast');
     if (!node) {
       node = document.createElement('div');
@@ -21,10 +21,30 @@
       node.setAttribute('aria-live', 'polite');
       document.body.appendChild(node);
     }
-    node.textContent = message;
+    node.innerHTML = '';
+    if (options && options.actionLabel && typeof options.onAction === 'function') {
+      node.classList.add('has-action');
+      const txt = document.createElement('span');
+      txt.textContent = message;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'toast-undo-btn';
+      btn.textContent = options.actionLabel;
+      btn.addEventListener('click', () => {
+        clearTimeout(node._timer);
+        node.classList.remove('show', 'has-action');
+        options.onAction();
+      });
+      node.appendChild(txt);
+      node.appendChild(btn);
+    } else {
+      node.classList.remove('has-action');
+      node.textContent = message;
+    }
     node.classList.add('show');
     clearTimeout(node._timer);
-    node._timer = setTimeout(() => node.classList.remove('show'), 2800);
+    const delay = (options && options.duration) || (options && options.actionLabel ? 5000 : 2800);
+    node._timer = setTimeout(() => node.classList.remove('show', 'has-action'), delay);
   };
 
   /* 全局原型状态 */
@@ -96,8 +116,10 @@
 
     /* 设置中心 */
     models: DATA.byokModels.map((m) => Object.assign({}, m)),
+    lastRemovedModel: null,
     customFonts: ['思源宋体 · 内置', '霞鹜文楷 · LXGWWenKai.ttf'],
-    defaultSpoilerLock: true
+    defaultSpoilerLock: true,
+    p2pLastLog: '尚未发起双机互传'
   };
 
   /* 工具查找与辅助 */
@@ -461,7 +483,47 @@
       if (keyInp) keyInp.value = 'sk-demo-8842';
       applyByokProviderPreset('deepseek');
     }
+    const remBtn = document.getElementById('btn-byok-remove');
+    if (remBtn) remBtn.hidden = !existing;
+
     byokFormState._prepared = true;
+  }
+
+  function undoRemoveByokModel() {
+    const snap = state.lastRemovedModel;
+    if (!snap || !snap.item) return;
+    state.lastRemovedModel = null;
+    if (snap.item.isDefaultCompanion) {
+      state.models.forEach((m) => { m.isDefaultCompanion = false; });
+    }
+    if (snap.item.isDefaultVision) {
+      state.models.forEach((m) => { m.isDefaultVision = false; });
+    }
+    const insertIdx = Math.max(0, Math.min(snap.index, state.models.length));
+    state.models.splice(insertIdx, 0, snap.item);
+    renderApp();
+    RD.toast('已恢复模型：' + snap.item.name);
+  }
+
+  function removeByokModel(modelId) {
+    const idx = state.models.findIndex((m) => m.id === modelId);
+    if (idx < 0) return;
+    const removed = state.models.splice(idx, 1)[0];
+    state.lastRemovedModel = { item: Object.assign({}, removed), index: idx };
+
+    if (removed.isDefaultCompanion && state.models.length > 0) {
+      state.models[0].isDefaultCompanion = true;
+    }
+    if (removed.isDefaultVision) {
+      const nextVision = state.models.find((m) => Array.isArray(m.capabilities) && m.capabilities.includes('Vision'));
+      if (nextVision) nextVision.isDefaultVision = true;
+    }
+    renderApp();
+    RD.toast('已移除「' + removed.name + '」', {
+      actionLabel: '撤销',
+      duration: 5000,
+      onAction: undoRemoveByokModel
+    });
   }
 
   function openByokModal(modelIdToEdit) {
@@ -470,6 +532,14 @@
   }
 
   function bindByokDialogEvents() {
+    const remBtn = document.getElementById('btn-byok-remove');
+    if (remBtn) {
+      remBtn.addEventListener('click', () => {
+        const targetId = byokFormState.editingId;
+        closeModal('dlg-byok');
+        if (targetId) removeByokModel(targetId);
+      });
+    }
     document.querySelectorAll('#byok-protocol-seg [data-byok-proto]').forEach((btn) => {
       btn.addEventListener('click', () => {
         byokFormState.protocol = btn.dataset.byokProto;
@@ -2635,8 +2705,391 @@
   }
 
   /* ==========================================================================
-     页面 6：设置中心
+     页面 6：设置中心（BYOK 右滑移除 + 手机互联 P2P 传书与伴读资料分享）
      ========================================================================== */
+  const p2pSendState = {
+    mode: 'qr',
+    bookId: 'wuye',
+    peerHasSha: true,
+    incMaps: true,
+    incNotes: true,
+    incQa: true,
+    incProgress: false,
+    incOriginalBook: false
+  };
+
+  const p2pScanState = {
+    linkText: '',
+    preview: null
+  };
+
+  function getSelectedP2pBook() {
+    return state.books.find((b) => b.id === p2pSendState.bookId) || state.books[0];
+  }
+
+  function computeP2pBundleStats(book) {
+    const mapKb = p2pSendState.incMaps ? book.mapKb || 96 : 0;
+    const noteKb = p2pSendState.incNotes ? book.noteKb || 18 : 0;
+    const qaKb = p2pSendState.incQa ? book.qaKb || 24 : 0;
+    const progKb = p2pSendState.incProgress ? 4 : 0;
+    const dataKb = mapKb + noteKb + qaKb + progKb;
+    const includeOriginal = !p2pSendState.peerHasSha && p2pSendState.incOriginalBook;
+    const bookMb = Number(book.bookSizeMb || 12.0);
+    const totalLabel = includeOriginal
+      ? (bookMb + dataKb / 1024).toFixed(1) + ' MB（含原书 + 伴读资料）'
+      : dataKb + ' KB（仅传伴读资料 · 免传原书）';
+    return { dataKb, includeOriginal, bookMb, totalLabel };
+  }
+
+  function renderP2pSendModal() {
+    const body = document.getElementById('dlg-p2p-send-body');
+    if (!body) return;
+    const book = getSelectedP2pBook();
+    const shortSha = (book.sha256 || '8f3a91c2').slice(0, 8) + '…';
+    const stats = computeP2pBundleStats(book);
+    const shareUrl = 'http://192.168.1.24:9721/share/br_7k9m2?sha=' + (book.sha256 || '8f3a91c2');
+
+    const transferPanel =
+      p2pSendState.mode === 'qr'
+        ? '<div class="p2p-qr-panel">' +
+          '<svg width="128" height="128" viewBox="0 0 148 148" aria-label="局域网传书二维码">' +
+          '<rect x="2" y="2" width="144" height="144" rx="8" fill="#FFFFFF" stroke="#BEB6A4"/>' +
+          '<g fill="#181817">' +
+          '<rect x="14" y="14" width="36" height="36" rx="3"/><rect x="20" y="20" width="24" height="24" fill="#FFFFFF"/><rect x="26" y="26" width="12" height="12"/>' +
+          '<rect x="98" y="14" width="36" height="36" rx="3"/><rect x="104" y="20" width="24" height="24" fill="#FFFFFF"/><rect x="110" y="26" width="12" height="12"/>' +
+          '<rect x="14" y="98" width="36" height="36" rx="3"/><rect x="20" y="104" width="24" height="24" fill="#FFFFFF"/><rect x="26" y="110" width="12" height="12"/>' +
+          '<rect x="60" y="18" width="8" height="8"/><rect x="74" y="18" width="8" height="8"/><rect x="60" y="34" width="16" height="8"/>' +
+          '<rect x="58" y="58" width="28" height="28" rx="4" fill="#1E5A4C"/><rect x="66" y="66" width="12" height="12" fill="#FFFFFF"/>' +
+          '<rect x="98" y="60" width="12" height="8"/><rect x="116" y="60" width="14" height="8"/><rect x="60" y="98" width="14" height="8"/><rect x="98" y="104" width="22" height="10"/>' +
+          '</g></svg>' +
+          '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:center">' +
+          '<span class="cap-pill">配对码 <b class="mono">482-915</b></span>' +
+          '<span class="fmt-badge mono">192.168.1.24:9721</span>' +
+          '</div>' +
+          '<button type="button" class="btn btn-primary btn-sm" id="btn-p2p-sim-send">模拟对方扫码接收</button>' +
+          '</div>'
+        : '<div class="p2p-link-box">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap">' +
+          '<strong style="font-size:12px">局域网直传链接</strong>' +
+          '<span class="cap-pill">15 分钟有效 · 局域网直连</span>' +
+          '</div>' +
+          '<div class="p2p-url-code" id="p2p-share-url">' +
+          RD.esc(shareUrl) +
+          '</div>' +
+          '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+          '<button type="button" class="btn btn-surface btn-sm" id="btn-p2p-copy-link">复制链接</button>' +
+          '<button type="button" class="btn btn-primary btn-sm" id="btn-p2p-sim-link">模拟对方打开链接</button>' +
+          '</div></div>';
+
+    body.innerHTML =
+      '<div class="byok-seg-row" role="group" aria-label="分享方式">' +
+      '<button type="button" data-p2p-send-mode="qr" aria-pressed="' +
+      (p2pSendState.mode === 'qr' ? 'true' : 'false') +
+      '">生成二维码</button>' +
+      '<button type="button" data-p2p-send-mode="link" aria-pressed="' +
+      (p2pSendState.mode === 'link' ? 'true' : 'false') +
+      '">生成分享链接</button></div>' +
+      '<label class="dlg-field"><span>选择要分享的书籍</span>' +
+      '<select id="p2p-send-book-sel">' +
+      state.books
+        .map(
+          (b) =>
+            '<option value="' +
+            RD.esc(b.id) +
+            '"' +
+            (b.id === book.id ? ' selected' : '') +
+            '>《' +
+            RD.esc(b.title) +
+            '》 · sha256:' +
+            RD.esc((b.sha256 || '00000000').slice(0, 8)) +
+            '…</option>'
+        )
+        .join('') +
+      '</select></label>' +
+      '<div class="dlg-field"><span>对方设备 SHA-256 握手比对</span>' +
+      '<div class="byok-seg-row" role="group" aria-label="对方 SHA 状态">' +
+      '<button type="button" data-p2p-sha="match" aria-pressed="' +
+      (p2pSendState.peerHasSha ? 'true' : 'false') +
+      '">对方已有同 SHA 原书（免传书体）</button>' +
+      '<button type="button" data-p2p-sha="miss" aria-pressed="' +
+      (!p2pSendState.peerHasSha ? 'true' : 'false') +
+      '">对方暂无此书（整书 + 资料）</button>' +
+      '</div></div>' +
+      '<div class="p2p-sha-banner ' +
+      (p2pSendState.peerHasSha ? 'is-match' : 'is-miss') +
+      '" id="p2p-sha-banner">' +
+      (p2pSendState.peerHasSha
+        ? '✓ 握手命中同 SHA（' +
+          RD.esc(shortSha) +
+          '）：对方已有此书，已自动跳过 ' +
+          RD.esc(book.bookSizeMb || 18.4) +
+          ' MB 原书文件，仅传所选伴读资料'
+        : '对方书库无此 SHA：将连同原书文件（' +
+          RD.esc(book.bookSizeMb || 18.4) +
+          ' MB）与所选资料一并打包传输') +
+      '</div>' +
+      '<div class="p2p-checklist">' +
+      '<div class="p2p-check-row' +
+      (p2pSendState.peerHasSha ? ' is-disabled' : '') +
+      '"><label><input type="checkbox" id="p2p-chk-book"' +
+      (stats.includeOriginal ? ' checked' : '') +
+      (p2pSendState.peerHasSha ? ' disabled' : '') +
+      '><span>包含原书文件（' +
+      RD.esc(book.format) +
+      ' · ' +
+      RD.esc(book.bookSizeMb || 18.4) +
+      ' MB）</span></label>' +
+      (p2pSendState.peerHasSha ? '<span class="cap-pill">同 SHA 跳过</span>' : '') +
+      '</div>' +
+      '<div class="p2p-check-row"><label><input type="checkbox" id="p2p-chk-maps"' +
+      (p2pSendState.incMaps ? ' checked' : '') +
+      '><span>章节导图与结构蓝图（' +
+      (book.mapCount || 4) +
+      ' 张已生成蓝图 + 全章脉络树 · ' +
+      (book.mapKb || 96) +
+      ' KB）</span></label></div>' +
+      '<div class="p2p-check-row"><label><input type="checkbox" id="p2p-chk-notes"' +
+      (p2pSendState.incNotes ? ' checked' : '') +
+      '><span>划词高亮与行内眉批（' +
+      (book.highlightCount || 12) +
+      ' 条高亮 · ' +
+      (book.noteCount || 5) +
+      ' 条批注 · ' +
+      (book.noteKb || 18) +
+      ' KB）</span></label></div>' +
+      '<div class="p2p-check-row"><label><input type="checkbox" id="p2p-chk-qa"' +
+      (p2pSendState.incQa ? ' checked' : '') +
+      '><span>多轮伴读问答记录（' +
+      (book.qaCount || 3) +
+      ' 段会话 · ' +
+      (book.qaKb || 24) +
+      ' KB）</span></label></div>' +
+      '<div class="p2p-check-row"><label><input type="checkbox" id="p2p-chk-progress"' +
+      (p2pSendState.incProgress ? ' checked' : '') +
+      '><span>当前阅读进度与防剧透水位（默认不覆盖对方阅读进度）</span></label></div>' +
+      '</div>' +
+      '<div class="p2p-summary-bar" id="p2p-send-summary"><span>预计传输：' +
+      RD.esc(stats.totalLabel) +
+      '</span></div>' +
+      transferPanel;
+
+    body.querySelectorAll('[data-p2p-send-mode]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        p2pSendState.mode = btn.dataset.p2pSendMode;
+        renderP2pSendModal();
+      });
+    });
+    const bookSel = body.querySelector('#p2p-send-book-sel');
+    if (bookSel) {
+      bookSel.addEventListener('change', () => {
+        p2pSendState.bookId = bookSel.value;
+        renderP2pSendModal();
+      });
+    }
+    body.querySelectorAll('[data-p2p-sha]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        p2pSendState.peerHasSha = btn.dataset.p2pSha === 'match';
+        p2pSendState.incOriginalBook = !p2pSendState.peerHasSha;
+        renderP2pSendModal();
+      });
+    });
+    const chkMap = [
+      ['#p2p-chk-book', 'incOriginalBook'],
+      ['#p2p-chk-maps', 'incMaps'],
+      ['#p2p-chk-notes', 'incNotes'],
+      ['#p2p-chk-qa', 'incQa'],
+      ['#p2p-chk-progress', 'incProgress']
+    ];
+    chkMap.forEach(([sel, key]) => {
+      const el = body.querySelector(sel);
+      if (el) {
+        el.addEventListener('change', () => {
+          p2pSendState[key] = el.checked;
+          renderP2pSendModal();
+        });
+      }
+    });
+
+    const copyBtn = body.querySelector('#btn-p2p-copy-link');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', () => {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(shareUrl).catch(() => {});
+        }
+        RD.toast('已复制局域网直传链接：' + shareUrl);
+      });
+    }
+
+    const completeSend = () => {
+      state.p2pLastLog = stats.includeOriginal
+        ? '最近传输：已发送《' + book.title + '》整书 + 资料 (' + stats.totalLabel.split('（')[0] + ')'
+        : '最近传输：已向对方跳过原书仅发送《' + book.title + '》资料包 (' + stats.dataKb + ' KB)';
+      closeModal('dlg-p2p-send');
+      renderApp();
+      RD.toast(state.p2pLastLog);
+    };
+    const simQrBtn = body.querySelector('#btn-p2p-sim-send');
+    if (simQrBtn) simQrBtn.addEventListener('click', completeSend);
+    const simLinkBtn = body.querySelector('#btn-p2p-sim-link');
+    if (simLinkBtn) simLinkBtn.addEventListener('click', completeSend);
+  }
+
+  function openP2pSendModal(mode) {
+    p2pSendState.mode = mode || 'qr';
+    renderP2pSendModal();
+    openModal('dlg-p2p-send');
+  }
+
+  function renderP2pScanModal() {
+    const body = document.getElementById('dlg-p2p-scan-body');
+    if (!body) return;
+    const prev = p2pScanState.preview;
+    const localMatch = prev ? state.books.find((b) => b.sha256 === prev.sha256) : null;
+
+    const previewHtml = prev
+      ? '<div class="p2p-preview-card" id="p2p-scan-preview">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap">' +
+        '<strong>《' +
+        RD.esc(prev.title) +
+        '》</strong><span class="fmt-badge">' +
+        RD.esc(prev.device) +
+        '</span></div>' +
+        '<div class="wb-sub mono" style="font-size:11px">sha256:' +
+        RD.esc(prev.sha256) +
+        ' · ' +
+        RD.esc(prev.author) +
+        '</div>' +
+        '<div class="p2p-sha-banner ' +
+        (localMatch ? 'is-match' : 'is-miss') +
+        '">' +
+        (localMatch
+          ? '✓ 本地已存在同 SHA 原书，跳过 ' + prev.bookSizeMb + ' MB 原书下载，仅导入伴读资料'
+          : '＋ 本地无此书，将下载 ' + prev.bookSizeMb + ' MB 原书并入库') +
+        '</div>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:5px">' +
+        '<span class="cap-pill">导图 · ' +
+        prev.mapCount +
+        '</span>' +
+        '<span class="cap-pill">批注 · ' +
+        prev.noteCount +
+        '</span>' +
+        '<span class="cap-pill">问答 · ' +
+        prev.qaCount +
+        '</span></div>' +
+        '<div class="wb-sub">好友的批注与问答将以「好友分享」来源无损合并，不覆盖你的个人笔记</div>' +
+        '<button type="button" class="btn btn-primary btn-sm" id="btn-p2p-confirm-import">确认接收导入</button>' +
+        '</div>'
+      : '';
+
+    body.innerHTML =
+      '<div class="p2p-scan-frame">' +
+      '<span class="p2p-scan-corner tl" aria-hidden="true"></span>' +
+      '<span class="p2p-scan-corner tr" aria-hidden="true"></span>' +
+      '<span class="p2p-scan-corner bl" aria-hidden="true"></span>' +
+      '<span class="p2p-scan-corner br" aria-hidden="true"></span>' +
+      '<strong style="font-size:12.5px">局域网相机扫码取景框</strong>' +
+      '<span style="font-size:11px;opacity:0.78">对准对方手机二维码，或在下方粘贴分享链接</span>' +
+      '</div>' +
+      '<div class="byok-input-row">' +
+      '<input type="text" class="mono" id="p2p-scan-link-inp" placeholder="http://192.168.1.24:9721/share/br_..." value="' +
+      RD.esc(p2pScanState.linkText) +
+      '">' +
+      '<button type="button" class="btn btn-surface btn-sm" id="btn-p2p-parse-link">解析连接</button>' +
+      '</div>' +
+      '<div class="p2p-sim-row">' +
+      '<span class="byok-prov-group-lbl">一键模拟扫入剧本</span>' +
+      '<button type="button" class="btn btn-surface btn-sm" id="btn-p2p-sim-wuye" style="justify-content:flex-start;white-space:normal;text-align:left;height:auto;padding:7px 10px">模拟扫入：《雾夜档案》资料包（同 SHA 命中 → 仅收资料）</button>' +
+      '<button type="button" class="btn btn-surface btn-sm" id="btn-p2p-sim-hawking" style="justify-content:flex-start;white-space:normal;text-align:left;height:auto;padding:7px 10px">模拟扫入：《时间简史》整书 + 导图（新 SHA → 整书入库）</button>' +
+      '</div>' +
+      previewHtml;
+
+    const presets = DATA.p2pIncomingPresets || {};
+    const simWuye = body.querySelector('#btn-p2p-sim-wuye');
+    if (simWuye) {
+      simWuye.addEventListener('click', () => {
+        p2pScanState.preview = presets.wuye_match;
+        renderP2pScanModal();
+      });
+    }
+    const simHawking = body.querySelector('#btn-p2p-sim-hawking');
+    if (simHawking) {
+      simHawking.addEventListener('click', () => {
+        p2pScanState.preview = presets.hawking_new;
+        renderP2pScanModal();
+      });
+    }
+    const parseBtn = body.querySelector('#btn-p2p-parse-link');
+    const linkInp = body.querySelector('#p2p-scan-link-inp');
+    if (parseBtn && linkInp) {
+      parseBtn.addEventListener('click', () => {
+        const val = linkInp.value.trim();
+        p2pScanState.linkText = val;
+        p2pScanState.preview = /5e9c|hawking|time/i.test(val) ? presets.hawking_new : presets.wuye_match;
+        renderP2pScanModal();
+      });
+    }
+
+    const confirmBtn = body.querySelector('#btn-p2p-confirm-import');
+    if (confirmBtn && prev) {
+      confirmBtn.addEventListener('click', () => {
+        const matched = state.books.find((b) => b.sha256 === prev.sha256);
+        if (matched) {
+          if (prev.sharedNote && !state.customNotes.some((n) => n.id === prev.sharedNote.id)) {
+            state.customNotes.push(Object.assign({}, prev.sharedNote));
+          }
+          if (prev.sharedQa && !state.qaTurns.some((q) => q.question === prev.sharedQa.question)) {
+            state.qaTurns.push(Object.assign({}, prev.sharedQa));
+          }
+          state.p2pLastLog = '最近传输：同 SHA 跳过原书，已合并《' + prev.title + '》资料包 (' + prev.bundleKb + ' KB)';
+          closeModal('dlg-p2p-scan');
+          renderApp();
+          RD.toast('已跳过原书，直接合并《' + prev.title + '》导图/批注/问答（' + prev.bundleKb + ' KB）');
+        } else {
+          const totalMb = (prev.bookSizeMb + prev.bundleKb / 1024).toFixed(1);
+          state.books.unshift({
+            id: prev.bookId + '-' + Date.now(),
+            title: prev.title,
+            author: prev.author,
+            readType: prev.readType || 'science',
+            subKind: '',
+            format: prev.format || '.bcbook',
+            cloth: prev.cloth || '#1D334A',
+            coverKind: 'cloth',
+            sha256: prev.sha256,
+            bookSizeMb: prev.bookSizeMb,
+            mapCount: prev.mapCount,
+            mapKb: prev.bundleKb,
+            highlightCount: 0,
+            noteCount: prev.noteCount,
+            noteKb: 16,
+            qaCount: prev.qaCount,
+            qaKb: 18,
+            curChapter: prev.curChapter || 1,
+            totalChapters: prev.totalChapters || 12,
+            progressPct: 8,
+            watermark: prev.curChapter || 1,
+            cachedCount: prev.mapCount || 3,
+            kicker: prev.kicker || 'SCI-07 · 好友传入',
+            currentLabel: '第 1 章 · 刚刚通过双机直连导入',
+            filterGroup: prev.readType || 'science',
+            reading: true,
+            isPdf: false
+          });
+          state.p2pLastLog = '最近传输：已接收新书《' + prev.title + '》及伴读导图 (' + totalMb + ' MB)';
+          closeModal('dlg-p2p-scan');
+          renderApp();
+          RD.toast('已接收新书《' + prev.title + '》及伴读导图（' + totalMb + ' MB）');
+        }
+      });
+    }
+  }
+
+  function openP2pScanModal() {
+    p2pScanState.preview = null;
+    renderP2pScanModal();
+    openModal('dlg-p2p-scan');
+  }
+
   function renderSettings(root) {
     root.innerHTML =
       '<header class="mobile-topbar">' +
@@ -2645,14 +3098,22 @@
       '</header>' +
       '<div class="app-scroll">' +
       '<section class="settings-section">' +
-      '<div class="settings-section-head"><h2>BYOK 模型与加密密钥库</h2><span class="cap-pill">Tink + Android Keystore</span></div>' +
+      '<div class="settings-section-head"><div><h2>BYOK 模型与加密密钥库</h2><span class="wb-sub">右滑卡片可移除</span></div><span class="cap-pill">Tink + Android Keystore</span></div>' +
       state.models
         .map((m) => {
           const isVision = Array.isArray(m.capabilities) && m.capabilities.includes('Vision');
           const thinkLabel = thinkingBadgeText(m.thinkingLevel || 'medium');
           const pills = [thinkLabel].concat(m.capabilities || []);
           return (
-            '<div class="settings-card" data-model-card="' +
+            '<div class="swipe-card-shell" data-swipe-shell="' +
+            RD.esc(m.id) +
+            '">' +
+            '<div class="swipe-del-rail" aria-hidden="false">' +
+            '<button type="button" class="swipe-del-btn" data-swipe-remove="' +
+            RD.esc(m.id) +
+            '">移除</button>' +
+            '</div>' +
+            '<div class="settings-card swipe-card-fg" data-model-card="' +
             RD.esc(m.id) +
             '">' +
             '<div class="model-head-row">' +
@@ -2705,7 +3166,7 @@
             '<button type="button" class="wb-btn" data-test-model="' +
             RD.esc(m.id) +
             '">测试连通性</button>' +
-            '</div></div></div>'
+            '</div></div></div></div>'
           );
         })
         .join('') +
@@ -2732,6 +3193,27 @@
       (state.defaultSpoilerLock ? '已开启' : '已关闭') +
       '</button></div>' +
       '</div></section>' +
+      '<section class="settings-section" id="sec-p2p-share">' +
+      '<div class="settings-section-head"><h2>手机互联 · 传书与资料分享</h2><span class="cap-pill">同 SHA 免传原书</span></div>' +
+      '<div class="settings-card">' +
+      '<div class="p2p-entry-grid">' +
+      '<button type="button" class="p2p-entry-btn" id="btn-p2p-scan">' +
+      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><line x1="7" y1="12" x2="17" y2="12"/></svg>' +
+      '<span>扫码连接</span></button>' +
+      '<button type="button" class="p2p-entry-btn" id="btn-p2p-qr">' +
+      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3z"/><path d="M18 18h3v3h-3z"/></svg>' +
+      '<span>生成二维码</span></button>' +
+      '<button type="button" class="p2p-entry-btn" id="btn-p2p-link">' +
+      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>' +
+      '<span>生成链接</span></button>' +
+      '</div>' +
+      '<div class="p2p-status-strip">' +
+      '<span>本机书库：' +
+      state.books.length +
+      ' 本书已算 SHA-256 指纹</span>' +
+      '<span class="muted" id="p2p-last-log">' +
+      RD.esc(state.p2pLastLog) +
+      '</span></div></div></section>' +
       '<section class="settings-section">' +
       '<div class="settings-section-head"><h2>桌面网关与云端同步</h2><span class="fmt-badge">Slice 6 联调预览</span></div>' +
       '<div class="settings-card">' +
@@ -2752,6 +3234,83 @@
       renderBottomNav('settings');
 
     root.querySelector('#btn-add-byok').addEventListener('click', () => openByokModal(null));
+    root.querySelector('#btn-p2p-scan').addEventListener('click', openP2pScanModal);
+    root.querySelector('#btn-p2p-qr').addEventListener('click', () => openP2pSendModal('qr'));
+    root.querySelector('#btn-p2p-link').addEventListener('click', () => openP2pSendModal('link'));
+
+    root.querySelectorAll('[data-swipe-remove]').forEach((btn) => {
+      btn.addEventListener('click', () => removeByokModel(btn.dataset.swipeRemove));
+    });
+
+    root.querySelectorAll('.swipe-card-shell').forEach((shell) => {
+      const id = shell.dataset.swipeShell;
+      const fg = shell.querySelector('.swipe-card-fg');
+      if (!fg || !id) return;
+      let active = false;
+      let startX = 0;
+      let startY = 0;
+      let baseOffset = 0;
+      let intent = null;
+      let curX = 0;
+
+      fg.addEventListener('pointerdown', (e) => {
+        if (e.target.closest('button, input, label, select, a')) return;
+        active = true;
+        intent = null;
+        startX = e.clientX;
+        startY = e.clientY;
+        baseOffset = fg.dataset.snapped === '1' ? 84 : 0;
+        curX = baseOffset;
+      });
+      fg.addEventListener('pointermove', (e) => {
+        if (!active) return;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        if (!intent) {
+          if (Math.abs(dy) > 10 && Math.abs(dy) >= Math.abs(dx)) {
+            intent = 'v';
+            active = false;
+            return;
+          }
+          const wantsH = (dx > 8 || (baseOffset > 0 && Math.abs(dx) > 8)) && Math.abs(dx) > Math.abs(dy) * 1.2;
+          if (!wantsH) return;
+          intent = 'h';
+          fg.classList.add('is-swiping');
+          if (fg.setPointerCapture && e.pointerId != null) {
+            try { fg.setPointerCapture(e.pointerId); } catch (err) {}
+          }
+        }
+        if (intent === 'h') {
+          curX = Math.max(0, Math.min(156, baseOffset + dx));
+          fg.style.transform = 'translateX(' + curX + 'px)';
+        }
+      });
+      const finishSwipe = () => {
+        if (!active && intent !== 'h') return;
+        active = false;
+        if (intent !== 'h') {
+          if (fg.dataset.snapped === '1') {
+            fg.style.transform = '';
+            delete fg.dataset.snapped;
+          }
+          return;
+        }
+        intent = null;
+        fg.classList.remove('is-swiping');
+        if (curX >= 118) {
+          removeByokModel(id);
+        } else if (curX >= 42) {
+          fg.style.transform = 'translateX(84px)';
+          fg.dataset.snapped = '1';
+        } else {
+          fg.style.transform = '';
+          delete fg.dataset.snapped;
+        }
+      };
+      fg.addEventListener('pointerup', finishSwipe);
+      fg.addEventListener('pointercancel', finishSwipe);
+    });
+
     root.querySelectorAll('[data-edit-model]').forEach((b) => {
       b.addEventListener('click', () => openByokModal(b.dataset.editModel));
     });

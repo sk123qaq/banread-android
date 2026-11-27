@@ -2489,16 +2489,20 @@ dialog.app-dialog {
   width: min(92vw, 370px);
   max-height: 85dvh;
 }
-dialog.app-dialog.dlg-byok-dialog {
+dialog.app-dialog.dlg-byok-dialog,
+dialog.app-dialog.dlg-p2p-dialog {
   width: min(94vw, 412px);
   max-height: 92dvh;
 }
-dialog.app-dialog.dlg-byok-dialog .dlg-body {
+dialog.app-dialog.dlg-byok-dialog .dlg-body,
+dialog.app-dialog.dlg-p2p-dialog .dlg-body {
   padding: 11px 15px;
   gap: 8px;
 }
 body[data-viewport="phone-360"] dialog.app-dialog.dlg-byok-dialog,
-.device-frame[data-viewport="phone-360"] ~ dialog.app-dialog.dlg-byok-dialog {
+body[data-viewport="phone-360"] dialog.app-dialog.dlg-p2p-dialog,
+.device-frame[data-viewport="phone-360"] ~ dialog.app-dialog.dlg-byok-dialog,
+.device-frame[data-viewport="phone-360"] ~ dialog.app-dialog.dlg-p2p-dialog {
   width: min(94vw, 344px);
 }
 #form-byok {
@@ -2771,8 +2775,269 @@ html[data-theme="eink"] .byok-prov-chip[aria-pressed="true"] {
   background: #000000;
   color: #FFFFFF;
 }
+
+.dlg-actions-split {
+  justify-content: space-between;
+  align-items: center;
+}
+.dlg-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.btn-danger-soft {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 5px 10px;
+  border-radius: var(--r-control);
+  background: var(--danger-soft);
+  color: var(--danger);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.btn-danger-soft:hover {
+  background: var(--danger);
+  color: #FDFBF7;
+}
+
+/* BYOK 卡片右滑移除 */
+.swipe-card-shell {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--r-card);
+  margin-bottom: 10px;
+  background: var(--danger);
+  box-shadow: var(--shadow-surface);
+}
+.swipe-del-rail {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 156px;
+  background: var(--danger);
+  color: #FDFBF7;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding-left: 14px;
+}
+.swipe-del-btn {
+  padding: 6px 12px;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: rgba(0, 0, 0, 0.2);
+  color: #FDFBF7;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.swipe-card-shell .settings-card.swipe-card-fg {
+  position: relative;
+  z-index: 1;
+  margin-bottom: 0;
+  box-shadow: none;
+  transition: transform 180ms var(--ease-out);
+  touch-action: pan-y;
+}
+.swipe-card-shell .settings-card.swipe-card-fg.is-swiping {
+  transition: none !important;
+}
+html[data-theme="eink"] .swipe-card-shell {
+  box-shadow: none;
+  border: 1px solid #000000;
+  background: #111111;
+}
+html[data-theme="eink"] .swipe-del-rail {
+  background: #111111;
+  color: #FFFFFF;
+}
+html[data-theme="eink"] .swipe-card-shell .settings-card.swipe-card-fg {
+  border: 0 !important;
+}
+
+/* 手机互联 · P2P 传书与伴读资料分享 */
+.p2p-entry-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.p2p-entry-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 10px 6px;
+  border-radius: var(--r-inner);
+  border: 1px solid var(--line-strong);
   background: var(--paper);
   color: var(--ink);
+  font-size: 11.5px;
+  font-weight: 600;
+  min-width: 0;
+  text-align: center;
+}
+.p2p-entry-btn span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.p2p-entry-btn svg {
+  color: var(--cinnabar);
+  flex: none;
+}
+.p2p-entry-btn:hover {
+  background: var(--surface-hover);
+  border-color: var(--cinnabar);
+}
+.device-frame[data-viewport="phone-360"] .p2p-entry-grid {
+  gap: 5px;
+}
+.device-frame[data-viewport="phone-360"] .p2p-entry-btn {
+  padding: 9px 4px;
+  font-size: 11px;
+}
+.p2p-status-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--line);
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+.p2p-sha-banner {
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  font-weight: 600;
+}
+.p2p-sha-banner.is-match {
+  background: var(--pine-soft);
+  color: var(--pine);
+  border: 1px solid color-mix(in srgb, var(--pine) 30%, transparent);
+}
+.p2p-sha-banner.is-miss {
+  background: var(--amber-soft);
+  color: var(--amber);
+  border: 1px solid color-mix(in srgb, var(--amber) 30%, transparent);
+}
+.p2p-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+}
+.p2p-check-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--ink);
+  line-height: 1.45;
+}
+.p2p-check-row label {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.p2p-check-row.is-disabled {
+  color: var(--ink-3);
+}
+.p2p-summary-bar {
+  padding: 7px 10px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--pine-soft) 50%, var(--paper));
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.p2p-qr-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  text-align: center;
+}
+.p2p-link-box {
+  padding: 9px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.p2p-url-code {
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  font-family: var(--mono);
+  font-size: 11px;
+  word-break: break-all;
+  color: var(--ink);
+}
+.p2p-scan-frame {
+  position: relative;
+  height: 116px;
+  border-radius: 10px;
+  background: #14181D;
+  color: #E7E3D8;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  overflow: hidden;
+  text-align: center;
+  padding: 12px;
+}
+.p2p-scan-corner {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border: 2.5px solid var(--cinnabar);
+}
+.p2p-scan-corner.tl { top: 10px; left: 10px; border-right: 0; border-bottom: 0; }
+.p2p-scan-corner.tr { top: 10px; right: 10px; border-left: 0; border-bottom: 0; }
+.p2p-scan-corner.bl { bottom: 10px; left: 10px; border-right: 0; border-top: 0; }
+.p2p-scan-corner.br { bottom: 10px; right: 10px; border-left: 0; border-top: 0; }
+.p2p-sim-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.p2p-preview-card {
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line-strong);
+  background: var(--paper);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
 }
 
 /* ==========================================================================
@@ -2796,6 +3061,24 @@ html[data-theme="eink"] .byok-prov-chip[aria-pressed="true"] {
   transition: opacity 180ms var(--ease-out), transform 180ms var(--ease-out);
 }
 .toast.show { opacity: 1; transform: none; }
+.toast.show.has-action {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.toast-undo-btn {
+  padding: 3px 9px;
+  border-radius: 6px;
+  background: var(--cinnabar);
+  color: #FDFBF7;
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  flex: none;
+  cursor: pointer;
+}
+.toast-undo-btn:hover { filter: brightness(1.08); }
 
 /* ==========================================================================
    完整引入 workbench.css 蓝图画布、扩展卡片与全览弹窗样式

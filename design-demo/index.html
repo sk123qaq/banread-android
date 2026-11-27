@@ -228,9 +228,12 @@
           <input type="checkbox" id="byok-vision"> 支持视觉图片理解（Vision / PDF 框选）
         </label>
       </div>
-      <div class="dlg-actions">
-        <button type="submit" value="cancel" formnovalidate class="btn btn-ghost btn-sm">取消</button>
-        <button type="submit" value="save" class="btn btn-primary btn-sm">加密保存</button>
+      <div class="dlg-actions dlg-actions-split">
+        <button type="button" class="btn-danger-soft" id="btn-byok-remove" hidden>移除此模型</button>
+        <div class="dlg-actions-right">
+          <button type="submit" value="cancel" formnovalidate class="btn btn-ghost btn-sm">取消</button>
+          <button type="submit" value="save" class="btn btn-primary btn-sm">加密保存</button>
+        </div>
       </div>
     </form>
   </dialog>
@@ -261,6 +264,30 @@
     <form method="dialog" class="dlg-actions">
       <button type="submit" value="cancel" class="btn btn-ghost btn-sm">暂不配对</button>
       <button type="submit" value="connect" class="btn btn-primary btn-sm" autofocus>模拟扫码并连接</button>
+    </form>
+  </dialog>
+
+  <!-- 原生 <dialog> 7：双机互联发送端（传书与伴读资料分享） -->
+  <dialog class="app-dialog dlg-p2p-dialog" id="dlg-p2p-send" closedby="any" aria-labelledby="dlg-p2p-send-title">
+    <div class="dlg-head">
+      <h1 id="dlg-p2p-send-title">传书与伴读资料分享</h1>
+      <button type="button" class="wb-btn" data-close-dialog="dlg-p2p-send">关闭</button>
+    </div>
+    <div class="dlg-body" id="dlg-p2p-send-body"></div>
+    <form method="dialog" class="dlg-actions">
+      <button type="submit" value="close" class="btn btn-ghost btn-sm">关闭</button>
+    </form>
+  </dialog>
+
+  <!-- 原生 <dialog> 8：双机互联接收端（扫码 / 解析链接 + SHA-256 比对导入） -->
+  <dialog class="app-dialog dlg-p2p-dialog" id="dlg-p2p-scan" closedby="any" aria-labelledby="dlg-p2p-scan-title">
+    <div class="dlg-head">
+      <h1 id="dlg-p2p-scan-title">扫码或解析连接接收</h1>
+      <button type="button" class="wb-btn" data-close-dialog="dlg-p2p-scan">关闭</button>
+    </div>
+    <div class="dlg-body" id="dlg-p2p-scan-body"></div>
+    <form method="dialog" class="dlg-actions">
+      <button type="submit" value="close" class="btn btn-ghost btn-sm">关闭</button>
     </form>
   </dialog>
 
