@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="paper">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=yes">
+  <title>伴读图解引擎</title>
+  <link rel="stylesheet" href="mobile_viz_host.css">
+</head>
+<body>
+  <div id="viz-shell" class="viz-shell" data-mode="compact">
+    <div id="viz-toolbar" class="viz-toolbar">
+      <div class="viz-toolbar-meta">
+        <span id="viz-blueprint-badge" class="viz-bp-badge">离线图解</span>
+      </div>
+      <div class="viz-zoom-bar" role="group" aria-label="画布缩放与全屏控制">
+        <button type="button" id="viz-btn-out" class="viz-tool-btn" title="缩小" aria-label="缩小画布">−</button>
+        <button type="button" id="viz-btn-reset" class="viz-tool-btn viz-zoom-pct" title="重置缩放">100%</button>
+        <button type="button" id="viz-btn-in" class="viz-tool-btn" title="放大" aria-label="放大画布">+</button>
+        <button type="button" id="viz-btn-fullscreen" class="viz-tool-btn viz-tool-btn-primary" title="全屏查看">全屏</button>
+      </div>
+    </div>
+
+    <div id="viz-stage-viewport" class="viz-stage-viewport">
+      <div id="viz-pan-layer" class="viz-pan-layer">
+        <div id="viz-mount" class="viz-mount"></div>
+      </div>
+    </div>
+
+    <div id="viz-error-card" class="viz-error-card" hidden role="alert">
+      <div class="viz-error-head">
+        <strong>图解渲染降级提示</strong>
+      </div>
+      <p id="viz-error-msg" class="viz-error-msg"></p>
+      <div id="viz-error-fallback" class="viz-error-fallback"></div>
+    </div>
+
+    <div id="viz-inspector" class="viz-inspector" hidden aria-live="polite">
+      <div class="viz-inspector-head">
+        <div class="viz-inspector-badges">
+          <span id="viz-inspector-role" class="viz-inspector-role">节点</span>
+          <span id="viz-inspector-src"></span>
+        </div>
+        <button type="button" id="viz-inspector-close" class="viz-inspector-close" aria-label="关闭节点详情">✕</button>
+      </div>
+      <div id="viz-inspector-title" class="viz-inspector-title"></div>
+      <div id="viz-inspector-detail" class="viz-inspector-detail"></div>
+      <div id="viz-inspector-blocks" class="viz-inspector-blocks"></div>
+    </div>
+
+    <div id="zoom-modal" class="zoom-modal viz-fullscreen-modal" hidden>
+      <div class="zoom-head">
+        <h4 id="zoom-title">全屏图解</h4>
+        <div class="zoom-actions">
+          <button type="button" class="wb-btn zoom-expand-btn" id="btn-zoom-expand-all" aria-pressed="false" hidden>展开全部说明</button>
+          <div class="zoom-controls" role="group" aria-label="全屏画布缩放">
+            <button type="button" class="zoom-btn" id="btn-zoom-out" title="缩小" aria-label="缩小画布">−</button>
+            <button type="button" class="zoom-btn zoom-pct" id="btn-zoom-fit" title="适应画布 / 100%">100%</button>
+            <button type="button" class="zoom-btn" id="btn-zoom-in" title="放大" aria-label="放大画布">+</button>
+          </div>
+          <span id="zoom-qa" class="qa-badge">✓ 质检</span>
+          <button type="button" class="wb-btn" id="btn-zoom-close">退出全屏</button>
+        </div>
+      </div>
+      <div class="zoom-stage">
+        <div class="zoom-body" id="zoom-body"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="viz-toast" class="viz-toast" hidden aria-live="polite"></div>
+  <div id="measure-stage" aria-hidden="true"></div>
+
+  <script src="diagram_renderer.js"></script>
+  <script src="mobile_viz_host.js"></script>
+</body>
+</html>
