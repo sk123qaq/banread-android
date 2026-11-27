@@ -77,12 +77,20 @@
         PURPLE: '#D8B4FE'
     };
 
+    // 首次 open 时 renderer 可能尚未完成布局（getBoundingClientRect 与 innerWidth 都取不到），
+    // 此时先用 384 估算 gap 百分比，等 load/relocate 拿到真实渲染宽度后再重算。
+    var FALLBACK_VIEWPORT_INLINE_SIZE = 384;
+
     var state = {
         view: null,
         currentBookUrl: null,
         currentCss: '',
         paginationMode: 'SLIDE',
-        horizontalMarginPx: 16,
+        horizontalMarginPx: 20,
+        gapViewportWidth: 0,
+        gapRenderer: null,
+        appliedMarginAttr: null,
+        appliedGapAttr: null,
         annotations: [],
         annotationsById: new Map(),
         openSeq: 0,
@@ -209,6 +217,45 @@
         return { color: resolvedColor, underlineStyle: underlineStyle };
     }
 
+    function measureViewportInlineSize(renderer) {
+        var rect = null;
+        try {
+            rect = renderer && typeof renderer.getBoundingClientRect === 'function'
+                ? renderer.getBoundingClientRect()
+                : null;
+        } catch (_) {
+            rect = null;
+        }
+        var width = rect ? rect.width : 0;
+        if (!(typeof width === 'number' && Number.isFinite(width) && width > 0)
+            && typeof window !== 'undefined'
+            && typeof window.innerWidth === 'number'
+            && Number.isFinite(window.innerWidth)
+            && window.innerWidth > 0) {
+            width = window.innerWidth;
+        }
+        return typeof width === 'number' && Number.isFinite(width) && width > 0 ? width : 0;
+    }
+
+    function resolveViewportInlineSize(renderer) {
+        var measured = measureViewportInlineSize(renderer);
+        if (measured > 0) return measured;
+        if (state.gapViewportWidth > 0) return state.gapViewportWidth;
+        return FALLBACK_VIEWPORT_INLINE_SIZE;
+    }
+
+    // 首次 open 时若命中 384 兜底，gap 百分比会按估算宽度烤死；load/relocate 拿到真实渲染宽度后
+    // 只要宽度变了就重涂一次 gap（触发的 ResizeObserver 重渲染会重排，宽度不再变化即停止，不会循环）。
+    function syncGapWithRenderedWidth() {
+        var renderer = state.view && state.view.renderer;
+        if (!renderer) return false;
+        var measured = measureViewportInlineSize(renderer);
+        if (!(measured > 0)) return false;
+        if (Math.abs(measured - state.gapViewportWidth) < 0.5) return false;
+        applyGapMargin();
+        return true;
+    }
+
     function applyGapMargin() {
         var renderer = state.view && state.view.renderer;
         if (!renderer) return;
@@ -216,8 +263,27 @@
             && Number.isFinite(state.horizontalMarginPx)
             && state.horizontalMarginPx >= 0)
             ? state.horizontalMarginPx
-            : 16;
-        renderer.setAttribute('gap', (marginPx * 2) + 'px');
+            : 20;
+        // foliate paginator 的 gap 属性按视口百分比解释：滚动模式 padding = g = f/(1-f)*视口宽度；
+        // 分页模式每页在网格里再被 half-gap 包一层，页内 padding 也是 half-gap，可见页边距仍是 g = f*视口宽度。
+        // 两种模式反解出 g = marginPx，保证滑动条数值就是实际页边距。
+        var viewportWidth = resolveViewportInlineSize(renderer);
+        var gapPercent = state.paginationMode === 'VERTICAL_SCROLL'
+            ? marginPx / (viewportWidth + marginPx) * 100
+            : marginPx / viewportWidth * 100;
+        var marginAttr = marginPx + 'px';
+        var gapAttr = gapPercent.toFixed(3) + '%';
+        state.gapViewportWidth = viewportWidth;
+        if (state.gapRenderer === renderer
+            && state.appliedMarginAttr === marginAttr
+            && state.appliedGapAttr === gapAttr) {
+            return;
+        }
+        state.gapRenderer = renderer;
+        state.appliedMarginAttr = marginAttr;
+        state.appliedGapAttr = gapAttr;
+        renderer.setAttribute('margin', marginAttr);
+        renderer.setAttribute('gap', gapAttr);
     }
 
     function applyPaginationMode(mode) {
@@ -329,6 +395,8 @@
             view.addEventListener('load', function (e) {
                 if (seq !== state.openSeq) return;
                 var detail = e.detail || {};
+                // 章节文档已加载、renderer 已有真实尺寸：先按实际宽度重涂 gap，再设 flow 触发 render()。
+                syncGapWithRenderedWidth();
                 applyPaginationMode(state.paginationMode);
                 if (state.currentCss && view.renderer && view.renderer.setStyles) {
                     view.renderer.setStyles(state.currentCss);
@@ -338,6 +406,8 @@
 
             view.addEventListener('relocate', function (e) {
                 if (seq !== state.openSeq) return;
+                // 首次渲染完成 / 转屏后视口宽度变化时，按真实宽度重算 gap（宽度未变不会重涂）。
+                syncGapWithRenderedWidth();
                 var detail = e.detail || {};
                 var current = resolveCurrentDoc();
                 var doc = current ? current.doc : null;
@@ -449,6 +519,7 @@
                 await view.init({ showTextStart: false });
             }
             if (seq !== state.openSeq) return;
+            syncGapWithRenderedWidth();
         } catch (err) {
             if (seq === state.openSeq) {
                 notifyNative('onError', String(err && err.message ? err.message : err));

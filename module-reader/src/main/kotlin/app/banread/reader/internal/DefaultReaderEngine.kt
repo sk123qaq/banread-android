@@ -68,7 +68,7 @@ internal class DefaultReaderEngine(
         fontSizeSp = 18f,
         lineHeightMultiplier = 1.6f,
         paragraphSpacingDp = 12f,
-        horizontalMarginDp = 16f,
+        horizontalMarginDp = 20f,
         squeezeChinesePunctuation = true,
     )
     private var currentTheme = ReaderTheme.PAPER_LIGHT

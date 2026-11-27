@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -60,6 +61,15 @@ class FoliateWebAdapter(
     @Volatile
     private var attachedWebView: WebView? = null
 
+    /**
+     * 当前 attached WebView 是否已 detach/destroy。置位后：
+     * - 已 post 到主线程的 evaluateJavascript 闭包直接丢弃，不碰已 destroy 的 WebView；
+     * - JS bridge 回调不再生效（旧 WebView 的 onBridgeReady 不会把脚本 flush 到新 WebView）。
+     * attachWebView() 会重置该标志（adapter 是单例，阅读器可反复进出）。
+     */
+    @Volatile
+    private var destroyed = false
+
     @Volatile
     private var bridgeReady = false
 
@@ -73,7 +83,7 @@ class FoliateWebAdapter(
     private var lastCssPayload = ""
 
     @Volatile
-    private var horizontalMarginDp = 16f
+    private var horizontalMarginDp = 20f
 
     private val assetLoader: WebViewAssetLoader = WebViewAssetLoader.Builder()
         .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(appContext))
@@ -95,6 +105,7 @@ class FoliateWebAdapter(
 
     @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
     fun attachWebView(webView: WebView) {
+        destroyed = false
         attachedWebView = webView
         bridgeReady = false
 
@@ -107,7 +118,7 @@ class FoliateWebAdapter(
             displayZoomControls = false
         }
 
-        webView.addJavascriptInterface(NativeJsBridge(), "BanReadNative")
+        webView.addJavascriptInterface(NativeJsBridge(webView), "BanReadNative")
         webView.webViewClient = object : WebViewClient() {
             override fun shouldInterceptRequest(
                 view: WebView?,
@@ -121,9 +132,14 @@ class FoliateWebAdapter(
     }
 
     fun detachWebView() {
-        attachedWebView?.removeJavascriptInterface("BanReadNative")
+        // 先置 destroyed：此后所有已 post/在飞的 evaluateJavascript 闭包都会自行丢弃。
+        destroyed = true
+        val webView = attachedWebView
         attachedWebView = null
         bridgeReady = false
+        pendingScripts.clear()
+        mainHandler.removeCallbacksAndMessages(null)
+        webView?.removeJavascriptInterface("BanReadNative")
     }
 
     fun setPaginationMode(mode: PaginationMode) {
@@ -191,37 +207,55 @@ class FoliateWebAdapter(
     private fun evaluateBridge(script: String) {
         val webView = attachedWebView
         if (webView == null || !bridgeReady) {
+            // 没有可执行的 WebView：入队，等 attach + onBridgeReady 后统一 flush（首开/重进阅读器都走这里）。
             pendingScripts.add(script)
             return
         }
-        runOnMain { webView.evaluateJavascript(script, null) }
-    }
-
-    private fun flushPendingScripts() {
-        val webView = attachedWebView ?: return
-        while (true) {
-            val next = pendingScripts.poll() ?: break
-            runOnMain { webView.evaluateJavascript(next, null) }
+        runOnMain {
+            if (!isLive(webView)) return@runOnMain
+            webView.evaluateJavascript(script, null)
         }
     }
 
+    private fun flushPendingScripts(webView: WebView) {
+        if (!isLive(webView)) return
+        while (true) {
+            val next = pendingScripts.poll() ?: break
+            runOnMain {
+                if (!isLive(webView)) return@runOnMain
+                webView.evaluateJavascript(next, null)
+            }
+        }
+    }
+
+    /** destroyed 与 attachedWebView 必须同时满足，才允许对该 WebView 求值/回调。 */
+    private fun isLive(webView: WebView): Boolean = !destroyed && attachedWebView === webView
+
     private fun runOnMain(block: () -> Unit) {
+        if (destroyed) return
         if (Looper.myLooper() == Looper.getMainLooper()) {
             block()
         } else {
-            mainHandler.post(block)
+            mainHandler.post {
+                if (destroyed) return@post
+                block()
+            }
         }
     }
 
-    private inner class NativeJsBridge {
+    private inner class NativeJsBridge(
+        private val webView: WebView,
+    ) {
         @JavascriptInterface
         fun onBridgeReady(unused: String) {
+            if (!isLive(webView)) return
             bridgeReady = true
-            flushPendingScripts()
+            flushPendingScripts(webView)
         }
 
         @JavascriptInterface
         fun onRelocated(payloadJson: String) {
+            if (!isLive(webView)) return
             runCatching {
                 val parsed = json.decodeFromString(JsRelocatePayload.serializer(), payloadJson)
                 _locationEvents.tryEmit(parsed.toDomain())
@@ -230,6 +264,7 @@ class FoliateWebAdapter(
 
         @JavascriptInterface
         fun onFootnoteClicked(payloadJson: String) {
+            if (!isLive(webView)) return
             runCatching {
                 val parsed = json.decodeFromString(JsFootnoteClickPayload.serializer(), payloadJson)
                 _footnoteEvents.tryEmit(parsed.toDomain())
@@ -238,6 +273,7 @@ class FoliateWebAdapter(
 
         @JavascriptInterface
         fun onSelectionChanged(payloadJson: String) {
+            if (!isLive(webView)) return
             runCatching {
                 val parsed = json.decodeFromString(JsSelectionPayload.serializer(), payloadJson)
                 _selectionEvents.tryEmit(parsed.toDomain())
@@ -246,7 +282,9 @@ class FoliateWebAdapter(
 
         @JavascriptInterface
         fun onError(message: String) {
-            // Surface cleanly without crashing WebView renderer
+            if (!isLive(webView)) return
+            // 只记录错误，不抛异常，避免拖垮 WebView renderer
+            Log.e(TAG, "JS error: $message")
         }
     }
 
@@ -291,6 +329,7 @@ class FoliateWebAdapter(
     }
 
     companion object {
+        private const val TAG = "BanReadReader"
         const val HOST_PAGE_URL = "https://appassets.androidplatform.net/assets/reader/reader_host.html"
     }
 }

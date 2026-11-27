@@ -126,6 +126,8 @@ fun ReflowReaderScreen(
             .fillMaxSize()
             .background(palette.paperReading),
     ) {
+        // 持有 factory 创建的 WebView：用 remember 保存，避免重组后局部变量被重置、onRelease 拿不到实例
+        val readerWebViewRef = remember { java.util.concurrent.atomic.AtomicReference<WebView?>(null) }
         // Real FoliateWebAdapter WebView with 3x3 single-tap zone detector (preserves scroll/selection/links)
         AndroidView(
             modifier = Modifier
@@ -174,10 +176,15 @@ fun ReflowReaderScreen(
                         false
                     }
                     foliateWebAdapter.attachWebView(this)
+                    readerWebViewRef.set(this)
                 }
             },
             onRelease = {
                 foliateWebAdapter.detachWebView()
+                readerWebViewRef.getAndSet(null)?.let { webView ->
+                    webView.stopLoading()
+                    webView.destroy()
+                }
             },
         )
 

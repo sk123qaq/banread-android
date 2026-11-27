@@ -261,7 +261,8 @@ html, body {
   margin: 0;
   padding: 0;
   width: 100%;
-  height: 100%;
+  /* Android WebView 布局视口高度可能为 0，百分比高度链会塌缩；壳层改用 fixed 视口定位。 */
+  height: auto;
   max-width: 100%;
   overflow: hidden;
   background: var(--paper-reading);
@@ -277,8 +278,10 @@ html, body {
 button { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; touch-action: manipulation; }
 
 .viz-shell {
-  width: 100%;
-  height: 100%;
+  position: fixed;
+  inset: 0;
+  width: auto;
+  height: auto;
   max-width: 100%;
   overflow-x: hidden;
   overflow-y: auto;
