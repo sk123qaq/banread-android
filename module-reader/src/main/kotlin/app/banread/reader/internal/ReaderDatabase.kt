@@ -1,0 +1,118 @@
+package app.banread.reader.internal
+
+import android.content.Context
+import androidx.room.Dao
+import androidx.room.Database
+import androidx.room.Entity
+import androidx.room.Index
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.PrimaryKey
+import androidx.room.Query
+import androidx.room.Room
+import androidx.room.RoomDatabase
+
+@Entity(tableName = "reading_progress")
+internal data class ReadingProgressEntity(
+    @PrimaryKey
+    val workId: String,
+    val surfaceMode: String,
+    val cursorJson: String,
+    val spoilerWatermarkOrdinal: Int,
+    val updatedAtMs: Long,
+)
+
+@Entity(
+    tableName = "annotations",
+    indices = [Index(value = ["workId", "updatedAtMs"])],
+)
+internal data class AnnotationEntity(
+    @PrimaryKey
+    val noteId: String,
+    val workId: String,
+    val deviceId: String,
+    val anchorJson: String,
+    val colorToken: String,
+    val comment: String,
+    val updatedAtMs: Long,
+    val deletedAtMs: Long? = null,
+)
+
+@Entity(tableName = "fonts")
+internal data class FontEntity(
+    @PrimaryKey
+    val fontId: String,
+    val displayName: String,
+    val filePath: String,
+    val addedAtMs: Long,
+)
+
+@Dao
+internal interface ReaderDao {
+    @Query("SELECT * FROM reading_progress WHERE workId = :workId LIMIT 1")
+    suspend fun findProgress(workId: String): ReadingProgressEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertProgress(entity: ReadingProgressEntity)
+
+    @Query(
+        "SELECT * FROM annotations WHERE workId = :workId AND deletedAtMs IS NULL " +
+            "ORDER BY updatedAtMs ASC",
+    )
+    suspend fun getActiveAnnotations(workId: String): List<AnnotationEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAnnotation(entity: AnnotationEntity)
+
+    @Query("SELECT * FROM fonts ORDER BY addedAtMs ASC")
+    suspend fun listFonts(): List<FontEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertFont(entity: FontEntity)
+
+    @Query("SELECT * FROM fonts WHERE fontId = :fontId LIMIT 1")
+    suspend fun findFont(fontId: String): FontEntity?
+
+    @Query("DELETE FROM fonts WHERE fontId = :fontId")
+    suspend fun deleteFont(fontId: String)
+}
+
+@Database(
+    entities = [
+        ReadingProgressEntity::class,
+        AnnotationEntity::class,
+        FontEntity::class,
+    ],
+    version = 1,
+    exportSchema = false,
+)
+internal abstract class ReaderDatabase : RoomDatabase() {
+    abstract fun readerDao(): ReaderDao
+
+    companion object {
+        @Volatile
+        private var persistentInstance: ReaderDatabase? = null
+
+        fun getOrBuild(context: Context, allowInMemory: Boolean): ReaderDatabase {
+            val appContext = context.applicationContext ?: context
+            if (allowInMemory) {
+                val directExecutor = java.util.concurrent.Executor { runnable -> runnable.run() }
+                return Room.inMemoryDatabaseBuilder(appContext, ReaderDatabase::class.java)
+                    .allowMainThreadQueries()
+                    .setQueryExecutor(directExecutor)
+                    .setTransactionExecutor(directExecutor)
+                    .build()
+            }
+            return persistentInstance ?: synchronized(this) {
+                persistentInstance ?: Room.databaseBuilder(
+                    appContext,
+                    ReaderDatabase::class.java,
+                    "banread_reader_v1.db",
+                )
+                    .fallbackToDestructiveMigration()
+                    .build()
+                    .also { persistentInstance = it }
+            }
+        }
+    }
+}
