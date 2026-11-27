@@ -34,6 +34,10 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import java.io.Closeable
 import java.io.File
 import java.util.UUID
 import kotlin.math.ceil
@@ -43,13 +47,15 @@ internal class RoomLibraryVault private constructor(
     private val filesRoot: File,
     private val profileRegistry: ProfileRegistry,
     private val db: LibraryDatabase,
-) : LibraryVault {
+) : LibraryVault, Closeable {
 
     private val dao = db.libraryDao()
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
     }
+
+    override fun close() = db.close()
 
     override suspend fun ingestStudyPack(zipUriOrFile: String): Result<ImportedWork> = withContext(Dispatchers.IO) {
         val tempDir = File(filesRoot, "tmp/ingest_${UUID.randomUUID()}").apply { mkdirs() }
@@ -178,8 +184,27 @@ internal class RoomLibraryVault private constructor(
                 addedAtMs = existing?.addedAtMs ?: System.currentTimeMillis(),
             )
 
-            val (chapterEntities, blockEntities) = toRoomEntities(manifest.uid.raw, finalizedChapters)
-            dao.replaceWorkTree(workEntity, chapterEntities, blockEntities, fnResolution.entities)
+            val supersededWorkId = existing?.workId?.takeIf { it != manifest.uid.raw }
+            val htmlIdsByChapter = chaptersForResolution.associate { it.ordinal to it.blockIdToHtmlIds }
+            val (chapterEntities, blockEntities) = toRoomEntities(manifest.uid.raw, finalizedChapters, htmlIdsByChapter)
+            dao.replaceWorkTree(
+                work = workEntity,
+                chapters = chapterEntities,
+                blocks = blockEntities,
+                footnotes = fnResolution.entities,
+                supersededWorkId = supersededWorkId,
+            )
+
+            if (supersededWorkId != null) {
+                File(filesRoot, "compiled/$supersededWorkId").deleteRecursively()
+                val oldOriginal = existing?.originalFilePath?.takeIf { it.isNotBlank() }?.let(::File)
+                if (oldOriginal != null &&
+                    oldOriginal.exists() &&
+                    oldOriginal.canonicalPath != storedPackFile.canonicalPath
+                ) {
+                    oldOriginal.delete()
+                }
+            }
 
             Result.success(workEntity.toImportedWork())
         } catch (ex: AppFailureException) {
@@ -249,15 +274,15 @@ internal class RoomLibraryVault private constructor(
 
                     // Carry forward HTML element IDs across virtual splits
                     val preSplitHtmlIds = linkedMapOf<Int, Map<String, Set<String>>>()
-                    merged.forEachIndexed { idx, _ ->
-                        // best-effort match original candidate ids if unmerged
-                        parsed.blockIdToHtmlIds[idx]?.let { preSplitHtmlIds[idx + 1] = it }
+                    merged.forEachIndexed { idx, ch ->
+                        if (ch.blockIdToHtmlIds.isNotEmpty()) {
+                            preSplitHtmlIds[idx + 1] = ch.blockIdToHtmlIds
+                        }
                     }
 
                     val chaptersForResolution = finalized.map { ch ->
                         val chOrd = ChapterOrdinal(ch.ordinal)
-                        val parentOrd = ch.virtualSplitParentOrdinal ?: ch.ordinal
-                        val origMap = preSplitHtmlIds[parentOrd].orEmpty()
+                        val origMap = preSplitHtmlIds[ch.originalOrdinal].orEmpty()
                         val mappedHtmlIds = linkedMapOf<String, Set<String>>()
                         for ((oldId, newPair) in ch.oldToNewBlockMap) {
                             if (newPair.first == ch.ordinal) {
@@ -310,7 +335,8 @@ internal class RoomLibraryVault private constructor(
                         canonicalVersion = 1,
                         addedAtMs = System.currentTimeMillis(),
                     )
-                    val (chapterEntities, blockEntities) = toRoomEntities(workId.raw, finalized)
+                    val htmlIdsByChapter = chaptersForResolution.associate { it.ordinal to it.blockIdToHtmlIds }
+                    val (chapterEntities, blockEntities) = toRoomEntities(workId.raw, finalized, htmlIdsByChapter)
                     dao.replaceWorkTree(workEntity, chapterEntities, blockEntities, fnResolution.entities)
                     Result.success(workEntity.toImportedWork())
                 }
@@ -593,14 +619,20 @@ internal class RoomLibraryVault private constructor(
                     it.targetChapterOrdinal == targetOrd && it.targetBlockId == fragmentPart
                 }
             }
-            // 2) Marker lookup preferring sourceChapterOrdinal == currentOrdinal
+            // 2) Original HTML fragment lookup (e.g. "notes.xhtml#fn_after_merge") with marker fallback
+            fragmentPart.isNotEmpty() -> {
+                findByOriginalHtmlFragment(
+                    workId = workId.raw,
+                    currentOrdinal = currentOrdinal.value,
+                    filePart = filePart,
+                    targetChapterFromHref = targetChapterFromHref,
+                    fragment = fragmentPart,
+                    allFootnotes = allFootnotes,
+                ) ?: findByNormalizedMarker(currentOrdinal.value, normalizedKey, allFootnotes)
+            }
+            // 3) Marker lookup preferring sourceChapterOrdinal == currentOrdinal
             normalizedKey.isNotEmpty() -> {
-                allFootnotes.firstOrNull {
-                    it.sourceChapterOrdinal == currentOrdinal.value &&
-                        MarkdownBlockParser.normalizeMarker(it.marker).second == normalizedKey
-                } ?: allFootnotes.firstOrNull {
-                    MarkdownBlockParser.normalizeMarker(it.marker).second == normalizedKey
-                }
+                findByNormalizedMarker(currentOrdinal.value, normalizedKey, allFootnotes)
             }
             else -> null
         } ?: return@withContext null
@@ -739,9 +771,75 @@ internal class RoomLibraryVault private constructor(
         return result
     }
 
+    private fun findByNormalizedMarker(
+        currentOrdinal: Int,
+        normalizedKey: String,
+        allFootnotes: List<FootnoteEntity>,
+    ): FootnoteEntity? {
+        if (normalizedKey.isEmpty()) return null
+        return allFootnotes.firstOrNull {
+            it.sourceChapterOrdinal == currentOrdinal &&
+                MarkdownBlockParser.normalizeMarker(it.marker).second == normalizedKey
+        } ?: allFootnotes.firstOrNull {
+            MarkdownBlockParser.normalizeMarker(it.marker).second == normalizedKey
+        }
+    }
+
+    private suspend fun findByOriginalHtmlFragment(
+        workId: String,
+        currentOrdinal: Int,
+        filePart: String,
+        targetChapterFromHref: Int?,
+        fragment: String,
+        allFootnotes: List<FootnoteEntity>,
+    ): FootnoteEntity? {
+        val chapters = dao.getChapters(workId)
+        val candidateOrdinals = if (filePart.isNotEmpty()) {
+            chapters.filter { ch ->
+                targetChapterFromHref == ch.ordinal ||
+                    File(ch.compiledHref).name.equals(filePart, ignoreCase = true) ||
+                    runCatching {
+                        json.decodeFromString(ListSerializer(String.serializer()), ch.sourceFilesJson)
+                    }.getOrDefault(emptyList()).any { sf ->
+                        File(sf).name.equals(filePart, ignoreCase = true)
+                    }
+            }.map { it.ordinal }.toSet()
+        } else {
+            chapters.map { it.ordinal }.toSet()
+        }
+        if (candidateOrdinals.isEmpty()) return null
+
+        val matchingBlocks = dao.getAllBlocksForWork(workId).filter { blk ->
+            if (blk.ordinal !in candidateOrdinals) return@filter false
+            val htmlIds = runCatching {
+                json.parseToJsonElement(blk.locatorJson).jsonObject["htmlIds"]
+                    ?.jsonArray
+                    ?.map { it.jsonPrimitive.content }
+                    .orEmpty()
+            }.getOrDefault(emptyList())
+            fragment in htmlIds
+        }
+        for (blk in matchingBlocks) {
+            val exactSource = allFootnotes.firstOrNull {
+                it.sourceChapterOrdinal == currentOrdinal &&
+                    it.targetChapterOrdinal == blk.ordinal &&
+                    it.targetBlockId == blk.blockId
+            }
+            if (exactSource != null) return exactSource
+        }
+        for (blk in matchingBlocks) {
+            val anySource = allFootnotes.firstOrNull {
+                it.targetChapterOrdinal == blk.ordinal && it.targetBlockId == blk.blockId
+            }
+            if (anySource != null) return anySource
+        }
+        return null
+    }
+
     private fun toRoomEntities(
         workId: String,
         chapters: List<RoleAndSplit.FinalizedChapter>,
+        htmlIdsByChapter: Map<Int, Map<String, Set<String>>> = emptyMap(),
     ): Pair<List<ChapterEntity>, List<ChapterBlockEntity>> {
         val chapterEntities = mutableListOf<ChapterEntity>()
         val blockEntities = mutableListOf<ChapterBlockEntity>()
@@ -763,7 +861,13 @@ internal class RoomLibraryVault private constructor(
                 virtualSplitParentOrdinal = ch.virtualSplitParentOrdinal,
             )
             for (blk in ch.blocks) {
-                val locator = """{"href":"$href","blockId":"${blk.id}"}"""
+                val htmlIds = htmlIdsByChapter[ch.ordinal]?.get(blk.id).orEmpty()
+                val locator = if (htmlIds.isEmpty()) {
+                    """{"href":"$href","blockId":"${blk.id}"}"""
+                } else {
+                    val idsJson = json.encodeToString(ListSerializer(String.serializer()), htmlIds.toList())
+                    """{"href":"$href","blockId":"${blk.id}","htmlIds":$idsJson}"""
+                }
                 blockEntities += ChapterBlockEntity(
                     workId = workId,
                     ordinal = ch.ordinal,

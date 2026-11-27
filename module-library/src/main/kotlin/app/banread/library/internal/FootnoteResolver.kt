@@ -33,6 +33,7 @@ internal data class RefLookupKey(
     val sourceBlockId: String,
     val markerKey: String,
     val occurrenceInBlock: Int,
+    val listItemIndex: Int = -1,
 )
 
 internal object FootnoteResolver {
@@ -129,9 +130,13 @@ internal object FootnoteResolver {
             val chFileNames = ch.sourceFiles.map { File(it).name.lowercase() } +
                 listOf(File(ch.compiledHref).name.lowercase())
 
-            for (blk in ch.blocks) {
+            fun resolveRefList(
+                blkId: String,
+                refs: List<InlineFnRef>,
+                listItemIndex: Int,
+            ) {
                 val perMarkerCounter = mutableMapOf<String, Int>()
-                for (ref in blk.fnRefs) {
+                for (ref in refs) {
                     val occ = perMarkerCounter.getOrDefault(ref.markerKey, 0)
                     perMarkerCounter[ref.markerKey] = occ + 1
 
@@ -147,7 +152,7 @@ internal object FootnoteResolver {
                         allDefsByKey = allDefsByKey,
                     ) ?: continue
 
-                    val lookupKey = RefLookupKey(ch.ordinal, blk.id, ref.markerKey, occ)
+                    val lookupKey = RefLookupKey(ch.ordinal, blkId, ref.markerKey, occ, listItemIndex)
                     targetMap[lookupKey] = ResolvedRefTarget(
                         targetChapterOrdinal = resolved.chapterOrdinal,
                         targetBlockId = resolved.blockId,
@@ -160,7 +165,7 @@ internal object FootnoteResolver {
                         markerDisplay = ref.markerDisplay,
                     )
 
-                    val baseId = "fn_ch${ChapterOrdinal(ch.ordinal).twoDigit()}_${blk.id}_${ref.markerKey}"
+                    val baseId = "fn_ch${ChapterOrdinal(ch.ordinal).twoDigit()}_${blkId}_${ref.markerKey}"
                     var fnId = baseId
                     var suffix = 2
                     while (!usedIds.add(fnId)) {
@@ -172,13 +177,25 @@ internal object FootnoteResolver {
                         workId = workId,
                         footnoteId = fnId,
                         sourceChapterOrdinal = ch.ordinal,
-                        sourceBlockId = blk.id,
+                        sourceBlockId = blkId,
                         marker = ref.markerDisplay,
                         targetChapterOrdinal = resolved.chapterOrdinal,
                         targetBlockId = resolved.blockId,
                         noteText = resolved.noteText,
                         isTranslatorOrBib = resolved.isTranslatorOrBib,
                     )
+                }
+            }
+
+            for (blk in ch.blocks) {
+                if (blk.listItemRefs.isNotEmpty()) {
+                    blk.listItemRefs.forEachIndexed { itemIdx, itemRefs ->
+                        if (itemRefs.isNotEmpty()) {
+                            resolveRefList(blk.id, itemRefs, listItemIndex = itemIdx)
+                        }
+                    }
+                } else if (blk.fnRefs.isNotEmpty()) {
+                    resolveRefList(blk.id, blk.fnRefs, listItemIndex = -1)
                 }
             }
         }

@@ -154,6 +154,7 @@ internal object RoleAndSplit {
         val blocks: List<ParsedBlock>,
         val rawMarkdown: String,
         val rawContentBytes: ByteArray,
+        val blockIdToHtmlIds: Map<String, Set<String>> = emptyMap(),
     )
 
     internal data class MergedChapterCandidate(
@@ -165,6 +166,7 @@ internal object RoleAndSplit {
         val chars: Int,
         val blocks: List<ParsedBlock>,
         val contentSha256: String,
+        val blockIdToHtmlIds: Map<String, Set<String>> = emptyMap(),
     )
 
     fun mergeTitlePages(candidates: List<RawChapterCandidate>): List<MergedChapterCandidate> {
@@ -179,6 +181,15 @@ internal object RoleAndSplit {
                 following.chars >= BODY_MIN_CHARS
             ) {
                 val combinedBlocks = renumberBlocks(current.blocks + following.blocks)
+                val mergedHtmlIds = linkedMapOf<String, Set<String>>()
+                current.blocks.forEachIndexed { i, blk ->
+                    current.blockIdToHtmlIds[blk.id]?.let { mergedHtmlIds["B%02d".format(i + 1)] = it }
+                }
+                following.blocks.forEachIndexed { j, blk ->
+                    following.blockIdToHtmlIds[blk.id]?.let {
+                        mergedHtmlIds["B%02d".format(current.blocks.size + j + 1)] = it
+                    }
+                }
                 val combinedBytes = current.rawContentBytes + byteArrayOf(0) + following.rawContentBytes
                 merged += MergedChapterCandidate(
                     n = current.n,
@@ -189,9 +200,15 @@ internal object RoleAndSplit {
                     chars = current.chars + following.chars,
                     blocks = combinedBlocks,
                     contentSha256 = TextSanitizer.sha256Hex(combinedBytes),
+                    blockIdToHtmlIds = mergedHtmlIds,
                 )
                 index += 2
                 continue
+            }
+            val renumbered = renumberBlocks(current.blocks)
+            val mappedHtmlIds = linkedMapOf<String, Set<String>>()
+            current.blocks.forEachIndexed { i, blk ->
+                current.blockIdToHtmlIds[blk.id]?.let { mappedHtmlIds["B%02d".format(i + 1)] = it }
             }
             merged += MergedChapterCandidate(
                 n = current.n,
@@ -200,8 +217,9 @@ internal object RoleAndSplit {
                 merged = false,
                 sourceFiles = listOf(current.fileName),
                 chars = current.chars,
-                blocks = renumberBlocks(current.blocks),
+                blocks = renumbered,
                 contentSha256 = TextSanitizer.sha256Hex(current.rawContentBytes),
+                blockIdToHtmlIds = mappedHtmlIds,
             )
             index += 1
         }
@@ -222,6 +240,7 @@ internal object RoleAndSplit {
 
     internal data class FinalizedChapter(
         val ordinal: Int,
+        val originalOrdinal: Int,
         val n: String,
         val title: String,
         val role: ChapterRole,
@@ -244,6 +263,7 @@ internal object RoleAndSplit {
 
             if (!needsSplit) {
                 rawSlices += TempSlice(
+                    originalOrdinal = ch.originalOrdinal,
                     parentOrdinal = null,
                     n = ch.n,
                     title = ch.title,
@@ -273,6 +293,7 @@ internal object RoleAndSplit {
                     }
                 }
                 rawSlices += TempSlice(
+                    originalOrdinal = ch.originalOrdinal,
                     parentOrdinal = ch.originalOrdinal,
                     n = ch.n,
                     title = sliceTitle,
@@ -294,6 +315,7 @@ internal object RoleAndSplit {
             }
             FinalizedChapter(
                 ordinal = newOrdinal,
+                originalOrdinal = slice.originalOrdinal,
                 n = if (slice.parentOrdinal == null) slice.n else newOrdinal.toString().padStart(2, '0'),
                 title = slice.title,
                 role = slice.role,
@@ -309,6 +331,7 @@ internal object RoleAndSplit {
     }
 
     private data class TempSlice(
+        val originalOrdinal: Int,
         val parentOrdinal: Int?,
         val n: String,
         val title: String,

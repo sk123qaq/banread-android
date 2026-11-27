@@ -214,6 +214,7 @@ internal object LocalBookInspector {
                     blocks = numberedBlocks,
                     rawMarkdown = bodyTextForRole,
                     rawContentBytes = rawBytes,
+                    blockIdToHtmlIds = remappedHtmlIds,
                 )
             }
 

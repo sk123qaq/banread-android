@@ -165,7 +165,14 @@ internal object XhtmlBookCompiler {
                     val items = blk.listItems.ifEmpty { blk.cleanText.split('\n') }
                     items.forEachIndexed { idx, itemText ->
                         val itemRefs = blk.listItemRefs.getOrNull(idx).orEmpty()
-                        val inner = renderTextWithNoterefs(chapter.ordinal, blk.id, itemText, itemRefs, inlineTargets)
+                        val inner = renderTextWithNoterefs(
+                            chapterOrdinal = chapter.ordinal,
+                            blockId = blk.id,
+                            cleanText = itemText,
+                            refs = itemRefs,
+                            inlineTargets = inlineTargets,
+                            listItemIndex = idx,
+                        )
                         appendLine("""    <li>$inner</li>""")
                     }
                     appendLine("""  </ul>""")
@@ -223,6 +230,7 @@ internal object XhtmlBookCompiler {
         cleanText: String,
         refs: List<InlineFnRef>,
         inlineTargets: Map<RefLookupKey, ResolvedRefTarget>,
+        listItemIndex: Int = -1,
     ): String {
         if (refs.isEmpty()) return xmlEscape(cleanText)
 
@@ -240,7 +248,7 @@ internal object XhtmlBookCompiler {
             if (offset > cursor) {
                 sb.append(xmlEscape(cleanText.substring(cursor, offset)))
             }
-            val resolved = inlineTargets[RefLookupKey(chapterOrdinal, blockId, ref.markerKey, occ)]
+            val resolved = inlineTargets[RefLookupKey(chapterOrdinal, blockId, ref.markerKey, occ, listItemIndex)]
             val href = resolved?.compiledHref ?: "#fn-${xmlEscape(ref.markerKey)}"
             val markerEsc = xmlEscape(ref.markerDisplay)
             sb.append(

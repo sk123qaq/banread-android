@@ -21,6 +21,7 @@ import app.banread.model.registry.ProfileRegistry
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -34,6 +35,7 @@ import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.io.Closeable
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
@@ -65,6 +67,11 @@ class LibraryVaultContractTest {
             profileRegistry = profileRegistry,
             allowInMemory = true,
         )
+    }
+
+    @After
+    fun tearDown() {
+        (vault as? Closeable)?.close()
     }
 
     @Test
@@ -389,6 +396,126 @@ class LibraryVaultContractTest {
         assertNull(reIngested.literatureSubKind)
     }
 
+    @Test
+    fun `SpoilerGate UpTo filters translator and bibliography boilerplate notes`() = runTest {
+        val zipFile = buildRealisticBcBookZip(tempFolder.newFile("B0042_upto_boilerplate.bcbook"))
+        val imported = vault.ingestStudyPack(zipFile.absolutePath).getOrThrow()
+
+        val sliceAt5 = vault.loadGatedChapterInputs(imported.workId, SpoilerGate.UpTo(ChapterOrdinal(5)))
+        assertEquals(
+            listOf(ChapterOrdinal(2), ChapterOrdinal(3), ChapterOrdinal(4), ChapterOrdinal(5)),
+            sliceAt5.chapters.map { it.ordinal },
+        )
+        assertEquals(listOf("45"), sliceAt5.footnotes.map { it.marker })
+        assertTrue(sliceAt5.footnotes.none { it.marker == "999" })
+    }
+
+    @Test
+    fun `markdown list-item footnotes resolve to FootnoteEntity and valid compiled XHTML noterefs`() = runTest {
+        val ch1Md = buildString {
+            appendLine("# 第一章 论辩")
+            appendLine()
+            appendLine("- 第一条论据[^1]")
+            appendLine("- 第二条论据[^2]")
+        }
+        val notesMd = buildString {
+            appendLine("# 注释")
+            appendLine()
+            appendLine("[^1]: 第一条论据出自《史记》。")
+            appendLine()
+            appendLine("[^2]: 第二条论据出自《汉书》。")
+        }
+        val zipFile = buildCustomBcBookZip(
+            dest = tempFolder.newFile("B7001_list_fn.bcbook"),
+            workId = "B7001",
+            sourceSha256Hex = "c".repeat(64),
+            chapters = listOf(
+                Triple("01_第一章.md", ChapterRole.BODY, ch1Md),
+                Triple("02_注释.md", ChapterRole.NOTES, notesMd),
+            ),
+        )
+
+        val imported = vault.ingestStudyPack(zipFile.absolutePath).getOrThrow()
+        val fn1 = vault.resolveFootnote(imported.workId, ChapterOrdinal(1), "1")
+        val fn2 = vault.resolveFootnote(imported.workId, ChapterOrdinal(1), "2")
+        assertNotNull(fn1)
+        assertNotNull(fn2)
+        assertEquals(ChapterOrdinal(2), fn1!!.link.targetChapterOrdinal)
+        assertEquals(ChapterOrdinal(2), fn2!!.link.targetChapterOrdinal)
+        assertTrue(fn1.fullNoteText.contains("史记"))
+        assertTrue(fn2.fullNoteText.contains("汉书"))
+
+        val gated = vault.loadGatedChapterInputs(imported.workId, SpoilerGate.FullBookUnlocked)
+        assertEquals(setOf("1", "2"), gated.footnotes.map { it.marker }.toSet())
+
+        val ch01Html = File(filesRoot, "compiled/B7001/OEBPS/ch_01.xhtml").readText()
+        assertTrue(ch01Html.contains("<ul "))
+        assertTrue(ch01Html.contains("<li>第一条论据<a epub:type=\"noteref\" role=\"doc-noteref\" href=\"ch_02.xhtml#${fn1.link.targetBlockId.value}\""))
+        assertTrue(ch01Html.contains("<li>第二条论据<a epub:type=\"noteref\" role=\"doc-noteref\" href=\"ch_02.xhtml#${fn2.link.targetBlockId.value}\""))
+        val ch02Html = File(filesRoot, "compiled/B7001/OEBPS/ch_02.xhtml").readText()
+        assertTrue(ch02Html.contains("id=\"${fn1.link.targetBlockId.value}\""))
+        assertTrue(ch02Html.contains("id=\"${fn2.link.targetBlockId.value}\""))
+    }
+
+    @Test
+    fun `bcbook supersedes local EPUB with identical bookSourceSha256 and cleans up orphaned state`() = runTest {
+        val epubFile = buildMinimalEpub(
+            dest = tempFolder.newFile("local_source.epub"),
+            title = "待升级本地书",
+            author = "作者甲",
+            subject = "历史",
+        )
+        val localSha = sha256Hex(epubFile.readBytes())
+        val localImported = vault.importLocalBook(epubFile.absolutePath).getOrThrow()
+        assertTrue(localImported.workId.raw.startsWith("local_"))
+        assertTrue(File(filesRoot, "compiled/${localImported.workId.raw}").isDirectory)
+        assertTrue(File(filesRoot, "books/${localImported.workId.raw}.epub").isFile)
+
+        vault.overrideProfile(localImported.workId, ReadProfileId("philosophy"), null)
+
+        val bcbookFile = buildRealisticBcBookZip(
+            dest = tempFolder.newFile("B0042_supersede.bcbook"),
+            bookSourceSha256Hex = localSha,
+        )
+        val upgraded = vault.ingestStudyPack(bcbookFile.absolutePath).getOrThrow()
+        assertEquals(WorkId("B0042"), upgraded.workId)
+        assertEquals(ReadProfileId("philosophy"), upgraded.readProfileId)
+        assertNull(upgraded.literatureSubKind)
+
+        val missingOutline = runCatching { vault.getWorkOutline(localImported.workId) }
+        assertTrue(missingOutline.exceptionOrNull() is NoSuchElementException)
+        assertFalse(File(filesRoot, "compiled/${localImported.workId.raw}").exists())
+        assertFalse(File(filesRoot, "books/${localImported.workId.raw}.epub").exists())
+        assertTrue(File(filesRoot, "compiled/B0042").isDirectory)
+
+        // Re-importing the original EPUB deduplicates to the superseding B0042 work (only 1 work exists)
+        val reimported = vault.importLocalBook(epubFile.absolutePath).getOrThrow()
+        assertEquals(WorkId("B0042"), reimported.workId)
+    }
+
+    @Test
+    fun `local EPUB mergeTitlePages preserves HTML anchor IDs without off-by-one shift`() = runTest {
+        val epubFile = buildFourSpineMergeEpub(tempFolder.newFile("merged_epub.epub"))
+        val imported = vault.importLocalBook(epubFile.absolutePath).getOrThrow()
+
+        val outline = vault.getWorkOutline(imported.workId)
+        assertEquals(2, outline.bodyChapters.size)
+        assertEquals(1, outline.notesChapters.size)
+        assertTrue(outline.bodyChapters[0].merged)
+        assertEquals(ChapterOrdinal(1), outline.bodyChapters[0].ordinal)
+        assertEquals(ChapterOrdinal(2), outline.bodyChapters[1].ordinal)
+        assertEquals(ChapterOrdinal(3), outline.notesChapters[0].ordinal)
+
+        val fn = vault.resolveFootnote(imported.workId, ChapterOrdinal(2), "notes.xhtml#fn_after_merge")
+        assertNotNull(fn)
+        assertEquals(ChapterOrdinal(2), fn!!.link.sourceChapterOrdinal)
+        assertEquals(ChapterOrdinal(3), fn.link.targetChapterOrdinal)
+        assertTrue(fn.fullNoteText.contains("合并前置页后仍精准解析的脚注"))
+
+        val ch02Html = File(filesRoot, "compiled/${imported.workId.raw}/OEBPS/ch_02.xhtml").readText()
+        assertTrue(ch02Html.contains("href=\"ch_03.xhtml#${fn.link.targetBlockId.value}\""))
+    }
+
     private fun assertUnsupportedFailure(result: Result<*>) {
         assertTrue("Expected failure result, got success", result.isFailure)
         val ex = result.exceptionOrNull()
@@ -396,7 +523,10 @@ class LibraryVaultContractTest {
         assertTrue((ex as AppFailureException).failure is AppFailure.UnsupportedDrmOrFormat)
     }
 
-    private fun buildRealisticBcBookZip(dest: File): File {
+    private fun buildRealisticBcBookZip(
+        dest: File,
+        bookSourceSha256Hex: String = "b".repeat(64),
+    ): File {
         val files = linkedMapOf<String, String>()
         files["00_扉页.md"] = "# 导言\n\n题记。\n"
         files["01_前置页.md"] = "# 前置页\n\n" + "导言前置页说明文字，介绍版本来源与校勘体例。".repeat(20) + "\n"
@@ -457,7 +587,7 @@ class LibraryVaultContractTest {
             subjects = listOf("文学", "推理"),
             readType = ReadProfileId("literature"),
             subKind = "mystery",
-            bookSourceSha256 = BookSourceHash("b".repeat(64)),
+            bookSourceSha256 = BookSourceHash(bookSourceSha256Hex),
             clothColor = profileRegistry.clothColor("B0042"),
             logicalChapters = entries,
         )
@@ -609,6 +739,140 @@ class LibraryVaultContractTest {
         System.arraycopy(textBytes, 0, total.array(), r1Offset, textBytes.size)
 
         dest.writeBytes(total.array())
+        return dest
+    }
+
+    private fun buildCustomBcBookZip(
+        dest: File,
+        workId: String,
+        sourceSha256Hex: String,
+        chapters: List<Triple<String, ChapterRole, String>>,
+    ): File {
+        val entries = chapters.mapIndexed { idx, (fileName, role, md) ->
+            val ord = idx + 1
+            LogicalChapterEntry(
+                ordinal = ChapterOrdinal(ord),
+                n = ord.toString().padStart(2, '0'),
+                title = md.lineSequence().firstOrNull { it.startsWith("# ") }?.removePrefix("# ")?.trim().orEmpty(),
+                chapterRole = role,
+                merged = false,
+                sourceFiles = listOf(fileName),
+                chapterContentSha256 = ChapterContentHash(sha256Hex(md.toByteArray())),
+                chars = md.count { !it.isWhitespace() },
+            )
+        }
+        val manifest = BcBookManifest(
+            schemaVersion = 1,
+            uid = WorkId(workId),
+            title = "自定义测试书",
+            author = "测试者",
+            subjects = listOf("历史"),
+            readType = ReadProfileId("history"),
+            subKind = "",
+            bookSourceSha256 = BookSourceHash(sourceSha256Hex),
+            clothColor = profileRegistry.clothColor(workId),
+            logicalChapters = entries,
+        )
+        ZipOutputStream(FileOutputStream(dest)).use { zos ->
+            zos.putNextEntry(ZipEntry("manifest.json"))
+            zos.write(json.encodeToString(BcBookManifest.serializer(), manifest).toByteArray())
+            zos.closeEntry()
+            for ((fileName, _, md) in chapters) {
+                zos.putNextEntry(ZipEntry("md/$fileName"))
+                zos.write(md.toByteArray())
+                zos.closeEntry()
+            }
+        }
+        return dest
+    }
+
+    private fun buildFourSpineMergeEpub(dest: File): File {
+        val preBody = "这是合并前置页的正文说明，确保总字符数达到五百以上以触发标题页合并逻辑。".repeat(20)
+        ZipOutputStream(FileOutputStream(dest)).use { zos ->
+            zos.putNextEntry(ZipEntry("mimetype"))
+            zos.write("application/epub+zip".toByteArray())
+            zos.closeEntry()
+
+            zos.putNextEntry(ZipEntry("META-INF/container.xml"))
+            zos.write(
+                """<?xml version="1.0" encoding="UTF-8"?>
+                <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+                  <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+                </container>""".trimIndent().toByteArray(),
+            )
+            zos.closeEntry()
+
+            zos.putNextEntry(ZipEntry("OEBPS/content.opf"))
+            zos.write(
+                """<?xml version="1.0" encoding="UTF-8"?>
+                <package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+                  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+                    <dc:title>合并锚点测试集</dc:title>
+                    <dc:creator>测试作者</dc:creator>
+                    <dc:subject>历史</dc:subject>
+                  </metadata>
+                  <manifest>
+                    <item id="s0" href="cover.xhtml" media-type="application/xhtml+xml"/>
+                    <item id="s1" href="前置页.xhtml" media-type="application/xhtml+xml"/>
+                    <item id="s2" href="ch1.xhtml" media-type="application/xhtml+xml"/>
+                    <item id="s3" href="notes.xhtml" media-type="application/xhtml+xml"/>
+                  </manifest>
+                  <spine>
+                    <itemref idref="s0"/>
+                    <itemref idref="s1"/>
+                    <itemref idref="s2"/>
+                    <itemref idref="s3"/>
+                  </spine>
+                </package>""".trimIndent().toByteArray(),
+            )
+            zos.closeEntry()
+
+            zos.putNextEntry(ZipEntry("OEBPS/cover.xhtml"))
+            zos.write(
+                """<?xml version="1.0" encoding="UTF-8"?>
+                <html xmlns="http://www.w3.org/1999/xhtml">
+                  <head><title>扉页</title></head>
+                  <body><h1>扉页</h1><p>简短题记。</p></body>
+                </html>""".trimIndent().toByteArray(),
+            )
+            zos.closeEntry()
+
+            zos.putNextEntry(ZipEntry("OEBPS/前置页.xhtml"))
+            zos.write(
+                """<?xml version="1.0" encoding="UTF-8"?>
+                <html xmlns="http://www.w3.org/1999/xhtml">
+                  <head><title>前置页</title></head>
+                  <body><h1>前置页</h1><p>$preBody</p></body>
+                </html>""".trimIndent().toByteArray(),
+            )
+            zos.closeEntry()
+
+            zos.putNextEntry(ZipEntry("OEBPS/ch1.xhtml"))
+            zos.write(
+                """<?xml version="1.0" encoding="UTF-8"?>
+                <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+                  <head><title>第一章 正文</title></head>
+                  <body>
+                    <h1>第一章 正文</h1>
+                    <p>正文引用合并后仍应保留的锚点<a epub:type="noteref" href="notes.xhtml#fn_after_merge">1</a>。</p>
+                  </body>
+                </html>""".trimIndent().toByteArray(),
+            )
+            zos.closeEntry()
+
+            zos.putNextEntry(ZipEntry("OEBPS/notes.xhtml"))
+            zos.write(
+                """<?xml version="1.0" encoding="UTF-8"?>
+                <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+                  <head><title>注释</title></head>
+                  <body>
+                    <h1>注释</h1>
+                    <aside id="fn_after_merge" epub:type="footnote"><p>这是合并前置页后仍精准解析的脚注。</p></aside>
+                  </body>
+                </html>""".trimIndent().toByteArray(),
+            )
+            zos.closeEntry()
+        }
         return dest
     }
 

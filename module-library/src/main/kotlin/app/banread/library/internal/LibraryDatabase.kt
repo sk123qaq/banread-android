@@ -137,6 +137,7 @@ internal interface LibraryDao {
 
     @Query(
         "SELECT * FROM footnotes WHERE workId = :workId AND sourceChapterOrdinal <= :maxOrdinal " +
+            "AND isTranslatorOrBib = 0 " +
             "ORDER BY sourceChapterOrdinal ASC, footnoteId ASC",
     )
     suspend fun getFootnotesUpToOrdinal(workId: String, maxOrdinal: Int): List<FootnoteEntity>
@@ -165,13 +166,23 @@ internal interface LibraryDao {
     @Query("DELETE FROM footnotes WHERE workId = :workId")
     suspend fun deleteFootnotesForWork(workId: String)
 
+    @Query("DELETE FROM works WHERE workId = :workId")
+    suspend fun deleteWorkById(workId: String)
+
     @Transaction
     suspend fun replaceWorkTree(
         work: WorkEntity,
         chapters: List<ChapterEntity>,
         blocks: List<ChapterBlockEntity>,
         footnotes: List<FootnoteEntity>,
+        supersededWorkId: String? = null,
     ) {
+        if (supersededWorkId != null && supersededWorkId != work.workId) {
+            deleteFootnotesForWork(supersededWorkId)
+            deleteBlocksForWork(supersededWorkId)
+            deleteChaptersForWork(supersededWorkId)
+            deleteWorkById(supersededWorkId)
+        }
         upsertWork(work)
         deleteFootnotesForWork(work.workId)
         deleteBlocksForWork(work.workId)
