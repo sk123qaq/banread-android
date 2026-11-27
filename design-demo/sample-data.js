@@ -227,6 +227,104 @@
       }
     ],
 
+    bookChapters: {
+      wuye: [
+        { n: 1, title: '第 1 章 · 雨夜停摆的旧电车', chars: '8,420 字', min: '16 分钟', cached: true, map: true },
+        { n: 2, title: '第 2 章 · 市政档案馆的缺页目录', chars: '9,110 字', min: '18 分钟', cached: true, map: true },
+        { n: 3, title: '第 3 章 · 钟楼里的第二把钥匙', chars: '10,360 字', min: '21 分钟', cached: true, map: true },
+        { n: 4, title: '第 4 章 · 渡口茶室的旧账本', chars: '8,790 字', min: '17 分钟', cached: false, map: false },
+        { n: 5, title: '第 5 章 · 停产钟表厂的编号单', chars: '9,540 字', min: '19 分钟', cached: false, map: false },
+        { n: 6, title: '第 6 章 · 雾港医院的值班记录', chars: '11,020 字', min: '22 分钟', cached: false, map: false },
+        { n: 7, title: '第 7 章 · 地下蒸汽管道的回声', chars: '9,880 字', min: '19 分钟', cached: false, map: false },
+        { n: 8, title: '第 8 章 · 被改写的火警电报', chars: '10,640 字', min: '21 分钟', cached: false, map: false },
+        { n: 9, title: '第 9 章 · 铜齿与暗室底片', chars: '9,310 字', min: '18 分钟', cached: false, map: false },
+        { n: 10, title: '第 10 章 · 终局：钟楼真相', chars: '12,480 字', min: '25 分钟', cached: false, map: false },
+        { n: 11, title: '第 11 章 · 潮汐退去后的证词', chars: '8,950 字', min: '18 分钟', cached: false, map: false },
+        { n: 12, title: '第 12 章 · 尾声：重响的整点钟', chars: '7,620 字', min: '15 分钟', cached: false, map: false }
+      ],
+      shiji: [
+        { n: 1, title: '第 1 章 · 下相起兵与渡江', chars: '6,180 字', min: '12 分钟', cached: true, map: true },
+        { n: 2, title: '第 2 章 · 巨鹿破釜与诸侯壁上', chars: '7,450 字', min: '15 分钟', cached: true, map: true },
+        { n: 3, title: '第 3 章 · 鸿门宴与关中分封', chars: '8,920 字', min: '18 分钟', cached: false, map: false },
+        { n: 4, title: '第 4 章 · 彭城奇袭与睢水之役', chars: '6,840 字', min: '14 分钟', cached: false, map: false },
+        { n: 5, title: '第 5 章 · 荥阳成皋拉锯战', chars: '7,210 字', min: '14 分钟', cached: false, map: false },
+        { n: 6, title: '第 6 章 · 鸿沟之约与背盟东进', chars: '5,960 字', min: '12 分钟', cached: false, map: false },
+        { n: 7, title: '第 7 章 · 垓下四面楚歌', chars: '6,630 字', min: '13 分钟', cached: false, map: false },
+        { n: 8, title: '第 8 章 · 乌江亭与太史公曰', chars: '5,410 字', min: '11 分钟', cached: false, map: false }
+      ],
+      kant: [
+        { n: 1, title: '第 1 章 · 先天综合判断如何可能', chars: '9,240 字', min: '22 分钟', cached: true, map: true },
+        { n: 2, title: '第 2 章 · 先验感性论：时间与空间', chars: '8,750 字', min: '20 分钟', cached: false, map: false },
+        { n: 3, title: '第 3 章 · 知性范畴的先验演绎', chars: '11,420 字', min: '26 分钟', cached: false, map: false },
+        { n: 4, title: '第 4 章 · 纯粹知性的图型法', chars: '7,890 字', min: '18 分钟', cached: false, map: false },
+        { n: 5, title: '第 5 章 · 经验的类比与因果律', chars: '10,120 字', min: '24 分钟', cached: false, map: false },
+        { n: 6, title: '第 6 章 · 现象与物自体之界碑', chars: '8,410 字', min: '19 分钟', cached: false, map: false },
+        { n: 7, title: '第 7 章 · 纯粹理性的谬误推理', chars: '9,360 字', min: '21 分钟', cached: false, map: false },
+        { n: 8, title: '第 8 章 · 四组二律背反', chars: '10,850 字', min: '25 分钟', cached: false, map: false },
+        { n: 9, title: '第 9 章 · 纯粹理性的理想与神学批判', chars: '9,190 字', min: '21 分钟', cached: false, map: false },
+        { n: 10, title: '第 10 章 · 先验方法论与理性建筑术', chars: '7,540 字', min: '17 分钟', cached: false, map: false }
+      ],
+      micro: [
+        { n: 1, title: '第 1 章 · 交易费用与契约起点', chars: '7,820 字', min: '16 分钟', cached: true, map: true },
+        { n: 2, title: '第 2 章 · 信息不对称与逆向选择', chars: '8,340 字', min: '17 分钟', cached: true, map: true },
+        { n: 3, title: '第 3 章 · 不完备契约与剩余控制权', chars: '9,120 字', min: '18 分钟', cached: false, map: false },
+        { n: 4, title: '第 4 章 · 委托代理与路径锁定', chars: '8,670 字', min: '17 分钟', cached: true, map: true },
+        { n: 5, title: '第 5 章 · 组织声誉与隐性激励', chars: '7,950 字', min: '16 分钟', cached: false, map: false },
+        { n: 6, title: '第 6 章 · 多任务代理中的指标扭曲', chars: '8,480 字', min: '17 分钟', cached: false, map: false },
+        { n: 7, title: '第 7 章 · 地方实验与制度扩散', chars: '9,210 字', min: '19 分钟', cached: false, map: false },
+        { n: 8, title: '第 8 章 · 既得利益集团与改革阻力', chars: '8,890 字', min: '18 分钟', cached: false, map: false },
+        { n: 9, title: '第 9 章 · 制度均衡与变迁边界', chars: '7,430 字', min: '15 分钟', cached: false, map: false }
+      ]
+    },
+
+    bookFrontBack: {
+      wuye: [
+        { kind: '前折页', title: '前折页 · 雾港老街区简图与人物表' },
+        { kind: '版权页', title: '版权页 · 出版印次与电子版修订说明' },
+        { kind: '总目录', title: '总目录 · 卷一至卷三编目' },
+        { kind: '奥付', title: '奥付 · 排印字体与校勘记' }
+      ],
+      shiji: [
+        { kind: '序跋', title: '太史公自序节选与三家注凡例' },
+        { kind: '年表', title: '秦楚之际月表对照（前 209–前 202 年）' },
+        { kind: '舆图', title: '巨鹿—彭城—垓下地理态势简图' },
+        { kind: '校勘', title: '中华书局点校本异文校勘记' }
+      ],
+      kant: [
+        { kind: '导言', title: 'A 版与 B 版序言对照说明' },
+        { kind: '术语表', title: '德汉核心先验哲学术语译名表' },
+        { kind: '总目录', title: '先验要素论与先验方法论编目' },
+        { kind: '版权页', title: '学术导读本修订说明' }
+      ],
+      micro: [
+        { kind: '序言', title: '中文版序：激励机制的微观基础' },
+        { kind: '符号表', title: '博弈模型与契约符号索引' },
+        { kind: '总目录', title: '上编（契约）与下编（演化）总目' },
+        { kind: '参考文献', title: '核心实证文献索引与注释说明' }
+      ]
+    },
+
+    bookPreviewBlocks: {
+      shiji: [
+        { id: 'B01', text: '项羽已杀卿子冠军，威震楚国，名闻诸侯。乃遣当阳君、蒲将军将卒二万渡河，救巨鹿。战少利，陈余复请兵。' },
+        { id: 'B02', text: '项羽乃悉引兵渡河，皆沉船，破釜甑，烧庐舍，持三日粮，以示士卒必死，无一还心。于是至则围王离，与秦军遇，九战，绝其甬道，大破之。' },
+        { id: 'B03', text: '当是时，楚兵冠诸侯。诸侯军救巨鹿下者十余壁，莫敢纵兵。及楚击秦，诸将皆从壁上观。楚战士无不一以当十，楚兵呼声动天，诸侯军无不人人惴恐。' },
+        { id: 'B04', text: '于是已破秦军，项羽召见诸侯将，入辕门，无不膝行而前，莫敢仰视。项羽由是始为诸侯上将军，诸侯皆属焉。' }
+      ],
+      kant: [
+        { id: 'B01', text: '我们的一切知识都从经验开始，这是毫无疑问的；因为如果对象不刺激我们的感官，认识能力又何以被唤醒而行动呢？' },
+        { id: 'B02', text: '但尽管我们的一切知识都以经验开始，它们却并非都从经验中产生出来。很可能我们的经验知识本身就是由我们通过印象所接受的东西和我们自己的认识能力从自身中提供的东西合成的。' },
+        { id: 'B03', text: '在所有包含着理性原则的理论科学中，都包含着作为原则的先天综合判断。例如纯粹数学判断固然全是综合的，但同时具有严格普遍性与必然性，不可能来自单纯经验归纳。' },
+        { id: 'B04', text: '因此，纯粹理性的真正课题就包含在这个问题之中：先天综合判断是如何可能的？这一追问直接决定了形而上学能否作为科学立足。' }
+      ],
+      micro: [
+        { id: 'B01', text: '当委托人与代理人之间存在私人信息与监督成本时，正式契约条款往往无法穷尽未来所有或然状态，制度由此产生内生的剩余控制权配置需求。' },
+        { id: 'B02', text: '若考核激励过度偏向易于量化的短期产出，代理人便会把注意力从难以观测的长期治理质量抽离，形成经典的多任务扭曲效应。' },
+        { id: 'B03', text: '更为隐蔽的是路径锁定机制：围绕旧规则形成的专用性人力资本与既得利益联盟，会系统性地提高制度变迁的边际转换成本。' },
+        { id: 'B04', text: '只有在外部冲击打破既有租金分配均衡，或试点机制降低了试错风险时，新的激励相容规则才可能取代低效稳态。' }
+      ]
+    },
+
     wuyeChapters: [
       { n: 1, title: '第 1 章 · 雨夜停摆的旧电车', chars: '8,420 字', min: '16 分钟', cached: true, map: true },
       { n: 2, title: '第 2 章 · 市政档案馆的缺页目录', chars: '9,110 字', min: '18 分钟', cached: true, map: true },
@@ -803,7 +901,7 @@
         data: {
           loops: [
             { id: 'R1', label: '档案掩盖 → 地下流转增强回路' },
-            { id: 'B1', label: '物理痕跡暴露 → 外部核查收敛回路' }
+            { id: 'B1', label: '物理痕迹暴露 → 外部核查收敛回路' }
           ],
           nodes: [
             { id: 'c_drv', label: '官方档案口径掩盖（1998 火灾）', role: 'driver', detail: '公开目录缺失真实机械图纸去向', blocks: ['B05'], source: '原文' },

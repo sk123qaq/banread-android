@@ -654,6 +654,30 @@ html[data-theme="eink"] .brand-seal {
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 14px 14px 20px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--ink-3) 35%, transparent) transparent;
+}
+.app-scroll::-webkit-scrollbar,
+.reader-scroll-area::-webkit-scrollbar,
+.comp-body::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+.app-scroll::-webkit-scrollbar-thumb,
+.reader-scroll-area::-webkit-scrollbar-thumb,
+.comp-body::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink-3) 35%, transparent);
+}
+.app-scroll::-webkit-scrollbar-track,
+.reader-scroll-area::-webkit-scrollbar-track,
+.comp-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.app-scroll::-webkit-scrollbar-button,
+.reader-scroll-area::-webkit-scrollbar-button,
+.comp-body::-webkit-scrollbar-button {
+  display: none;
 }
 
 /* 底部极简 2 项导航 */
@@ -724,8 +748,10 @@ html[data-theme="eink"] .brand-seal {
   gap: 6px;
   overflow-x: auto;
   scrollbar-width: none;
-  padding-bottom: 4px;
+  padding: 0 22px 4px 0;
   margin-bottom: 12px;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent);
 }
 .filter-pills::-webkit-scrollbar { display: none; }
 .filter-pill {
@@ -899,7 +925,14 @@ html[data-theme="eink"] .brand-seal {
     inset -3px 0 0 oklch(0 0 0 / 0.18),
     0 6px 14px -4px oklch(0 0 0 / 0.22);
 }
-.cover .cv-kicker { font-family: var(--mono); font-size: 10px; opacity: 0.8; }
+.cover .cv-kicker {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  opacity: 0.8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .cover .cv-title { font-family: var(--serif); font-size: 15px; font-weight: 800; line-height: 1.3; }
 .cover .cv-author { font-size: 11px; opacity: 0.88; }
 .cover .cv-stamp {
@@ -1201,6 +1234,8 @@ html[data-theme="eink"] .brand-seal {
   overscroll-behavior: contain;
   padding: 6px var(--reader-pad-x) 76px;
   color: var(--reader-ink);
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--ink-3) 35%, transparent) transparent;
 }
 
 .reader-ch-header {
@@ -1222,7 +1257,7 @@ html[data-theme="eink"] .brand-seal {
   font-size: var(--reader-size);
   line-height: var(--reader-line-height);
   color: var(--reader-ink);
-  font-feature-settings: "halt" 1, "palt" 1;
+  font-feature-settings: "palt" 1;
 }
 .reader-body.no-kerning {
   font-feature-settings: normal;
@@ -1560,11 +1595,11 @@ details.pin-card.pin-note[open] > summary::before { transform: rotate(90deg); }
 .sel-sep { width: 1px; height: 14px; background: rgba(255, 255, 255, 0.22); }
 
 /* 原地脚注浮卡 + 返回原阅读处胶囊 */
-.fn-popover {
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: 14px;
+.fn-popover[popover] {
+  position: fixed;
+  margin: 0;
+  inset: auto;
+  box-sizing: border-box;
   z-index: 22;
   padding: 13px 14px;
   border-radius: var(--r-card);
@@ -1572,6 +1607,7 @@ details.pin-card.pin-note[open] > summary::before { transform: rotate(90deg); }
   color: var(--ink);
   box-shadow: var(--shadow-floating);
   border: 1px solid var(--line-strong);
+  max-width: calc(100vw - 16px);
 }
 .fn-popover[popover]:is(:popover-open, .\:popover-open) { display: block; }
 @supports not selector(:popover-open) {
@@ -1647,13 +1683,13 @@ details.pin-card.pin-note[open] > summary::before { transform: rotate(90deg); }
 }
 
 .comp-drag-zone {
-  padding: 6px 12px 4px;
+  padding: 5px 12px 3px;
   cursor: ns-resize;
   touch-action: none;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   flex: none;
   background: color-mix(in srgb, var(--paper) 45%, var(--surface));
 }
@@ -1724,12 +1760,12 @@ details.pin-card.pin-note[open] > summary::before { transform: rotate(90deg); }
 }
 
 .comp-deck {
-  padding: 6px 12px 8px;
+  padding: 4px 12px 6px;
   border-bottom: 1px solid var(--line);
   background: color-mix(in srgb, var(--paper) 45%, var(--surface));
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 5px;
   flex: none;
 }
 .comp-scope-row {
@@ -1840,6 +1876,12 @@ details.pin-card.pin-note[open] > summary::before { transform: rotate(90deg); }
   box-shadow: none;
   color: var(--ink-2);
 }
+.marg-tool-btn.is-offline-locked {
+  background: color-mix(in srgb, var(--amber-soft) 35%, transparent);
+  border: 1px dashed var(--amber);
+  box-shadow: none;
+  color: var(--amber);
+}
 .marg-tool-btn[aria-selected="true"],
 .marg-tool-btn.active {
   background: var(--pine);
@@ -1881,20 +1923,38 @@ details.pin-card.pin-note[open] > summary::before { transform: rotate(90deg); }
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 12px;
+  padding: 10px 12px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--ink-3) 35%, transparent) transparent;
+}
+.comp-body .bp-card {
+  padding: 10px;
+  margin-bottom: 6px;
+}
+.comp-body .bp-note {
+  padding: 5px 8px;
+  margin-bottom: 8px;
+  font-size: 11.5px;
+  line-height: 1.5;
 }
 
 .comp-foot {
-  padding: 8px 12px 10px;
+  padding: 6px 12px 8px;
   border-top: 1px solid var(--line);
   background: var(--surface);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
   flex: none;
+}
+.comp-sheet[data-snap="peek"] .quick-prompts {
+  display: none;
+}
+.comp-sheet[data-snap="peek"] .comp-foot {
+  padding: 5px 12px 6px;
 }
 .quick-prompts {
   display: flex;
@@ -2042,8 +2102,9 @@ details.thinking-box p { margin: 5px 0 0; line-height: 1.55; }
 }
 .pdf-selection-rect {
   position: absolute;
-  border: 2px solid var(--cinnabar);
-  background: oklch(0.51 0.14 31 / 0.16);
+  border: 2px dashed var(--cinnabar);
+  border-radius: 3px;
+  background: oklch(0.51 0.14 31 / 0.14);
   pointer-events: none;
 }
 .pdf-sel-actions {

@@ -203,13 +203,20 @@
           RD.toast('已解锁全书视角（1–12 章均已纳入上下文）');
           renderApp();
         } else if (dlg.id === 'dlg-jump-ahead' && (rv === 'preview' || rv === 'advance')) {
+          const book = getCurrentBook();
           const targetCh = state.pendingJumpChapter || 10;
           state.activeChapterNum = targetCh;
           if (rv === 'advance') {
-            state.watermarkChapter = Math.max(state.watermarkChapter, targetCh);
+            if (book.id === 'wuye') {
+              state.watermarkChapter = Math.max(state.watermarkChapter, targetCh);
+              book.watermark = state.watermarkChapter;
+            } else {
+              book.watermark = Math.max(book.watermark || book.curChapter || 1, targetCh);
+            }
+            book.curChapter = Math.max(book.curChapter || 1, targetCh);
             RD.toast('已推进防剧透水位线至第 ' + targetCh + ' 章');
           } else {
-            RD.toast('预览第 ' + targetCh + ' 章 · 防剧透水位线仍锁至第 ' + state.watermarkChapter + ' 章');
+            RD.toast('预览第 ' + targetCh + ' 章 · 防剧透水位线仍锁至第 ' + getBookWatermark(book) + ' 章');
           }
           state.page = 'reader';
           renderApp();
@@ -320,17 +327,76 @@
     renderApp();
   }
 
+  function getCurrentBook() {
+    return state.books.find((b) => b.id === state.selectedBookId) || state.books[0];
+  }
+
+  function getBookChapters(book) {
+    if (book && DATA.bookChapters && DATA.bookChapters[book.id]) {
+      return DATA.bookChapters[book.id];
+    }
+    const total = Math.max(1, (book && book.totalChapters) || 6);
+    const cur = (book && book.curChapter) || 1;
+    return Array.from({ length: total }, (_, idx) => {
+      const n = idx + 1;
+      return {
+        n,
+        title: '第 ' + n + ' 章 · ' + (n === cur ? '当前在读章节' : '样章结构节选 ' + n),
+        chars: '7,200 字',
+        min: '15 分钟',
+        cached: n <= cur,
+        map: n <= cur
+      };
+    });
+  }
+
+  function getBookFrontBack(book) {
+    if (book && DATA.bookFrontBack && DATA.bookFrontBack[book.id]) {
+      return DATA.bookFrontBack[book.id];
+    }
+    return [
+      { kind: '扉页', title: '扉页 · ' + ((book && book.title) || '本书') + ' 导读说明' },
+      { kind: '版权页', title: '版权页 · 本地导入元信息' },
+      { kind: '总目录', title: '总目录 · 全书结构索引' },
+      { kind: '奥付', title: '奥付 · 排印校勘记' }
+    ];
+  }
+
+  function getBookWatermark(book) {
+    if (!book) return state.watermarkChapter;
+    if (book.id === 'wuye') return state.watermarkChapter;
+    return book.watermark || book.curChapter || 1;
+  }
+
+  function positionFnPopover() {
+    const pop = document.getElementById('fn-popover');
+    const col = document.querySelector('.reader-main-col');
+    if (!pop || !col || !state.activeFootnoteId) return;
+    const colRect = col.getBoundingClientRect();
+    const left = Math.round(colRect.left + 12);
+    const width = Math.max(240, Math.round(colRect.width - 24));
+    const bottom = Math.max(8, Math.round(window.innerHeight - colRect.bottom + 14));
+    pop.style.left = left + 'px';
+    pop.style.width = width + 'px';
+    pop.style.bottom = bottom + 'px';
+  }
+
   function openJumpAheadDialog(chapterNum) {
+    const book = getCurrentBook();
+    const chapters = getBookChapters(book);
+    const wm = getBookWatermark(book);
     state.pendingJumpChapter = chapterNum;
-    const ch = DATA.wuyeChapters.find((c) => c.n === chapterNum);
+    const ch = chapters.find((c) => c.n === chapterNum);
     const desc = document.getElementById('dlg-jump-desc');
     const advBtn = document.getElementById('btn-jump-advance');
     if (desc) {
       desc.textContent =
-        '你即将跳转至「' +
+        '《' +
+        book.title +
+        '》即将跳转至「' +
         (ch ? ch.title : '第 ' + chapterNum + ' 章') +
         '」，它超出了当前防剧透水位线（第 ' +
-        state.watermarkChapter +
+        wm +
         ' 章）。请选择处理方式：';
     }
     if (advBtn) {
@@ -578,6 +644,7 @@
           renderApp();
           return;
         }
+        state.activeChapterNum = b.curChapter || 1;
         state.activeProfileId = b.readType;
         state.page = 'detail';
         renderApp();
@@ -587,6 +654,7 @@
     if (contBtn) {
       contBtn.addEventListener('click', () => {
         state.selectedBookId = 'wuye';
+        state.activeProfileId = 'literature';
         state.activeChapterNum = state.watermarkChapter;
         state.page = 'reader';
         renderApp();
@@ -594,7 +662,10 @@
     }
     root.querySelectorAll('[data-continue-wuye]').forEach((btn) => {
       btn.addEventListener('click', () => {
-        state.activeChapterNum = state.watermarkChapter;
+        const b = state.books.find((x) => x.id === state.selectedSpineId) || getCurrentBook();
+        state.selectedBookId = b.id;
+        state.activeProfileId = b.readType;
+        state.activeChapterNum = b.curChapter || 1;
         state.page = 'reader';
         renderApp();
       });
@@ -608,19 +679,21 @@
      页面 2：书籍详情与目录
      ========================================================================== */
   function renderBookDetail(root) {
-    const book = state.books.find((b) => b.id === state.selectedBookId) || state.books[0];
+    const book = getCurrentBook();
     const profile = getProfile(state.activeProfileId || book.readType);
-    const wm = book.id === 'wuye' ? state.watermarkChapter : book.curChapter;
+    const wm = getBookWatermark(book);
+    const chapters = getBookChapters(book);
+    const frontBack = getBookFrontBack(book);
 
-    const beforeWm = DATA.wuyeChapters.filter((c) => c.n <= wm);
-    const afterWm = DATA.wuyeChapters.filter((c) => c.n > wm);
+    const beforeWm = chapters.filter((c) => c.n <= wm);
+    const afterWm = chapters.filter((c) => c.n > wm);
 
     const makeRow = (ch, locked) => {
-      const isCur = ch.n === state.activeChapterNum;
+      const isCur = ch.n === (book.id === 'wuye' ? state.activeChapterNum : book.curChapter);
       const badge = isCur
         ? '<span class="ch-state cur">在读</span>'
         : ch.cached
-          ? '<span class="ch-state has">导图 · 4 项伴读</span>'
+          ? '<span class="ch-state has">导图 · ' + Math.max(2, book.cachedCount || 2) + ' 项伴读</span>'
           : '<span class="ch-state">🔒 未读</span>';
       return (
         '<button type="button" class="ch-row' +
@@ -631,8 +704,8 @@
         '" data-ch-locked="' +
         (locked ? '1' : '0') +
         '">' +
-        '<span class="ch-n">0' +
-        ch.n +
+        '<span class="ch-n">' +
+        String(ch.n).padStart(2, '0') +
         '</span>' +
         '<span class="ch-title">' +
         RD.esc(ch.title) +
@@ -713,7 +786,7 @@
       '<span>展开 ▾</span>' +
       '</summary>' +
       '<div class="ch-fold-body">' +
-      DATA.wuyeFrontBack
+      frontBack
         .map(
           (fb, idx) =>
             '<button type="button" class="ch-row" data-fb-item="' +
@@ -760,7 +833,7 @@
       });
     });
     root.querySelector('#btn-notes-ch').addEventListener('click', () => {
-      state.activeChapterNum = 3;
+      state.activeChapterNum = wm;
       state.page = 'reader';
       renderApp();
       setTimeout(() => {
@@ -780,7 +853,10 @@
   function renderReader(root) {
     const isFoldable = state.viewport === 'foldable';
     const dockCompanion = isFoldable;
-    const chObj = DATA.wuyeChapters.find((c) => c.n === state.activeChapterNum) || DATA.wuyeChapters[2];
+    const book = getCurrentBook();
+    const chapters = getBookChapters(book);
+    const wm = getBookWatermark(book);
+    const chObj = chapters.find((c) => c.n === state.activeChapterNum) || chapters[Math.min(2, chapters.length - 1)] || chapters[0];
     const profile = getProfile(state.activeProfileId);
 
     const fontMap = {
@@ -794,8 +870,27 @@
     document.documentElement.style.setProperty('--reader-pad-x', marginMap[state.marginMode]);
     document.documentElement.style.setProperty('--reader-font', fontMap[state.fontFamily]);
 
-    const blocksHtml = DATA.chapterBlocks
-      .map((blk) => {
+    const isWuyeCh3 = book.id === 'wuye' && state.activeChapterNum === 3;
+    const rawBlocks = isWuyeCh3
+      ? DATA.chapterBlocks
+      : (DATA.bookPreviewBlocks && DATA.bookPreviewBlocks[book.id]) || [
+          { id: 'B01', text: '本章为《' + book.title + '》' + (chObj ? chObj.title : '第 ' + state.activeChapterNum + ' 章') + ' 的流式正文样章预览，已绑定 ' + profile.name + ' 视角与防剧透水位（锁至第 ' + wm + ' 章）。' },
+          { id: 'B02', text: '在离线本地阅读器中，正文采用首行缩进 2em、两端对齐与标点挤压（palt）排印，单击中央可呼出上下 HUD 与 Aa 排版面板。' }
+        ];
+    const previewBanner = isWuyeCh3
+      ? ''
+      : '<div style="margin-bottom:14px;padding:8px 10px;border-radius:8px;background:var(--amber-soft);color:var(--amber);font-size:12px">样章预览 · 当前显示《' +
+        RD.esc(book.title) +
+        '》（' +
+        RD.esc(chObj ? chObj.title : '') +
+        '）' +
+        (state.activeChapterNum > wm ? '，防剧透水位线仍锁至第 ' + wm + ' 章' : '') +
+        '</div>';
+
+    const blocksHtml =
+      previewBanner +
+      rawBlocks
+        .map((blk) => {
         let inner = RD.esc(blk.text);
         if (blk.highlight) {
           const hlColor = state.hlColors[blk.highlight.id] || blk.highlight.color;
@@ -896,7 +991,9 @@
       ? '<div class="hud-bottom">' +
         '<div class="hud-slider-row"><span>第 ' +
         state.activeChapterNum +
-        ' 章</span><input type="range" min="1" max="12" value="' +
+        ' 章</span><input type="range" min="1" max="' +
+        chapters.length +
+        '" value="' +
         state.activeChapterNum +
         '" id="hud-ch-slider" aria-label="章节进度"><span class="tnum">42%</span></div>' +
         '<div class="hud-btn-row">' +
@@ -950,7 +1047,7 @@
             .map(([k, l]) => '<button type="button" data-font="' + k + '" aria-pressed="' + (state.fontFamily === k ? 'true' : 'false') + '">' + l + '</button>')
             .join('') +
           '<button type="button" id="btn-import-ttf">+ 导入 .ttf</button></div></div>' +
-          '<div class="typo-row"><label>标点挤压 (palt/halt)</label><button type="button" class="wb-btn" id="btn-toggle-kern" aria-pressed="' +
+          '<div class="typo-row"><label>标点挤压 (palt)</label><button type="button" class="wb-btn" id="btn-toggle-kern" aria-pressed="' +
           (state.kerningEnabled ? 'true' : 'false') +
           '">' +
           (state.kerningEnabled ? '已开启' : '已关闭') +
@@ -1059,13 +1156,19 @@
       '">' +
       '<div class="reader-main-col">' +
       '<div class="reading-progress-line"><i></i></div>' +
-      '<div class="reader-running-head"><span>雾夜档案 · 第 ' +
+      '<div class="reader-running-head"><span>' +
+      RD.esc(book.title) +
+      ' · 第 ' +
       state.activeChapterNum +
       ' 章</span><span>' +
-      (state.bookmarked ? '🔖 已书签' : '防剧透锁至第 ' + state.watermarkChapter + ' 章') +
+      (state.bookmarked ? '🔖 已书签' : '防剧透锁至第 ' + wm + ' 章') +
       '</span></div>' +
       '<div class="reader-scroll-area" id="reader-scroll-area">' +
-      '<div class="reader-ch-header"><div class="reader-ch-kicker">林砚 · 想象文学（' +
+      '<div class="reader-ch-header"><div class="reader-ch-kicker">' +
+      RD.esc(book.author) +
+      ' · ' +
+      RD.esc(getProfile(book.readType).name) +
+      '（' +
       RD.esc(profile.name) +
       '视角）</div><h1>' +
       RD.esc(chObj.title) +
@@ -1074,7 +1177,7 @@
       (state.kerningEnabled ? '' : ' no-kerning') +
       '" id="reader-body">' +
       blocksHtml +
-      endnotesHtml +
+      (isWuyeCh3 ? endnotesHtml : '') +
       '</div></div>' +
       '<div class="reader-running-foot">' +
       '<span>第 ' +
@@ -1099,7 +1202,7 @@
       mountCompanionContent(root);
     }
 
-    /* 若脚注浮卡激活，使用原生 popover showPopover / 降级 */
+    /* 若脚注浮卡激活，使用原生 popover showPopover / 降级并定位到当前阅读列内 */
     const fnPopEl = root.querySelector('#fn-popover');
     if (fnPopEl && activeFn) {
       if (typeof fnPopEl.showPopover === 'function') {
@@ -1107,6 +1210,7 @@
       } else {
         fnPopEl.classList.add(':popover-open');
       }
+      positionFnPopover();
     }
 
     bindReaderEvents(root, dockCompanion);
@@ -1144,6 +1248,9 @@
         e.stopPropagation();
         state.activeFootnoteId = ref.dataset.fnId;
         state.hudVisible = false;
+        if (state.companionOpen && state.viewport !== 'foldable') {
+          state.companionOpen = false;
+        }
         renderApp();
       });
     });
@@ -1183,7 +1290,8 @@
     if (chSlider) {
       chSlider.addEventListener('change', () => {
         const val = Number(chSlider.value);
-        if (val > state.watermarkChapter) openJumpAheadDialog(val);
+        const wm = getBookWatermark(getCurrentBook());
+        if (val > wm) openJumpAheadDialog(val);
         else { state.activeChapterNum = val; renderApp(); }
       });
     }
@@ -1457,24 +1565,27 @@
       tools
         .map((t) => {
           const isSel = state.activeToolId === t.id;
-          const isCached = state.cachedTools.has(t.id);
-          const isBuilding = state.buildingToolId === t.id;
+          const isOfflineLocked = Boolean(t.cross_search && !state.gatewayOnline);
+          const isCached = !isOfflineLocked && state.cachedTools.has(t.id);
+          const isBuilding = !isOfflineLocked && state.buildingToolId === t.id;
           return (
             '<button type="button" role="tab" id="tab-' +
             RD.esc(t.id) +
             '" class="marg-tool-btn' +
-            (isCached ? '' : ' is-uncached') +
+            (isOfflineLocked ? ' is-offline-locked' : isCached ? '' : ' is-uncached') +
             (isSel ? ' active' : '') +
             '" aria-selected="' +
             (isSel ? 'true' : 'false') +
             '" data-tool-id="' +
             RD.esc(t.id) +
             '">' +
-            (isBuilding
-              ? '<i class="tool-spin-dot" aria-hidden="true"></i>'
-              : isCached
-                ? '<i class="tool-cache-ico" aria-hidden="true"></i>'
-                : '') +
+            (isOfflineLocked
+              ? '<span aria-hidden="true">🔒</span>'
+              : isBuilding
+                ? '<i class="tool-spin-dot" aria-hidden="true"></i>'
+                : isCached
+                  ? '<i class="tool-cache-ico" aria-hidden="true"></i>'
+                  : '') +
             '<span>' +
             RD.esc(t.label) +
             '</span></button>'
@@ -1720,6 +1831,13 @@
         const tid = tab.dataset.toolId;
         if (!tid) return;
         tab.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        const tools = getToolsForProfile(state.activeProfileId);
+        const tool = tools.find((t) => t.id === tid);
+        if (tool && tool.cross_search && !state.gatewayOnline) {
+          state.activeToolId = tid;
+          renderApp();
+          return;
+        }
         if (!state.cachedTools.has(tid)) {
           state.buildingToolId = tid;
           state.activeToolId = tid;
@@ -1816,25 +1934,27 @@
       '<rect x="0" y="0" width="360" height="490" fill="#EFE4CC"/>' +
       '<rect x="14" y="16" width="332" height="458" fill="none" stroke="#3B2F23" stroke-width="2.2"/>' +
       '<rect x="19" y="21" width="322" height="448" fill="none" stroke="#3B2F23" stroke-width="0.9"/>' +
-      '<line x1="308" y1="21" x2="308" y2="469" stroke="#3B2F23" stroke-width="0.8"/>' +
-      '<text x="323" y="54" font-family="serif" font-size="14" font-weight="700" fill="#2A1E14" writing-mode="tb">幾何原本卷一 · 命題四十七</text>' +
+      '<line x1="312" y1="21" x2="312" y2="469" stroke="#3B2F23" stroke-width="0.8"/>' +
+      '<text x="326" y="54" font-family="serif" font-size="14" font-weight="700" fill="#2A1E14" writing-mode="tb">幾何原本卷一 · 命題四十七</text>' +
       '<g stroke="#2A1E14" stroke-width="1.4" fill="none">' +
-      '<polygon points="120,210 120,130 220,210" fill="rgba(168,68,47,0.08)" stroke-width="2"/>' +
-      '<rect x="40" y="130" width="80" height="80" fill="rgba(30,90,76,0.08)"/>' +
-      '<rect x="120" y="50" width="100" height="80" transform="rotate(-38.6 120 130)" opacity="0.25"/>' +
-      '<polygon points="120,210 220,210 220,338 120,338" fill="rgba(44,64,86,0.07)"/>' +
-      '<line x1="156" y1="159" x2="156" y2="338" stroke="#A8442F" stroke-dasharray="4 3" stroke-width="1.5"/>' +
-      '<line x1="120" y1="210" x2="220" y2="338" stroke="#1E5A4C" stroke-width="1.2"/>' +
-      '<line x1="120" y1="130" x2="220" y2="338" stroke="#1E5A4C" stroke-width="1.2"/>' +
+      '<polygon points="105,195 141,147 205,195" fill="rgba(168,68,47,0.10)" stroke-width="2"/>' +
+      '<polygon points="105,195 205,195 205,295 105,295" fill="rgba(44,64,86,0.08)"/>' +
+      '<polygon points="105,195 141,147 93,111 57,159" fill="rgba(30,90,76,0.09)"/>' +
+      '<polygon points="141,147 205,195 253,131 189,83" fill="rgba(135,80,14,0.09)"/>' +
+      '<line x1="141" y1="147" x2="141" y2="295" stroke="#A8442F" stroke-dasharray="4 3" stroke-width="1.5"/>' +
+      '<line x1="105" y1="195" x2="253" y2="131" stroke="#1E5A4C" stroke-width="1.1"/>' +
+      '<line x1="205" y1="195" x2="93" y2="111" stroke="#1E5A4C" stroke-width="1.1"/>' +
+      '<line x1="141" y1="147" x2="105" y2="295" stroke="#2C4056" stroke-width="1.1"/>' +
+      '<line x1="141" y1="147" x2="205" y2="295" stroke="#2C4056" stroke-width="1.1"/>' +
       '</g>' +
-      '<g fill="#2A1E14" font-family="serif" font-size="12">' +
-      '<text x="108" y="126">甲</text><text x="106" y="224">乙</text><text x="226" y="216">丙</text>' +
-      '<text x="278" y="64" writing-mode="tb">凡直角三角形</text>' +
-      '<text x="256" y="64" writing-mode="tb">對直角之邊上方形</text>' +
-      '<text x="234" y="64" writing-mode="tb">與餘兩邊上兩方形</text>' +
-      '<text x="58" y="382">勾三股四弦五 · 面積割補證法</text>' +
-      '<text x="58" y="406">以甲為頂點作垂線平分弦上方形為二矩形</text>' +
-      '<text x="58" y="430">由全等三角形知兩矩形各等於勾股方形</text>' +
+      '<g fill="#2A1E14" font-family="serif" font-size="11.5">' +
+      '<text x="137" y="139">甲</text><text x="90" y="206">乙</text><text x="211" y="206">丙</text>' +
+      '<text x="294" y="54" writing-mode="tb">凡直角三角形</text>' +
+      '<text x="276" y="54" writing-mode="tb">對直角之邊上方形</text>' +
+      '<text x="258" y="54" writing-mode="tb">與餘兩邊上兩方形等</text>' +
+      '<text x="48" y="346">勾三股四弦五 · 面積割補證法</text>' +
+      '<text x="48" y="370">以甲為頂點作垂線平分弦上方形為二矩形</text>' +
+      '<text x="48" y="394">由全等三角形知兩矩形各等於勾股方形</text>' +
       '</g></svg>';
 
     const textCropSvg =
@@ -1989,13 +2109,29 @@
             y: Math.max(0, Math.min(100, ((e.clientY - r.top) / r.height) * 100))
           };
         };
+        const syncRectEl = () => {
+          if (!state.pdfRect) return;
+          let rectEl = scanCanvas.querySelector('.pdf-selection-rect');
+          if (!rectEl) {
+            rectEl = document.createElement('div');
+            rectEl.className = 'pdf-selection-rect';
+            scanCanvas.appendChild(rectEl);
+          }
+          rectEl.style.left = state.pdfRect.x + '%';
+          rectEl.style.top = state.pdfRect.y + '%';
+          rectEl.style.width = state.pdfRect.w + '%';
+          rectEl.style.height = state.pdfRect.h + '%';
+        };
         scanCanvas.addEventListener('pointerdown', (e) => {
           drawing = true;
           const pt = relPt(e);
           sx = pt.x;
           sy = pt.y;
           state.pdfRect = { x: sx, y: sy, w: 1, h: 1 };
-          scanCanvas.setPointerCapture(e.pointerId);
+          syncRectEl();
+          if (scanCanvas.setPointerCapture && e.pointerId != null) {
+            try { scanCanvas.setPointerCapture(e.pointerId); } catch (err) {}
+          }
         });
         scanCanvas.addEventListener('pointermove', (e) => {
           if (!drawing) return;
@@ -2006,13 +2142,7 @@
             w: Math.max(4, Math.abs(pt.x - sx)),
             h: Math.max(4, Math.abs(pt.y - sy))
           };
-          const rectEl = scanCanvas.querySelector('.pdf-selection-rect');
-          if (rectEl) {
-            rectEl.style.left = state.pdfRect.x + '%';
-            rectEl.style.top = state.pdfRect.y + '%';
-            rectEl.style.width = state.pdfRect.w + '%';
-            rectEl.style.height = state.pdfRect.h + '%';
-          }
+          syncRectEl();
         });
         const endDraw = () => {
           if (!drawing) return;
@@ -2259,8 +2389,12 @@
     });
     document.getElementById('trig-footnote').addEventListener('click', () => {
       state.page = 'reader';
+      state.selectedBookId = 'wuye';
+      state.activeChapterNum = 3;
       state.hudVisible = false;
-      state.companionOpen = false;
+      if (state.viewport !== 'foldable') {
+        state.companionOpen = false;
+      }
       state.selectionOpen = false;
       state.activeFootnoteId = 'fn-45';
       renderApp();
@@ -2302,6 +2436,8 @@
   document.addEventListener('DOMContentLoaded', () => {
     setupDialogs();
     bindStageBar();
+    window.addEventListener('resize', positionFnPopover);
+    window.addEventListener('scroll', positionFnPopover, { passive: true, capture: true });
     applyTheme(state.theme);
     renderApp();
   });
