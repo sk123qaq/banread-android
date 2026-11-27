@@ -2906,10 +2906,101 @@ html[data-theme="eink"] .swipe-card-shell .settings-card.swipe-card-fg {
 .p2p-status-strip {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  padding-top: 6px;
+  gap: 5px;
+  padding-top: 7px;
   border-top: 1px dashed var(--line);
   font-size: 11.5px;
+  color: var(--ink-2);
+}
+.p2p-status-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.p2p-sub-entry-btn {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: var(--r-inner);
+  border: 1px dashed var(--line-strong);
+  background: color-mix(in srgb, var(--paper) 65%, var(--surface));
+  color: var(--ink);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-align: center;
+}
+.p2p-sub-entry-btn:hover {
+  background: var(--surface-hover);
+  border-color: var(--pine);
+}
+.p2p-r2-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  font-size: 10.5px;
+  font-weight: 600;
+  background: var(--pine-soft);
+  color: var(--pine);
+  border: 1px solid color-mix(in srgb, var(--pine) 28%, transparent);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.p2p-r2-badge.is-unconfigured {
+  background: var(--amber-soft);
+  color: var(--amber);
+  border-color: color-mix(in srgb, var(--amber) 28%, transparent);
+}
+.p2p-channel-seg {
+  flex-wrap: nowrap;
+}
+.p2p-channel-seg button {
+  padding: 5px 4px;
+  font-size: 11px;
+}
+body[data-viewport="phone-360"] .p2p-channel-seg button {
+  font-size: 10.5px;
+  padding: 4px 3px;
+}
+.p2p-pkg-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.p2p-pkg-card {
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line-strong);
+  background: var(--paper);
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: var(--ink);
+}
+.p2p-pkg-card:hover { background: var(--surface-hover); }
+.p2p-pkg-card[aria-pressed="true"] {
+  border: 1.5px solid var(--pine);
+  background: color-mix(in srgb, var(--pine-soft) 45%, var(--surface));
+}
+.p2p-pkg-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.p2p-pkg-card-desc {
+  font-size: 11px;
+  line-height: 1.45;
   color: var(--ink-2);
 }
 .p2p-sha-banner {

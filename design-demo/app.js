@@ -119,6 +119,7 @@
     lastRemovedModel: null,
     customFonts: ['思源宋体 · 内置', '霞鹜文楷 · LXGWWenKai.ttf'],
     defaultSpoilerLock: true,
+    r2Configured: true,
     p2pLastLog: '尚未发起双机互传'
   };
 
@@ -2705,17 +2706,20 @@
   }
 
   /* ==========================================================================
-     页面 6：设置中心（BYOK 右滑移除 + 手机互联 P2P 传书与伴读资料分享）
+     页面 6：设置中心（BYOK 右滑移除 + 跨公网 R2 / 局域网 / 微信 .bcnote 分享）
      ========================================================================== */
   const p2pSendState = {
-    mode: 'qr',
+    channel: 'r2',           // r2 | lan | file
+    mode: 'qr',              // qr | link (used by r2 & lan)
     bookId: 'wuye',
+    r2IncludeBook: false,
     peerHasSha: true,
     incMaps: true,
     incNotes: true,
     incQa: true,
     incProgress: false,
-    incOriginalBook: false
+    incOriginalBook: false,
+    fileType: 'bcnote'       // bcnote | bcshare
   };
 
   const p2pScanState = {
@@ -2733,62 +2737,229 @@
     const qaKb = p2pSendState.incQa ? book.qaKb || 24 : 0;
     const progKb = p2pSendState.incProgress ? 4 : 0;
     const dataKb = mapKb + noteKb + qaKb + progKb;
-    const includeOriginal = !p2pSendState.peerHasSha && p2pSendState.incOriginalBook;
-    const bookMb = Number(book.bookSizeMb || 12.0);
-    const totalLabel = includeOriginal
-      ? (bookMb + dataKb / 1024).toFixed(1) + ' MB（含原书 + 伴读资料）'
-      : dataKb + ' KB（仅传伴读资料 · 免传原书）';
-    return { dataKb, includeOriginal, bookMb, totalLabel };
+    const bookMb = Number(book.bookSizeMb || 18.4);
+    const totalMb = (bookMb + dataKb / 1024).toFixed(1);
+    const lanIncludeOriginal = !p2pSendState.peerHasSha && p2pSendState.incOriginalBook;
+    return { dataKb, bookMb, totalMb, lanIncludeOriginal };
+  }
+
+  function renderQrSvg(centerColor, ariaLabel) {
+    return (
+      '<svg width="122" height="122" viewBox="0 0 148 148" aria-label="' +
+      RD.esc(ariaLabel) +
+      '">' +
+      '<rect x="2" y="2" width="144" height="144" rx="8" fill="#FFFFFF" stroke="#BEB6A4"/>' +
+      '<g fill="#181817">' +
+      '<rect x="14" y="14" width="36" height="36" rx="3"/><rect x="20" y="20" width="24" height="24" fill="#FFFFFF"/><rect x="26" y="26" width="12" height="12"/>' +
+      '<rect x="98" y="14" width="36" height="36" rx="3"/><rect x="104" y="20" width="24" height="24" fill="#FFFFFF"/><rect x="110" y="26" width="12" height="12"/>' +
+      '<rect x="14" y="98" width="36" height="36" rx="3"/><rect x="20" y="104" width="24" height="24" fill="#FFFFFF"/><rect x="26" y="110" width="12" height="12"/>' +
+      '<rect x="60" y="18" width="8" height="8"/><rect x="74" y="18" width="8" height="8"/><rect x="60" y="34" width="16" height="8"/>' +
+      '<rect x="58" y="58" width="28" height="28" rx="4" fill="' +
+      RD.esc(centerColor) +
+      '"/><rect x="66" y="66" width="12" height="12" fill="#FFFFFF"/>' +
+      '<rect x="98" y="60" width="12" height="8"/><rect x="116" y="60" width="14" height="8"/><rect x="60" y="98" width="14" height="8"/><rect x="98" y="104" width="22" height="10"/>' +
+      '</g></svg>'
+    );
   }
 
   function renderP2pSendModal() {
     const body = document.getElementById('dlg-p2p-send-body');
     if (!body) return;
     const book = getSelectedP2pBook();
-    const shortSha = (book.sha256 || '8f3a91c2').slice(0, 8) + '…';
+    const shortSha = (book.sha256 || '8f3a91c2').slice(0, 8);
     const stats = computeP2pBundleStats(book);
-    const shareUrl = 'http://192.168.1.24:9721/share/br_7k9m2?sha=' + (book.sha256 || '8f3a91c2');
+    const r2Url = 'https://share.banread.app/s/br_7k9m2#k=9fA2xQ8vLm3P_' + shortSha;
+    const lanUrl = 'http://192.168.1.24:9721/share/br_7k9m2?sha=' + (book.sha256 || '8f3a91c2');
 
-    const transferPanel =
-      p2pSendState.mode === 'qr'
-        ? '<div class="p2p-qr-panel">' +
-          '<svg width="128" height="128" viewBox="0 0 148 148" aria-label="局域网传书二维码">' +
-          '<rect x="2" y="2" width="144" height="144" rx="8" fill="#FFFFFF" stroke="#BEB6A4"/>' +
-          '<g fill="#181817">' +
-          '<rect x="14" y="14" width="36" height="36" rx="3"/><rect x="20" y="20" width="24" height="24" fill="#FFFFFF"/><rect x="26" y="26" width="12" height="12"/>' +
-          '<rect x="98" y="14" width="36" height="36" rx="3"/><rect x="104" y="20" width="24" height="24" fill="#FFFFFF"/><rect x="110" y="26" width="12" height="12"/>' +
-          '<rect x="14" y="98" width="36" height="36" rx="3"/><rect x="20" y="104" width="24" height="24" fill="#FFFFFF"/><rect x="26" y="110" width="12" height="12"/>' +
-          '<rect x="60" y="18" width="8" height="8"/><rect x="74" y="18" width="8" height="8"/><rect x="60" y="34" width="16" height="8"/>' +
-          '<rect x="58" y="58" width="28" height="28" rx="4" fill="#1E5A4C"/><rect x="66" y="66" width="12" height="12" fill="#FFFFFF"/>' +
-          '<rect x="98" y="60" width="12" height="8"/><rect x="116" y="60" width="14" height="8"/><rect x="60" y="98" width="14" height="8"/><rect x="98" y="104" width="22" height="10"/>' +
-          '</g></svg>' +
-          '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:center">' +
-          '<span class="cap-pill">配对码 <b class="mono">482-915</b></span>' +
-          '<span class="fmt-badge mono">192.168.1.24:9721</span>' +
-          '</div>' +
-          '<button type="button" class="btn btn-primary btn-sm" id="btn-p2p-sim-send">模拟对方扫码接收</button>' +
-          '</div>'
-        : '<div class="p2p-link-box">' +
-          '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap">' +
-          '<strong style="font-size:12px">局域网直传链接</strong>' +
-          '<span class="cap-pill">15 分钟有效 · 局域网直连</span>' +
-          '</div>' +
-          '<div class="p2p-url-code" id="p2p-share-url">' +
-          RD.esc(shareUrl) +
-          '</div>' +
+    let channelBodyHtml = '';
+
+    if (p2pSendState.channel === 'r2') {
+      if (!state.r2Configured) {
+        channelBodyHtml =
+          '<div class="p2p-sha-banner is-miss">尚未配置 Cloudflare R2 / Worker 中转端点：当前处于零服务器模式，可直接导出 .bcnote 离线包发送微信，或在此预览启用 R2 24h 加密中转。</div>' +
           '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
-          '<button type="button" class="btn btn-surface btn-sm" id="btn-p2p-copy-link">复制链接</button>' +
-          '<button type="button" class="btn btn-primary btn-sm" id="btn-p2p-sim-link">模拟对方打开链接</button>' +
-          '</div></div>';
+          '<button type="button" class="btn btn-primary btn-sm" id="btn-p2p-fallback-bcnote">改用微信 .bcnote 离线包（零服务器）</button>' +
+          '<button type="button" class="btn btn-surface btn-sm" id="btn-p2p-enable-r2">启用 R2 24h 中转</button>' +
+          '</div>';
+      } else {
+        const r2Panel =
+          p2pSendState.mode === 'qr'
+            ? '<div class="p2p-qr-panel">' +
+              renderQrSvg('#1E5A4C', '跨公网 R2 加密分享二维码') +
+              '<div class="p2p-url-code" id="p2p-share-url">' +
+              RD.esc(r2Url) +
+              '</div>' +
+              '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:center">' +
+              '<span class="cap-pill">24h 自动焚毁 · 异地可读</span>' +
+              '<span class="fmt-badge">AES-GCM #fragment</span>' +
+              '</div>' +
+              '<button type="button" class="btn btn-primary btn-sm" id="btn-p2p-sim-r2">模拟异地 5G 手机接收</button>' +
+              '</div>'
+            : '<div class="p2p-link-box">' +
+              '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap">' +
+              '<strong style="font-size:12px">跨公网 E2EE 密文链接</strong>' +
+              '<span class="cap-pill">24h TTL · 中转零明文</span>' +
+              '</div>' +
+              '<div class="p2p-url-code" id="p2p-share-url">' +
+              RD.esc(r2Url) +
+              '</div>' +
+              '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+              '<button type="button" class="btn btn-surface btn-sm" id="btn-p2p-copy-r2">复制密文链接</button>' +
+              '<button type="button" class="btn btn-primary btn-sm" id="btn-p2p-sim-r2">模拟异地 5G 手机接收</button>' +
+              '</div></div>';
+
+        const r2SizeSummary = p2pSendState.r2IncludeBook
+          ? stats.totalMb + ' MB（加密原书 + 伴读资料）'
+          : stats.dataKb + ' KB（仅上传伴读资料包 · 推荐）';
+
+        channelBodyHtml =
+          '<div class="p2p-sha-banner is-match" id="p2p-r2-e2ee-banner">' +
+          '🔒 本地 AES-GCM 端到端加密 · 解密密钥仅存于链接/二维码 #fragment（中转端零明文）· 24h 自动焚毁 · 无需双机同时在线' +
+          '</div>' +
+          '<div class="dlg-field"><span>智能原书上传策略</span>' +
+          '<div class="byok-seg-row" id="p2p-r2-upload-seg" role="group" aria-label="R2 原书上传选择">' +
+          '<button type="button" data-r2-book="notes" aria-pressed="' +
+          (!p2pSendState.r2IncludeBook ? 'true' : 'false') +
+          '">仅传资料 (' +
+          stats.dataKb +
+          ' KB 推荐)</button>' +
+          '<button type="button" data-r2-book="full" aria-pressed="' +
+          (p2pSendState.r2IncludeBook ? 'true' : 'false') +
+          '">含加密原书 (+' +
+          stats.bookMb +
+          ' MB)</button>' +
+          '</div>' +
+          '<div class="byok-hint">接收端先拉 2 KB 清单比对本地 SHA-256；若已有同书自动跳过 ' +
+          stats.bookMb +
+          ' MB 原书下载，只拉 ' +
+          stats.dataKb +
+          ' KB 伴读资料！</div></div>' +
+          '<div class="p2p-summary-bar" id="p2p-send-summary"><span>预计上传：' +
+          RD.esc(r2SizeSummary) +
+          '</span></div>' +
+          '<div class="byok-seg-row" role="group" aria-label="R2 呈现形式">' +
+          '<button type="button" data-p2p-send-mode="qr" aria-pressed="' +
+          (p2pSendState.mode === 'qr' ? 'true' : 'false') +
+          '">生成二维码</button>' +
+          '<button type="button" data-p2p-send-mode="link" aria-pressed="' +
+          (p2pSendState.mode === 'link' ? 'true' : 'false') +
+          '">生成分享链接</button></div>' +
+          r2Panel;
+      }
+    } else if (p2pSendState.channel === 'lan') {
+      const lanSummary = stats.lanIncludeOriginal
+        ? stats.totalMb + ' MB（含原书 + 伴读资料）'
+        : stats.dataKb + ' KB（仅传伴读资料 · 免传原书）';
+      const lanPanel =
+        p2pSendState.mode === 'qr'
+          ? '<div class="p2p-qr-panel">' +
+            renderQrSvg('#A8442F', '局域网传书二维码') +
+            '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:center">' +
+            '<span class="cap-pill">配对码 <b class="mono">482-915</b></span>' +
+            '<span class="fmt-badge mono">192.168.1.24:9721</span>' +
+            '</div>' +
+            '<button type="button" class="btn btn-primary btn-sm" id="btn-p2p-sim-send">模拟对方扫码接收</button>' +
+            '</div>'
+          : '<div class="p2p-link-box">' +
+            '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap">' +
+            '<strong style="font-size:12px">局域网直传链接</strong>' +
+            '<span class="cap-pill">15 分钟有效 · 同 Wi-Fi 零流量</span>' +
+            '</div>' +
+            '<div class="p2p-url-code" id="p2p-share-url">' +
+            RD.esc(lanUrl) +
+            '</div>' +
+            '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+            '<button type="button" class="btn btn-surface btn-sm" id="btn-p2p-copy-lan">复制链接</button>' +
+            '<button type="button" class="btn btn-primary btn-sm" id="btn-p2p-sim-link">模拟对方打开链接</button>' +
+            '</div></div>';
+
+      channelBodyHtml =
+        '<div class="dlg-field"><span>对方设备 SHA-256 握手比对</span>' +
+        '<div class="byok-seg-row" role="group" aria-label="对方 SHA 状态">' +
+        '<button type="button" data-p2p-sha="match" aria-pressed="' +
+        (p2pSendState.peerHasSha ? 'true' : 'false') +
+        '">对方已有同 SHA（免传书体）</button>' +
+        '<button type="button" data-p2p-sha="miss" aria-pressed="' +
+        (!p2pSendState.peerHasSha ? 'true' : 'false') +
+        '">对方暂无此书（整书+资料）</button>' +
+        '</div></div>' +
+        '<div class="p2p-sha-banner ' +
+        (p2pSendState.peerHasSha ? 'is-match' : 'is-miss') +
+        '" id="p2p-sha-banner">' +
+        (p2pSendState.peerHasSha
+          ? '✓ 握手命中同 SHA（' +
+            RD.esc(shortSha) +
+            '…）：对方已有此书，已自动跳过 ' +
+            stats.bookMb +
+            ' MB 原书文件，仅传所选伴读资料'
+          : '对方书库无此 SHA：将连同原书文件（' +
+            stats.bookMb +
+            ' MB）与所选资料一并打包传输') +
+        '</div>' +
+        '<div class="p2p-check-row' +
+        (p2pSendState.peerHasSha ? ' is-disabled' : '') +
+        '" style="padding:4px 2px"><label><input type="checkbox" id="p2p-chk-book"' +
+        (stats.lanIncludeOriginal ? ' checked' : '') +
+        (p2pSendState.peerHasSha ? ' disabled' : '') +
+        '><span>包含原书文件（' +
+        RD.esc(book.format) +
+        ' · ' +
+        stats.bookMb +
+        ' MB）</span></label>' +
+        (p2pSendState.peerHasSha ? '<span class="cap-pill">同 SHA 跳过</span>' : '') +
+        '</div>' +
+        '<div class="p2p-summary-bar" id="p2p-send-summary"><span>预计局域网传输：' +
+        RD.esc(lanSummary) +
+        '</span></div>' +
+        '<div class="byok-seg-row" role="group" aria-label="局域网呈现形式">' +
+        '<button type="button" data-p2p-send-mode="qr" aria-pressed="' +
+        (p2pSendState.mode === 'qr' ? 'true' : 'false') +
+        '">生成二维码</button>' +
+        '<button type="button" data-p2p-send-mode="link" aria-pressed="' +
+        (p2pSendState.mode === 'link' ? 'true' : 'false') +
+        '">生成分享链接</button></div>' +
+        lanPanel;
+    } else {
+      const isNoteOnly = p2pSendState.fileType === 'bcnote';
+      const fileSizeLabel = isNoteOnly ? stats.dataKb + ' KB' : stats.totalMb + ' MB';
+      channelBodyHtml =
+        '<div class="p2p-sha-banner is-match">零服务器直发文件包 · 可直接转发至微信、Telegram 或系统分享</div>' +
+        '<div class="p2p-pkg-cards">' +
+        '<button type="button" class="p2p-pkg-card" data-file-pkg="bcnote" aria-pressed="' +
+        (isNoteOnly ? 'true' : 'false') +
+        '">' +
+        '<div class="p2p-pkg-card-head"><span>仅伴读资料包 (.bcnote)</span><span class="cap-pill">约 ' +
+        stats.dataKb +
+        ' KB</span></div>' +
+        '<div class="p2p-pkg-card-desc">不含原书 · 发微信秒传，对方打开按 SHA-256 自动关联本地同书并无损合并</div>' +
+        '</button>' +
+        '<button type="button" class="p2p-pkg-card" data-file-pkg="bcshare" aria-pressed="' +
+        (!isNoteOnly ? 'true' : 'false') +
+        '">' +
+        '<div class="p2p-pkg-card-head"><span>整书 + 伴读资料 (.bcshare)</span><span class="cap-pill think">约 ' +
+        stats.totalMb +
+        ' MB</span></div>' +
+        '<div class="p2p-pkg-card-desc">含原书包与所选资料 · 对方无此书时一步导入新书与全部笔记</div>' +
+        '</button></div>' +
+        '<div class="p2p-summary-bar" id="p2p-send-summary"><span>预计导出：' +
+        RD.esc(fileSizeLabel) +
+        '（' +
+        (isNoteOnly ? '.bcnote 资料包' : '.bcshare 整书包') +
+        '）</span></div>' +
+        '<button type="button" class="btn btn-primary btn-sm" id="btn-p2p-export-file">导出并分享至微信 / 系统分享</button>';
+    }
 
     body.innerHTML =
-      '<div class="byok-seg-row" role="group" aria-label="分享方式">' +
-      '<button type="button" data-p2p-send-mode="qr" aria-pressed="' +
-      (p2pSendState.mode === 'qr' ? 'true' : 'false') +
-      '">生成二维码</button>' +
-      '<button type="button" data-p2p-send-mode="link" aria-pressed="' +
-      (p2pSendState.mode === 'link' ? 'true' : 'false') +
-      '">生成分享链接</button></div>' +
+      '<div class="byok-seg-row p2p-channel-seg" id="p2p-channel-seg" role="group" aria-label="分享通道选择">' +
+      '<button type="button" data-p2p-ch="r2" aria-pressed="' +
+      (p2pSendState.channel === 'r2' ? 'true' : 'false') +
+      '">跨公网 R2</button>' +
+      '<button type="button" data-p2p-ch="lan" aria-pressed="' +
+      (p2pSendState.channel === 'lan' ? 'true' : 'false') +
+      '">局域网直连</button>' +
+      '<button type="button" data-p2p-ch="file" aria-pressed="' +
+      (p2pSendState.channel === 'file' ? 'true' : 'false') +
+      '">微信 .bcnote 包</button></div>' +
       '<label class="dlg-field"><span>选择要分享的书籍</span>' +
       '<select id="p2p-send-book-sel">' +
       state.books
@@ -2806,46 +2977,12 @@
         )
         .join('') +
       '</select></label>' +
-      '<div class="dlg-field"><span>对方设备 SHA-256 握手比对</span>' +
-      '<div class="byok-seg-row" role="group" aria-label="对方 SHA 状态">' +
-      '<button type="button" data-p2p-sha="match" aria-pressed="' +
-      (p2pSendState.peerHasSha ? 'true' : 'false') +
-      '">对方已有同 SHA 原书（免传书体）</button>' +
-      '<button type="button" data-p2p-sha="miss" aria-pressed="' +
-      (!p2pSendState.peerHasSha ? 'true' : 'false') +
-      '">对方暂无此书（整书 + 资料）</button>' +
-      '</div></div>' +
-      '<div class="p2p-sha-banner ' +
-      (p2pSendState.peerHasSha ? 'is-match' : 'is-miss') +
-      '" id="p2p-sha-banner">' +
-      (p2pSendState.peerHasSha
-        ? '✓ 握手命中同 SHA（' +
-          RD.esc(shortSha) +
-          '）：对方已有此书，已自动跳过 ' +
-          RD.esc(book.bookSizeMb || 18.4) +
-          ' MB 原书文件，仅传所选伴读资料'
-        : '对方书库无此 SHA：将连同原书文件（' +
-          RD.esc(book.bookSizeMb || 18.4) +
-          ' MB）与所选资料一并打包传输') +
-      '</div>' +
       '<div class="p2p-checklist">' +
-      '<div class="p2p-check-row' +
-      (p2pSendState.peerHasSha ? ' is-disabled' : '') +
-      '"><label><input type="checkbox" id="p2p-chk-book"' +
-      (stats.includeOriginal ? ' checked' : '') +
-      (p2pSendState.peerHasSha ? ' disabled' : '') +
-      '><span>包含原书文件（' +
-      RD.esc(book.format) +
-      ' · ' +
-      RD.esc(book.bookSizeMb || 18.4) +
-      ' MB）</span></label>' +
-      (p2pSendState.peerHasSha ? '<span class="cap-pill">同 SHA 跳过</span>' : '') +
-      '</div>' +
       '<div class="p2p-check-row"><label><input type="checkbox" id="p2p-chk-maps"' +
       (p2pSendState.incMaps ? ' checked' : '') +
       '><span>章节导图与结构蓝图（' +
       (book.mapCount || 4) +
-      ' 张已生成蓝图 + 全章脉络树 · ' +
+      ' 张蓝图 + 全章脉络树 · ' +
       (book.mapKb || 96) +
       ' KB）</span></label></div>' +
       '<div class="p2p-check-row"><label><input type="checkbox" id="p2p-chk-notes"' +
@@ -2868,14 +3005,11 @@
       (p2pSendState.incProgress ? ' checked' : '') +
       '><span>当前阅读进度与防剧透水位（默认不覆盖对方阅读进度）</span></label></div>' +
       '</div>' +
-      '<div class="p2p-summary-bar" id="p2p-send-summary"><span>预计传输：' +
-      RD.esc(stats.totalLabel) +
-      '</span></div>' +
-      transferPanel;
+      channelBodyHtml;
 
-    body.querySelectorAll('[data-p2p-send-mode]').forEach((btn) => {
+    body.querySelectorAll('[data-p2p-ch]').forEach((btn) => {
       btn.addEventListener('click', () => {
-        p2pSendState.mode = btn.dataset.p2pSendMode;
+        p2pSendState.channel = btn.dataset.p2pCh;
         renderP2pSendModal();
       });
     });
@@ -2886,21 +3020,13 @@
         renderP2pSendModal();
       });
     }
-    body.querySelectorAll('[data-p2p-sha]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        p2pSendState.peerHasSha = btn.dataset.p2pSha === 'match';
-        p2pSendState.incOriginalBook = !p2pSendState.peerHasSha;
-        renderP2pSendModal();
-      });
-    });
-    const chkMap = [
+    [
       ['#p2p-chk-book', 'incOriginalBook'],
       ['#p2p-chk-maps', 'incMaps'],
       ['#p2p-chk-notes', 'incNotes'],
       ['#p2p-chk-qa', 'incQa'],
       ['#p2p-chk-progress', 'incProgress']
-    ];
-    chkMap.forEach(([sel, key]) => {
+    ].forEach(([sel, key]) => {
       const el = body.querySelector(sel);
       if (el) {
         el.addEventListener('change', () => {
@@ -2910,32 +3036,106 @@
       }
     });
 
-    const copyBtn = body.querySelector('#btn-p2p-copy-link');
-    if (copyBtn) {
-      copyBtn.addEventListener('click', () => {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(shareUrl).catch(() => {});
-        }
-        RD.toast('已复制局域网直传链接：' + shareUrl);
+    body.querySelectorAll('[data-r2-book]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        p2pSendState.r2IncludeBook = btn.dataset.r2Book === 'full';
+        renderP2pSendModal();
+      });
+    });
+    body.querySelectorAll('[data-p2p-send-mode]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        p2pSendState.mode = btn.dataset.p2pSendMode;
+        renderP2pSendModal();
+      });
+    });
+    body.querySelectorAll('[data-p2p-sha]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        p2pSendState.peerHasSha = btn.dataset.p2pSha === 'match';
+        p2pSendState.incOriginalBook = !p2pSendState.peerHasSha;
+        renderP2pSendModal();
+      });
+    });
+    body.querySelectorAll('[data-file-pkg]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        p2pSendState.fileType = btn.dataset.filePkg;
+        renderP2pSendModal();
+      });
+    });
+
+    const fbBcnote = body.querySelector('#btn-p2p-fallback-bcnote');
+    if (fbBcnote) {
+      fbBcnote.addEventListener('click', () => {
+        p2pSendState.channel = 'file';
+        renderP2pSendModal();
+      });
+    }
+    const enableR2 = body.querySelector('#btn-p2p-enable-r2');
+    if (enableR2) {
+      enableR2.addEventListener('click', () => {
+        state.r2Configured = true;
+        renderP2pSendModal();
+        renderApp();
       });
     }
 
-    const completeSend = () => {
-      state.p2pLastLog = stats.includeOriginal
-        ? '最近传输：已发送《' + book.title + '》整书 + 资料 (' + stats.totalLabel.split('（')[0] + ')'
-        : '最近传输：已向对方跳过原书仅发送《' + book.title + '》资料包 (' + stats.dataKb + ' KB)';
+    const bindCopy = (id, val, label) => {
+      const btn = body.querySelector(id);
+      if (btn) {
+        btn.addEventListener('click', () => {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(val).catch(() => {});
+          }
+          RD.toast('已复制' + label + '：' + val);
+        });
+      }
+    };
+    bindCopy('#btn-p2p-copy-r2', r2Url, '密文链接');
+    bindCopy('#btn-p2p-copy-lan', lanUrl, '局域网直传链接');
+
+    const finishSend = (msg) => {
+      state.p2pLastLog = msg;
       closeModal('dlg-p2p-send');
       renderApp();
-      RD.toast(state.p2pLastLog);
+      RD.toast(msg);
     };
-    const simQrBtn = body.querySelector('#btn-p2p-sim-send');
-    if (simQrBtn) simQrBtn.addEventListener('click', completeSend);
-    const simLinkBtn = body.querySelector('#btn-p2p-sim-link');
-    if (simLinkBtn) simLinkBtn.addEventListener('click', completeSend);
+    const simR2Btn = body.querySelector('#btn-p2p-sim-r2');
+    if (simR2Btn) {
+      simR2Btn.addEventListener('click', () =>
+        finishSend(
+          '最近传输：跨公网 R2 异步接收完成 · 《' +
+            book.title +
+            '》(' +
+            (p2pSendState.r2IncludeBook ? stats.totalMb + ' MB' : stats.dataKb + ' KB 同 SHA 秒合并') +
+            ')'
+        )
+      );
+    }
+    const simLanQr = body.querySelector('#btn-p2p-sim-send');
+    const simLanLink = body.querySelector('#btn-p2p-sim-link');
+    const lanMsg = stats.lanIncludeOriginal
+      ? '最近传输：局域网已发送《' + book.title + '》整书 + 资料 (' + stats.totalMb + ' MB)'
+      : '最近传输：局域网跳过原书仅发送《' + book.title + '》资料包 (' + stats.dataKb + ' KB)';
+    if (simLanQr) simLanQr.addEventListener('click', () => finishSend(lanMsg));
+    if (simLanLink) simLanLink.addEventListener('click', () => finishSend(lanMsg));
+
+    const exportFileBtn = body.querySelector('#btn-p2p-export-file');
+    if (exportFileBtn) {
+      exportFileBtn.addEventListener('click', () => {
+        const isNote = p2pSendState.fileType === 'bcnote';
+        finishSend(
+          '最近传输：已导出《' +
+            book.title +
+            '》' +
+            (isNote ? '.bcnote 资料包 (' + stats.dataKb + ' KB)' : '.bcshare 整书包 (' + stats.totalMb + ' MB)') +
+            ' 并调起微信分享'
+        );
+      });
+    }
   }
 
-  function openP2pSendModal(mode) {
-    p2pSendState.mode = mode || 'qr';
+  function openP2pSendModal(channel, mode) {
+    p2pSendState.channel = channel || 'r2';
+    if (mode) p2pSendState.mode = mode;
     renderP2pSendModal();
     openModal('dlg-p2p-send');
   }
@@ -2951,20 +3151,23 @@
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap">' +
         '<strong>《' +
         RD.esc(prev.title) +
-        '》</strong><span class="fmt-badge">' +
-        RD.esc(prev.device) +
+        '》</strong>' +
+        '<span class="cap-pill' +
+        (prev.channelTone === 'r2' ? ' vlm' : prev.channelTone === 'file' ? ' think' : '') +
+        '" id="p2p-preview-channel">' +
+        RD.esc(prev.channelLabel || '跨公网 R2 · E2EE 24h') +
         '</span></div>' +
-        '<div class="wb-sub mono" style="font-size:11px">sha256:' +
+        '<div class="wb-sub mono" style="font-size:11px">' +
+        RD.esc(prev.device) +
+        ' · sha256:' +
         RD.esc(prev.sha256) +
-        ' · ' +
-        RD.esc(prev.author) +
         '</div>' +
         '<div class="p2p-sha-banner ' +
         (localMatch ? 'is-match' : 'is-miss') +
         '">' +
         (localMatch
           ? '✓ 本地已存在同 SHA 原书，跳过 ' + prev.bookSizeMb + ' MB 原书下载，仅导入伴读资料'
-          : '＋ 本地无此书，将下载 ' + prev.bookSizeMb + ' MB 原书并入库') +
+          : '＋ 本地无此书，将解密下载 ' + prev.bookSizeMb + ' MB 原书并入库') +
         '</div>' +
         '<div style="display:flex;flex-wrap:wrap;gap:5px">' +
         '<span class="cap-pill">导图 · ' +
@@ -2987,44 +3190,47 @@
       '<span class="p2p-scan-corner tr" aria-hidden="true"></span>' +
       '<span class="p2p-scan-corner bl" aria-hidden="true"></span>' +
       '<span class="p2p-scan-corner br" aria-hidden="true"></span>' +
-      '<strong style="font-size:12.5px">局域网相机扫码取景框</strong>' +
-      '<span style="font-size:11px;opacity:0.78">对准对方手机二维码，或在下方粘贴分享链接</span>' +
+      '<strong style="font-size:12.5px">扫码 / 密文链接 / 离线包统一接收</strong>' +
+      '<span style="font-size:11px;opacity:0.78">兼容 R2 密文链接 (#k=)、192.168.x.x 局域网与微信 .bcnote</span>' +
       '</div>' +
       '<div class="byok-input-row">' +
-      '<input type="text" class="mono" id="p2p-scan-link-inp" placeholder="http://192.168.1.24:9721/share/br_..." value="' +
+      '<input type="text" class="mono" id="p2p-scan-link-inp" placeholder="https://share.banread.app/s/...#k=... 或 192.168..." value="' +
       RD.esc(p2pScanState.linkText) +
       '">' +
       '<button type="button" class="btn btn-surface btn-sm" id="btn-p2p-parse-link">解析连接</button>' +
       '</div>' +
       '<div class="p2p-sim-row">' +
-      '<span class="byok-prov-group-lbl">一键模拟扫入剧本</span>' +
-      '<button type="button" class="btn btn-surface btn-sm" id="btn-p2p-sim-wuye" style="justify-content:flex-start;white-space:normal;text-align:left;height:auto;padding:7px 10px">模拟扫入：《雾夜档案》资料包（同 SHA 命中 → 仅收资料）</button>' +
-      '<button type="button" class="btn btn-surface btn-sm" id="btn-p2p-sim-hawking" style="justify-content:flex-start;white-space:normal;text-align:left;height:auto;padding:7px 10px">模拟扫入：《时间简史》整书 + 导图（新 SHA → 整书入库）</button>' +
+      '<span class="byok-prov-group-lbl">一键模拟扫入剧本（三通道统一）</span>' +
+      '<button type="button" class="btn btn-surface btn-sm" id="btn-p2p-sim-r2-wuye" style="justify-content:flex-start;white-space:normal;text-align:left;height:auto;padding:7px 10px">跨公网 R2 链接：《雾夜档案》同 SHA 命中（跳过 18.4 MB 原书，仅拉 138 KB 资料）</button>' +
+      '<button type="button" class="btn btn-surface btn-sm" id="btn-p2p-sim-r2-hawking" style="justify-content:flex-start;white-space:normal;text-align:left;height:auto;padding:7px 10px">跨公网 R2 链接：《时间简史》新 SHA（本地解密下载整书 + 导图 14.3 MB）</button>' +
+      '<button type="button" class="btn btn-surface btn-sm" id="btn-p2p-sim-bcnote" style="justify-content:flex-start;white-space:normal;text-align:left;height:auto;padding:7px 10px">微信收到 .bcnote：《雾夜档案》好友资料包（零服务器，按 SHA 无损合并）</button>' +
       '</div>' +
       previewHtml;
 
     const presets = DATA.p2pIncomingPresets || {};
-    const simWuye = body.querySelector('#btn-p2p-sim-wuye');
-    if (simWuye) {
-      simWuye.addEventListener('click', () => {
-        p2pScanState.preview = presets.wuye_match;
-        renderP2pScanModal();
-      });
-    }
-    const simHawking = body.querySelector('#btn-p2p-sim-hawking');
-    if (simHawking) {
-      simHawking.addEventListener('click', () => {
-        p2pScanState.preview = presets.hawking_new;
-        renderP2pScanModal();
-      });
-    }
+    const bindSim = (id, key) => {
+      const btn = body.querySelector(id);
+      if (btn) {
+        btn.addEventListener('click', () => {
+          p2pScanState.preview = presets[key];
+          renderP2pScanModal();
+        });
+      }
+    };
+    bindSim('#btn-p2p-sim-r2-wuye', 'r2_wuye_match');
+    bindSim('#btn-p2p-sim-r2-hawking', 'r2_hawking_new');
+    bindSim('#btn-p2p-sim-bcnote', 'wechat_wuye_bcnote');
+
     const parseBtn = body.querySelector('#btn-p2p-parse-link');
     const linkInp = body.querySelector('#p2p-scan-link-inp');
     if (parseBtn && linkInp) {
       parseBtn.addEventListener('click', () => {
         const val = linkInp.value.trim();
         p2pScanState.linkText = val;
-        p2pScanState.preview = /5e9c|hawking|time/i.test(val) ? presets.hawking_new : presets.wuye_match;
+        if (/\.bcnote|\.bcshare/i.test(val)) p2pScanState.preview = presets.wechat_wuye_bcnote;
+        else if (/5e9c|hawking|time/i.test(val)) p2pScanState.preview = presets.r2_hawking_new;
+        else if (/192\.168|9721/i.test(val)) p2pScanState.preview = presets.lan_wuye_match;
+        else p2pScanState.preview = presets.r2_wuye_match;
         renderP2pScanModal();
       });
     }
@@ -3040,10 +3246,17 @@
           if (prev.sharedQa && !state.qaTurns.some((q) => q.question === prev.sharedQa.question)) {
             state.qaTurns.push(Object.assign({}, prev.sharedQa));
           }
-          state.p2pLastLog = '最近传输：同 SHA 跳过原书，已合并《' + prev.title + '》资料包 (' + prev.bundleKb + ' KB)';
+          state.p2pLastLog =
+            '最近传输：[' +
+            (prev.channelLabel || '跨网') +
+            '] 同 SHA 跳过原书，已合并《' +
+            prev.title +
+            '》资料 (' +
+            prev.bundleKb +
+            ' KB)';
           closeModal('dlg-p2p-scan');
           renderApp();
-          RD.toast('已跳过原书，直接合并《' + prev.title + '》导图/批注/问答（' + prev.bundleKb + ' KB）');
+          RD.toast('已跳过原书，无损合并《' + prev.title + '》导图/批注/问答（' + prev.bundleKb + ' KB）');
         } else {
           const totalMb = (prev.bookSizeMb + prev.bundleKb / 1024).toFixed(1);
           state.books.unshift({
@@ -3070,12 +3283,19 @@
             watermark: prev.curChapter || 1,
             cachedCount: prev.mapCount || 3,
             kicker: prev.kicker || 'SCI-07 · 好友传入',
-            currentLabel: '第 1 章 · 刚刚通过双机直连导入',
+            currentLabel: '第 1 章 · 刚刚通过跨网解密导入',
             filterGroup: prev.readType || 'science',
             reading: true,
             isPdf: false
           });
-          state.p2pLastLog = '最近传输：已接收新书《' + prev.title + '》及伴读导图 (' + totalMb + ' MB)';
+          state.p2pLastLog =
+            '最近传输：[' +
+            (prev.channelLabel || '跨网') +
+            '] 已解密接收新书《' +
+            prev.title +
+            '》(' +
+            totalMb +
+            ' MB)';
           closeModal('dlg-p2p-scan');
           renderApp();
           RD.toast('已接收新书《' + prev.title + '》及伴读导图（' + totalMb + ' MB）');
@@ -3194,7 +3414,7 @@
       '</button></div>' +
       '</div></section>' +
       '<section class="settings-section" id="sec-p2p-share">' +
-      '<div class="settings-section-head"><h2>手机互联 · 传书与资料分享</h2><span class="cap-pill">同 SHA 免传原书</span></div>' +
+      '<div class="settings-section-head"><h2>手机互联 · 传书与资料分享</h2><span class="cap-pill">跨公网 · 局域网 · .bcnote</span></div>' +
       '<div class="settings-card">' +
       '<div class="p2p-entry-grid">' +
       '<button type="button" class="p2p-entry-btn" id="btn-p2p-scan">' +
@@ -3205,12 +3425,21 @@
       '<span>生成二维码</span></button>' +
       '<button type="button" class="p2p-entry-btn" id="btn-p2p-link">' +
       '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>' +
-      '<span>生成链接</span></button>' +
+      '<span>生成分享链接</span></button>' +
       '</div>' +
+      '<button type="button" class="p2p-sub-entry-btn" id="btn-p2p-bcnote">导出 .bcnote / .bcshare 离线包（发微信）</button>' +
       '<div class="p2p-status-strip">' +
-      '<span>本机书库：' +
+      '<div class="p2p-status-top">' +
+      '<span>本机 ' +
       state.books.length +
-      ' 本书已算 SHA-256 指纹</span>' +
+      ' 本书 SHA-256 已就绪</span>' +
+      '<button type="button" class="p2p-r2-badge' +
+      (state.r2Configured ? '' : ' is-unconfigured') +
+      '" id="btn-toggle-r2-cfg" aria-pressed="' +
+      (state.r2Configured ? 'true' : 'false') +
+      '">' +
+      (state.r2Configured ? 'R2 加密中转：已配置 (24h TTL)' : 'R2：未配置（微信 .bcnote 兜底）') +
+      '</button></div>' +
       '<span class="muted" id="p2p-last-log">' +
       RD.esc(state.p2pLastLog) +
       '</span></div></div></section>' +
@@ -3235,8 +3464,14 @@
 
     root.querySelector('#btn-add-byok').addEventListener('click', () => openByokModal(null));
     root.querySelector('#btn-p2p-scan').addEventListener('click', openP2pScanModal);
-    root.querySelector('#btn-p2p-qr').addEventListener('click', () => openP2pSendModal('qr'));
-    root.querySelector('#btn-p2p-link').addEventListener('click', () => openP2pSendModal('link'));
+    root.querySelector('#btn-p2p-qr').addEventListener('click', () => openP2pSendModal('r2', 'qr'));
+    root.querySelector('#btn-p2p-link').addEventListener('click', () => openP2pSendModal('r2', 'link'));
+    root.querySelector('#btn-p2p-bcnote').addEventListener('click', () => openP2pSendModal('file'));
+    root.querySelector('#btn-toggle-r2-cfg').addEventListener('click', () => {
+      state.r2Configured = !state.r2Configured;
+      RD.toast(state.r2Configured ? '已启用 Cloudflare R2 24h E2EE 中转' : '已切换为未配置 R2（自动引导至微信 .bcnote 兜底）');
+      renderApp();
+    });
 
     root.querySelectorAll('[data-swipe-remove]').forEach((btn) => {
       btn.addEventListener('click', () => removeByokModel(btn.dataset.swipeRemove));

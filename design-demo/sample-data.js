@@ -1444,9 +1444,11 @@
     ],
 
     p2pIncomingPresets: {
-      wuye_match: {
-        presetKey: 'wuye_match',
-        device: 'Pixel 9 · 局域网直连',
+      r2_wuye_match: {
+        presetKey: 'r2_wuye_match',
+        channelLabel: '跨公网 R2 · E2EE 24h',
+        channelTone: 'r2',
+        device: '异地 5G · Pixel 9',
         bookId: 'wuye',
         title: '雾夜档案',
         author: '林砚',
@@ -1457,21 +1459,23 @@
         qaCount: 3,
         bundleKb: 138,
         sharedNote: {
-          id: 'pin-share-wuye-1',
+          id: 'pin-share-wuye-r2',
           blockId: 'B05',
           excerpt: '1998 年火灾烧毁的“机械报时图纸”',
-          body: '【好友分享】林深批注：老周提及 1998 年图纸被毁与 B03 风道藏图形成时间差互证，怀疑二号门曾被内部人员重开。'
+          body: '【好友分享 · R2】林深批注：老周提及 1998 年图纸被毁与 B03 风道藏图形成时间差互证，怀疑二号门曾被内部人员重开。'
         },
         sharedQa: {
-          question: '【好友分享】二号门为何自 1998 年后仍可出入？',
-          thinking: '比对好友共享的第 3 章导图路径与 B02–B06 物证链。',
+          question: '【好友分享 · R2】二号门为何自 1998 年后仍可出入？',
+          thinking: '通过 #fragment 密钥本地解密清单并比对 B02–B06 物证链。',
           answer: '### 好友批注摘要\n- [原文] 门轴近期刚被上油（B01）且门闩留有 72 小时内松烟指印（B06）。\n- [推论] 外部铁梯与三楼百叶窗构成了替代二号门的隐蔽出入路线。',
           blocks: ['B01', 'B06']
         }
       },
-      hawking_new: {
-        presetKey: 'hawking_new',
-        device: 'Pixel 9 · 局域网直连',
+      r2_hawking_new: {
+        presetKey: 'r2_hawking_new',
+        channelLabel: '跨公网 R2 · E2EE 24h',
+        channelTone: 'r2',
+        device: '异地 5G · 小米 15',
         bookId: 'hawking',
         title: '时间简史',
         author: '斯蒂芬·霍金',
@@ -1487,6 +1491,60 @@
         kicker: 'SCI-07 · 天体物理',
         totalChapters: 12,
         curChapter: 1
+      },
+      wechat_wuye_bcnote: {
+        presetKey: 'wechat_wuye_bcnote',
+        channelLabel: '微信 .bcnote 包',
+        channelTone: 'file',
+        device: '微信文件传输 · 零服务器',
+        bookId: 'wuye',
+        title: '雾夜档案',
+        author: '林砚',
+        sha256: '8f3a91c2d4e7',
+        bookSizeMb: 18.4,
+        mapCount: 4,
+        noteCount: 5,
+        qaCount: 3,
+        bundleKb: 138,
+        sharedNote: {
+          id: 'pin-share-wuye-wechat',
+          blockId: 'B02',
+          excerpt: '三道故意锉出的齿痕',
+          body: '【好友分享 · .bcnote】阿哲批注：三道齿痕与老钟摆锤制动通道相吻合，说明伪造钥匙者熟悉钟楼结构图。'
+        },
+        sharedQa: {
+          question: '【好友分享 · .bcnote】黄铜钥匙与灰衣人撤离时间窗有何关联？',
+          thinking: '导入微信离线 .bcnote 资料包并按 SHA-256 挂载至本地《雾夜档案》。',
+          answer: '### 离线包合并要点\n- [原文] 门闩松烟指纹尚未风干（B06），锁定 72 小时以内作案时间窗。\n- [补充] 结合整点铜锤声掩蔽（B08），确认潜入者利用声学窗口撤离。',
+          blocks: ['B06', 'B08']
+        }
+      },
+      lan_wuye_match: {
+        presetKey: 'lan_wuye_match',
+        channelLabel: '局域网直连',
+        channelTone: 'lan',
+        device: '同 Wi-Fi · 192.168.1.24',
+        bookId: 'wuye',
+        title: '雾夜档案',
+        author: '林砚',
+        sha256: '8f3a91c2d4e7',
+        bookSizeMb: 18.4,
+        mapCount: 4,
+        noteCount: 5,
+        qaCount: 3,
+        bundleKb: 138,
+        sharedNote: {
+          id: 'pin-share-wuye-lan',
+          blockId: 'B05',
+          excerpt: '1998 年火灾烧毁的“机械报时图纸”',
+          body: '【好友分享 · 局域网】比对 1998 年火案图纸去向与 B03 风道藏物位置。'
+        },
+        sharedQa: {
+          question: '【好友分享 · 局域网】为何二号门锁片与旧图纸同时出现？',
+          thinking: '局域网 P2P 握手比对同 SHA 后直接同步第 3 章问答。',
+          answer: '### 局域网同步摘要\n- [原文] 新锉齿痕铜匙与尚未风干的图纸油墨互为印证（B02、B06）。',
+          blocks: ['B02', 'B06']
+        }
       }
     },
 
