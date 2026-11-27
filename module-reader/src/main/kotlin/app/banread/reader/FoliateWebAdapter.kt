@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -73,7 +74,7 @@ class FoliateWebAdapter(
     private var lastCssPayload = ""
 
     @Volatile
-    private var horizontalMarginDp = 16f
+    private var horizontalMarginDp = 20f
 
     private val assetLoader: WebViewAssetLoader = WebViewAssetLoader.Builder()
         .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(appContext))
@@ -246,7 +247,8 @@ class FoliateWebAdapter(
 
         @JavascriptInterface
         fun onError(message: String) {
-            // Surface cleanly without crashing WebView renderer
+            // 只记录错误，不抛异常，避免拖垮 WebView renderer
+            Log.e(TAG, "JS error: $message")
         }
     }
 
@@ -291,6 +293,7 @@ class FoliateWebAdapter(
     }
 
     companion object {
+        private const val TAG = "BanReadReader"
         const val HOST_PAGE_URL = "https://appassets.androidplatform.net/assets/reader/reader_host.html"
     }
 }

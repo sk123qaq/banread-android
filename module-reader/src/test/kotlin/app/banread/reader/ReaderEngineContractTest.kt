@@ -679,9 +679,10 @@ class ReaderEngineContractTest {
                 assert.strictEqual(secondView.inited, true, 'newer openBook should initialize');
                 assert.strictEqual(firstView.inited, false, 'stale openBook must not initialize');
 
-                // Bug 3: updateStyles forwards horizontalMarginPx -> gap = (marginPx * 2) + 'px'
+                // Bug 3: updateStyles 转发 horizontalMarginPx -> margin = marginPx px，gap = 分页模式 m/W（24px / 384）
                 bridge.updateStyles('body {}', 'SLIDE', 24);
-                assert.strictEqual(secondView.renderer.attrs.gap, '48px');
+                assert.strictEqual(secondView.renderer.attrs.margin, '24px');
+                assert.strictEqual(secondView.renderer.attrs.gap, '6.250%');
 
                 // Bug 4: NaN fraction must produce finite 0, valid fraction & pages must produce finite unit numbers
                 secondView.renderer.pages = 0;

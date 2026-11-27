@@ -82,7 +82,7 @@
         currentBookUrl: null,
         currentCss: '',
         paginationMode: 'SLIDE',
-        horizontalMarginPx: 16,
+        horizontalMarginPx: 20,
         annotations: [],
         annotationsById: new Map(),
         openSeq: 0,
@@ -209,6 +209,26 @@
         return { color: resolvedColor, underlineStyle: underlineStyle };
     }
 
+    function resolveViewportInlineSize(renderer) {
+        var rect = null;
+        try {
+            rect = renderer && typeof renderer.getBoundingClientRect === 'function'
+                ? renderer.getBoundingClientRect()
+                : null;
+        } catch (_) {
+            rect = null;
+        }
+        var width = rect ? rect.width : 0;
+        if (!(typeof width === 'number' && Number.isFinite(width) && width > 0)
+            && typeof window !== 'undefined'
+            && typeof window.innerWidth === 'number'
+            && Number.isFinite(window.innerWidth)
+            && window.innerWidth > 0) {
+            width = window.innerWidth;
+        }
+        return typeof width === 'number' && Number.isFinite(width) && width > 0 ? width : 384;
+    }
+
     function applyGapMargin() {
         var renderer = state.view && state.view.renderer;
         if (!renderer) return;
@@ -216,8 +236,16 @@
             && Number.isFinite(state.horizontalMarginPx)
             && state.horizontalMarginPx >= 0)
             ? state.horizontalMarginPx
-            : 16;
-        renderer.setAttribute('gap', (marginPx * 2) + 'px');
+            : 20;
+        // foliate paginator 的 gap 属性按视口百分比解释：滚动模式 padding = g = f/(1-f)*视口宽度；
+        // 分页模式每页在网格里再被 half-gap 包一层，页内 padding 也是 half-gap，可见页边距仍是 g = f*视口宽度。
+        // 两种模式反解出 g = marginPx，保证滑动条数值就是实际页边距。
+        var viewportWidth = resolveViewportInlineSize(renderer);
+        var gapPercent = state.paginationMode === 'VERTICAL_SCROLL'
+            ? marginPx / (viewportWidth + marginPx) * 100
+            : marginPx / viewportWidth * 100;
+        renderer.setAttribute('margin', marginPx + 'px');
+        renderer.setAttribute('gap', gapPercent.toFixed(3) + '%');
     }
 
     function applyPaginationMode(mode) {
