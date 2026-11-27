@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="warm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>伴读 Android 原型</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23A8442F'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='serif' font-size='18' font-weight='bold' fill='%23FDFBF7'%3E%E4%BC%B4%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="tokens-mobile.css">
+</head>
+<body>
+  <div class="stage-shell">
+    <!-- 顶部外层演示控制条（书案控制台） -->
+    <header class="stage-toolbar" aria-label="原型演示控制台">
+      <div class="stage-group">
+        <span class="stage-brand">
+          <span class="brand-seal" aria-hidden="true">伴</span>
+          <span>Slice 5 原型评审台</span>
+        </span>
+        <nav class="stage-seg" id="stage-page-nav" aria-label="页面直达">
+          <button type="button" data-page="bookshelf" aria-pressed="true">书架</button>
+          <button type="button" data-page="detail" aria-pressed="false">书页目录</button>
+          <button type="button" data-page="reader" aria-pressed="false">流式阅读 + 伴读</button>
+          <button type="button" data-page="pdf" aria-pressed="false">PDF 伴读</button>
+          <button type="button" data-page="settings" aria-pressed="false">设置</button>
+        </nav>
+      </div>
+
+      <div class="stage-group">
+        <div class="stage-seg" id="stage-viewport-nav" aria-label="视口形态">
+          <button type="button" data-vp="phone" aria-pressed="true">6" 手机 (390×844)</button>
+          <button type="button" data-vp="eink-pad" aria-pressed="false">墨水屏 10.3" (560×780)</button>
+          <button type="button" data-vp="foldable" aria-pressed="false">折叠屏双栏 (780×844)</button>
+        </div>
+
+        <div class="stage-seg" id="stage-theme-nav" aria-label="主题切换">
+          <button type="button" data-theme-pick="warm" aria-pressed="true">暖纸</button>
+          <button type="button" data-theme-pick="paper" aria-pressed="false">素白</button>
+          <button type="button" data-theme-pick="slate" aria-pressed="false">夜墨</button>
+          <button type="button" data-theme-pick="amoled" aria-pressed="false">纯黑</button>
+          <button type="button" data-theme-pick="eink" aria-pressed="false">墨水屏</button>
+        </div>
+      </div>
+
+      <div class="stage-group" aria-label="交互剧本快触发">
+        <button type="button" class="stage-btn" id="trig-selection">划词浮条</button>
+        <button type="button" class="stage-btn" id="trig-footnote">脚注浮卡</button>
+        <button type="button" class="stage-btn" id="trig-jump-ahead">跨章防剧透</button>
+        <button type="button" class="stage-btn" id="trig-companion-half">展开伴读 55%</button>
+        <button type="button" class="stage-btn" id="trig-gateway" aria-pressed="false">桌面网关: 离线</button>
+      </div>
+    </header>
+
+    <!-- 居中的手机/墨水屏/折叠屏设备壳 -->
+    <main class="stage-desk">
+      <section class="device-frame" id="device-shell" data-viewport="phone" aria-label="Android 设备预览框">
+        <div class="os-status-bar">
+          <span class="tnum">9:41</span>
+          <span class="os-status-icons" aria-hidden="true">
+            <svg width="14" height="10" viewBox="0 0 14 10" fill="currentColor">
+              <rect x="0" y="6" width="2.2" height="4" rx="0.6"/>
+              <rect x="3.5" y="4" width="2.2" height="6" rx="0.6"/>
+              <rect x="7" y="2" width="2.2" height="8" rx="0.6"/>
+              <rect x="10.5" y="0" width="2.2" height="10" rx="0.6"/>
+            </svg>
+            <svg width="13" height="10" viewBox="0 0 16 12" fill="none" stroke="currentColor" stroke-width="1.6">
+              <path d="M1.5 4.2C5.2 1 10.8 1 14.5 4.2"/>
+              <path d="M4.2 7C6.4 5 9.6 5 11.8 7"/>
+              <circle cx="8" cy="10" r="1.1" fill="currentColor" stroke="none"/>
+            </svg>
+            <svg width="20" height="10" viewBox="0 0 22 11" fill="none">
+              <rect x="0.8" y="1" width="18" height="9" rx="2" stroke="currentColor" stroke-width="1.3"/>
+              <rect x="2.5" y="2.7" width="13.5" height="5.6" rx="1" fill="currentColor"/>
+              <rect x="19.5" y="3.5" width="1.8" height="4" rx="0.8" fill="currentColor"/>
+            </svg>
+          </span>
+        </div>
+
+        <div class="app-viewport" id="app-viewport"></div>
+
+        <div class="os-gesture-bar" aria-hidden="true">
+          <span class="os-gesture-pill"></span>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- 原生 <dialog> 1：解锁全书防剧透确认 -->
+  <dialog class="app-dialog" id="dlg-spoiler-unlock" closedby="any" aria-labelledby="dlg-spoiler-title">
+    <div class="dlg-head">
+      <h1 id="dlg-spoiler-title">确认解锁全书视角？</h1>
+      <button type="button" class="wb-btn" data-close-dialog="dlg-spoiler-unlock">取消</button>
+    </div>
+    <div class="dlg-body">
+      <p style="margin:0">解锁全书视角将纳入第 4–12 章内容，伴读图谱与问答可能包含后续人物反转与结局剧透，是否确认？</p>
+      <p style="margin:0;font-size:12px" class="muted">当前防剧透水位线：第 3 章（《钟楼里的第二把钥匙》）</p>
+    </div>
+    <form method="dialog" class="dlg-actions">
+      <button type="submit" value="cancel" class="btn btn-ghost btn-sm" autofocus>保持锁至第 3 章</button>
+      <button type="submit" value="unlock" class="btn btn-primary btn-sm">确认解锁全书</button>
+    </form>
+  </dialog>
+
+  <!-- 原生 <dialog> 2：向前跳章防剧透确认 -->
+  <dialog class="app-dialog" id="dlg-jump-ahead" closedby="any" aria-labelledby="dlg-jump-title">
+    <div class="dlg-head">
+      <h1 id="dlg-jump-title">跳至超前章节</h1>
+      <button type="button" class="wb-btn" data-close-dialog="dlg-jump-ahead">关闭</button>
+    </div>
+    <div class="dlg-body">
+      <p style="margin:0" id="dlg-jump-desc">即将打开超出当前阅读水位的章节，请选择如何处理防剧透水位线：</p>
+    </div>
+    <form method="dialog" class="dlg-actions">
+      <button type="submit" value="preview" class="btn btn-primary btn-sm" autofocus>仅预览本章（防剧透仍锁在第 3 章）</button>
+      <button type="submit" value="advance" class="btn btn-ghost btn-sm" id="btn-jump-advance">推进阅读进度至该章</button>
+    </form>
+  </dialog>
+
+  <!-- 原生 <dialog> 3：6+1 阅读视角覆盖选择 -->
+  <dialog class="app-dialog" id="dlg-perspective" closedby="any" aria-labelledby="dlg-persp-title">
+    <div class="dlg-head">
+      <h1 id="dlg-persp-title">切换伴读阅读视角（6+1）</h1>
+      <button type="button" class="wb-btn" data-close-dialog="dlg-perspective">关闭</button>
+    </div>
+    <div class="dlg-body" id="dlg-persp-list"></div>
+  </dialog>
+
+  <!-- 原生 <dialog> 4：本地图书导入 -->
+  <dialog class="app-dialog" id="dlg-import" closedby="any" aria-labelledby="dlg-import-title">
+    <div class="dlg-head">
+      <h1 id="dlg-import-title">导入本地图书</h1>
+      <button type="button" class="wb-btn" data-close-dialog="dlg-import">关闭</button>
+    </div>
+    <div class="dlg-body">
+      <p style="margin:0">支持从 Android 存储访问框架（SAF）导入以下离线格式：</p>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        <span class="fmt-badge">.bcbook 伴读包</span>
+        <span class="fmt-badge">EPUB</span>
+        <span class="fmt-badge">PDF（扫描/文字）</span>
+        <span class="fmt-badge">TXT</span>
+        <span class="fmt-badge">Markdown</span>
+      </div>
+      <label class="dlg-field">
+        <span>模拟选取本地文件</span>
+        <input type="text" id="import-book-title" value="《时间秩序：物理与认知》">
+      </label>
+      <label class="dlg-field">
+        <span>格式类型</span>
+        <select id="import-book-fmt">
+          <option value=".bcbook|.science">.bcbook（含预生成图谱）</option>
+          <option value="EPUB|.philosophy">EPUB（自动切分章节与脚注）</option>
+          <option value="扫描 PDF|.science">扫描版 PDF（支持 VLM 框选）</option>
+        </select>
+      </label>
+    </div>
+    <form method="dialog" class="dlg-actions">
+      <button type="submit" value="cancel" class="btn btn-ghost btn-sm">取消</button>
+      <button type="submit" value="confirm" class="btn btn-primary btn-sm" autofocus>模拟导入到书架</button>
+    </form>
+  </dialog>
+
+  <!-- 原生 <dialog> 5：BYOK 添加 / 编辑模型 -->
+  <dialog class="app-dialog" id="dlg-byok" closedby="any" aria-labelledby="dlg-byok-title">
+    <div class="dlg-head">
+      <h1 id="dlg-byok-title">添加 / 编辑 BYOK 模型</h1>
+      <button type="button" class="wb-btn" data-close-dialog="dlg-byok">关闭</button>
+    </div>
+    <form method="dialog" id="form-byok">
+      <div class="dlg-body">
+        <label class="dlg-field">
+          <span>显示名称</span>
+          <input type="text" id="byok-name" required value="OpenAI GPT-4o">
+        </label>
+        <label class="dlg-field">
+          <span>模型 ID</span>
+          <input type="text" id="byok-model-id" required value="gpt-4o">
+        </label>
+        <label class="dlg-field">
+          <span>API Key（Tink + Keystore 硬件加密）</span>
+          <input type="password" id="byok-key" required value="sk-proj-demo-8842">
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px">
+          <input type="checkbox" id="byok-vision" checked> 支持视觉图片理解（Vision / PDF 框选）
+        </label>
+      </div>
+      <div class="dlg-actions">
+        <button type="submit" value="cancel" class="btn btn-ghost btn-sm">取消</button>
+        <button type="submit" value="save" class="btn btn-primary btn-sm">加密保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 原生 <dialog> 6：桌面网关扫码配对 (--mobile-bind) -->
+  <dialog class="app-dialog" id="dlg-qr-bind" closedby="any" aria-labelledby="dlg-qr-title">
+    <div class="dlg-head">
+      <h1 id="dlg-qr-title">扫码配对桌面网关</h1>
+      <button type="button" class="wb-btn" data-close-dialog="dlg-qr-bind">关闭</button>
+    </div>
+    <div class="dlg-body" style="align-items:center;text-align:center">
+      <svg width="148" height="148" viewBox="0 0 148 148" aria-label="配对二维码示意">
+        <rect x="2" y="2" width="144" height="144" rx="8" fill="#FFFFFF" stroke="#BEB6A4"/>
+        <g fill="#181817">
+          <rect x="14" y="14" width="36" height="36" rx="3"/><rect x="20" y="20" width="24" height="24" fill="#FFFFFF"/><rect x="26" y="26" width="12" height="12"/>
+          <rect x="98" y="14" width="36" height="36" rx="3"/><rect x="104" y="20" width="24" height="24" fill="#FFFFFF"/><rect x="110" y="26" width="12" height="12"/>
+          <rect x="14" y="98" width="36" height="36" rx="3"/><rect x="20" y="104" width="24" height="24" fill="#FFFFFF"/><rect x="26" y="110" width="12" height="12"/>
+          <rect x="60" y="18" width="8" height="8"/><rect x="74" y="18" width="8" height="8"/><rect x="60" y="34" width="16" height="8"/><rect x="82" y="34" width="8" height="8"/>
+          <rect x="18" y="60" width="12" height="8"/><rect x="38" y="60" width="8" height="16"/><rect x="58" y="58" width="28" height="28" rx="4" fill="#A8442F"/>
+          <rect x="66" y="66" width="12" height="12" fill="#FFFFFF"/>
+          <rect x="96" y="60" width="10" height="8"/><rect x="116" y="60" width="14" height="8"/><rect x="98" y="76" width="8" height="14"/><rect x="116" y="78" width="14" height="12"/>
+          <rect x="60" y="98" width="14" height="8"/><rect x="82" y="98" width="8" height="18"/><rect x="98" y="104" width="20" height="8"/><rect x="60" y="118" width="18" height="14"/><rect x="104" y="120" width="26" height="12"/>
+        </g>
+      </svg>
+      <div class="mono" style="font-size:11.5px">banread://bind?host=192.168.1.18:8765&amp;token=br_92af</div>
+      <p style="margin:0;font-size:12px">在桌面端执行 <code class="mono">banread-server --mobile-bind</code> 后扫描即可建立 mTLS / Bearer 局域网通道。</p>
+    </div>
+    <form method="dialog" class="dlg-actions">
+      <button type="submit" value="cancel" class="btn btn-ghost btn-sm">暂不配对</button>
+      <button type="submit" value="connect" class="btn btn-primary btn-sm" autofocus>模拟扫码并连接</button>
+    </form>
+  </dialog>
+
+  <script src="sample-data.js"></script>
+  <script src="diagram_renderer.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
