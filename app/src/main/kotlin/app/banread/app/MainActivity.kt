@@ -8,6 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -36,7 +37,7 @@ sealed interface BanReadRoute {
     data object Bookshelf : BanReadRoute
     data object Settings : BanReadRoute
     data class BookDetail(val workId: WorkId) : BanReadRoute
-    data class ReflowReader(val workId: WorkId) : BanReadRoute
+    data class ReflowReader(val workId: WorkId, val forceReopen: Boolean = false) : BanReadRoute
     data class PdfReader(val workId: WorkId) : BanReadRoute
 }
 
@@ -225,6 +226,16 @@ private fun BanReadAppRoot(
                 ),
             )
 
+            LaunchedEffect(route.forceReopen) {
+                if (route.forceReopen) {
+                    readerVm.reopenSurface()
+                    val idx = backStack.lastIndex
+                    if (idx >= 0 && backStack[idx] == route) {
+                        backStack[idx] = route.copy(forceReopen = false)
+                    }
+                }
+            }
+
             DisposableEffect(route.workId, volumeTurnEnabled) {
                 onBindReaderVolumePager(
                     true,
@@ -295,7 +306,7 @@ private fun BanReadAppRoot(
                 viewModel = pdfVm,
                 onBack = { popBack() },
                 onSwitchedToReflow = {
-                    backStack[backStack.lastIndex] = BanReadRoute.ReflowReader(route.workId)
+                    backStack[backStack.lastIndex] = BanReadRoute.ReflowReader(route.workId, forceReopen = true)
                 },
                 onOpenSettingsForVision = {
                     navigateTo(BanReadRoute.Settings)

@@ -76,12 +76,19 @@ class CompanionAndPdfViewModelTest {
         assertEquals(tokensBefore, companion.llmTokenCalls)
         assertTrue(vm.uiState.value.toolFailure is AppFailure.DesktopConnectionRequired)
 
-        // Fullscreen viz event toggles fullscreen mode
+        // Fullscreen viz event toggles fullscreen mode (first opens, second exits)
         vizHost.hostCallback?.invoke(VizHostEvent.OpenFullscreen)
         assertTrue(vm.uiState.value.isFullscreenVizOpen)
         assertEquals(listOf(true), vizHost.fullscreenHistory)
 
-        // [data-jump] resolves ReadingAnchor, drops sheet to PEEK, pulses 2000ms, and fires return pill callback
+        vizHost.hostCallback?.invoke(VizHostEvent.OpenFullscreen)
+        assertFalse(vm.uiState.value.isFullscreenVizOpen)
+        assertEquals(listOf(true, false), vizHost.fullscreenHistory)
+
+        // Re-open fullscreen, then verify [data-jump] resolves ReadingAnchor, drops sheet to PEEK, pulses 2000ms, and closes fullscreen
+        vizHost.hostCallback?.invoke(VizHostEvent.OpenFullscreen)
+        assertTrue(vm.uiState.value.isFullscreenVizOpen)
+
         vizHost.hostCallback?.invoke(VizHostEvent.JumpToBlock(BlockId("B04")))
         assertEquals(CompanionDetent.PEEK, vm.uiState.value.detent)
         assertFalse(vm.uiState.value.isFullscreenVizOpen)

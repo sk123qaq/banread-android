@@ -169,6 +169,7 @@ internal class FakeReaderEngine : ReaderEngine {
     override val activeState: StateFlow<ReaderSessionState> = _activeState.asStateFlow()
 
     var watermarkByWork = mutableMapOf<String, ChapterOrdinal>()
+    var openCalls = 0
     val appliedThemes = mutableListOf<ReaderTheme>()
     val appliedTypographies = mutableListOf<TypographyProfile>()
     val goToCalls = mutableListOf<Pair<ReadingAnchor, Long>>()
@@ -176,6 +177,7 @@ internal class FakeReaderEngine : ReaderEngine {
     val savedAnnotations = mutableListOf<Triple<WorkId, ReadingAnchor, Pair<String, String>>>()
 
     override suspend fun open(workId: WorkId, modePreference: ReadingSurfaceMode): ReaderSessionHandle {
+        openCalls++
         val wm = watermarkByWork.getOrPut(workId.raw) { ChapterOrdinal(2) }
         val anchor = ReadingAnchor.ReflowCfi(
             ordinal = wm,

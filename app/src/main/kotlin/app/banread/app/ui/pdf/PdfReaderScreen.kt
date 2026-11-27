@@ -51,6 +51,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -228,7 +229,7 @@ fun PdfReaderScreen(
                     val bmp = rendered.bitmap
                     val aspect = bmp.width.toFloat() / maxOf(1, bmp.height).toFloat()
                     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
-                    var dragStart by remember { mutableStateOf(Offset.Zero) }
+                    val latestViewport by rememberUpdatedState(state.viewportState)
 
                     Box(
                         modifier = Modifier
@@ -246,25 +247,33 @@ fun PdfReaderScreen(
                             .then(
                                 if (state.cropModeEnabled) {
                                     Modifier.pointerInput(bmp, canvasSize) {
+                                        var localDragStart = Offset.Zero
+                                        var latestDragRect: NormalizedRect? = null
                                         detectDragGestures(
                                             onDragStart = { start ->
-                                                dragStart = start
+                                                localDragStart = start
+                                                latestDragRect = null
                                                 viewModel.setPendingCropRect(null)
                                             },
                                             onDrag = { change, _ ->
                                                 change.consume()
                                                 val rect = computeNormalizedCropRect(
-                                                    startX = dragStart.x,
-                                                    startY = dragStart.y,
+                                                    startX = localDragStart.x,
+                                                    startY = localDragStart.y,
                                                     endX = change.position.x,
                                                     endY = change.position.y,
                                                     canvasWidth = canvasSize.width.toFloat(),
                                                     canvasHeight = canvasSize.height.toFloat(),
                                                 )
+                                                latestDragRect = rect
                                                 viewModel.setPendingCropRect(rect)
                                             },
+                                            onDragCancel = {
+                                                latestDragRect = null
+                                                viewModel.setPendingCropRect(null)
+                                            },
                                             onDragEnd = {
-                                                val rect = state.pendingCropRect
+                                                val rect = latestDragRect
                                                 if (rect != null) {
                                                     scope.launch {
                                                         val pngBytes = withContext(Dispatchers.Default) {
@@ -279,7 +288,7 @@ fun PdfReaderScreen(
                                 } else {
                                     Modifier.pointerInput(Unit) {
                                         detectTransformGestures { _, pan, zoom, _ ->
-                                            val vp = state.viewportState
+                                            val vp = latestViewport
                                             val nextScale = (vp.zoomScale * zoom).coerceIn(1f, 5f)
                                             val nextPanX = if (nextScale > 1.02f) vp.panX + pan.x else 0f
                                             val nextPanY = if (nextScale > 1.02f) vp.panY + pan.y else 0f

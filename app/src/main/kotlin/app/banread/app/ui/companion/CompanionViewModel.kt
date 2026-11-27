@@ -114,7 +114,7 @@ class CompanionViewModel(
         vizHostController.attachWebView { event ->
             when (event) {
                 is VizHostEvent.JumpToBlock -> jumpToBlock(event.blockId)
-                VizHostEvent.OpenFullscreen -> setFullscreenVizOpen(true)
+                VizHostEvent.OpenFullscreen -> setFullscreenVizOpen(!_uiState.value.isFullscreenVizOpen)
                 is VizHostEvent.Error -> {
                     _uiState.value = _uiState.value.copy(
                         toastMessage = "图解渲染提示：${event.message}",

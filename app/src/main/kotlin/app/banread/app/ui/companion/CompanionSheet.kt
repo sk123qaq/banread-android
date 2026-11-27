@@ -1,5 +1,7 @@
 package app.banread.app.ui.companion
 
+import android.view.ViewGroup
+import android.widget.FrameLayout
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.expandVertically
@@ -54,6 +56,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -317,6 +320,9 @@ private fun CompanionDragHandleHeader(
     } else {
         "伴读"
     }
+    val latestOnDragStart by rememberUpdatedState(onDragStart)
+    val latestOnDragDelta by rememberUpdatedState(onDragDelta)
+    val latestOnDragEnd by rememberUpdatedState(onDragEnd)
 
     Column(
         modifier = Modifier
@@ -324,10 +330,10 @@ private fun CompanionDragHandleHeader(
             .background(palette.surface)
             .pointerInput(Unit) {
                 detectVerticalDragGestures(
-                    onDragStart = { onDragStart() },
-                    onVerticalDrag = { _, dragAmount -> onDragDelta(dragAmount) },
-                    onDragEnd = { onDragEnd() },
-                    onDragCancel = { onDragEnd() },
+                    onDragStart = { latestOnDragStart() },
+                    onVerticalDrag = { _, dragAmount -> latestOnDragDelta(dragAmount) },
+                    onDragEnd = { latestOnDragEnd() },
+                    onDragCancel = { latestOnDragEnd() },
                 )
             }
             .padding(horizontal = 12.dp, vertical = 6.dp),
@@ -622,8 +628,23 @@ private fun CompanionStageBody(
                     ) {
                         AndroidView(
                             modifier = Modifier.fillMaxSize(),
-                            factory = { ctx -> vizHostController.acquireWebView(ctx) },
-                            onRelease = { vizHostController.detachWebView() },
+                            factory = { ctx ->
+                                FrameLayout(ctx).apply {
+                                    val wv = vizHostController.acquireWebView(ctx)
+                                    addView(
+                                        wv,
+                                        ViewGroup.LayoutParams(
+                                            ViewGroup.LayoutParams.MATCH_PARENT,
+                                            ViewGroup.LayoutParams.MATCH_PARENT,
+                                        ),
+                                    )
+                                }
+                            },
+                            onRelease = { container ->
+                                if (container.childCount > 0) {
+                                    vizHostController.detachWebView()
+                                }
+                            },
                         )
                     }
                 }
@@ -974,7 +995,6 @@ fun FullscreenVizDialog(
         vizHostController.setFullscreenMode(true)
         onDispose {
             vizHostController.setFullscreenMode(false)
-            vizHostController.detachWebView()
         }
     }
 
@@ -1020,8 +1040,23 @@ fun FullscreenVizDialog(
                     modifier = Modifier
                         .fillMaxSize()
                         .weight(1f),
-                    factory = { ctx -> vizHostController.acquireWebView(ctx) },
-                    onRelease = { vizHostController.detachWebView() },
+                    factory = { ctx ->
+                        FrameLayout(ctx).apply {
+                            val wv = vizHostController.acquireWebView(ctx)
+                            addView(
+                                wv,
+                                ViewGroup.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                ),
+                            )
+                        }
+                    },
+                    onRelease = { container ->
+                        if (container.childCount > 0) {
+                            vizHostController.detachWebView()
+                        }
+                    },
                 )
             }
         }

@@ -150,6 +150,17 @@ fun ReflowReaderScreen(
                                 val dt = System.currentTimeMillis() - downTimeMs
                                 val dist = hypot((event.x - downX).toDouble(), (event.y - downY).toDouble())
                                 if (dt <= 240L && dist <= tapSlop && view.width > 0 && view.height > 0) {
+                                    val hitType = (view as? WebView)?.hitTestResult?.type
+                                    if (hitType == WebView.HitTestResult.SRC_ANCHOR_TYPE ||
+                                        hitType == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE
+                                    ) {
+                                        return@setOnTouchListener false
+                                    }
+                                    val curState = viewModel.uiState.value
+                                    if (curState.activeSelection != null || curState.activeFootnote != null) {
+                                        viewModel.onTapCenterZone()
+                                        return@setOnTouchListener false
+                                    }
                                     val nx = event.x / view.width.toFloat()
                                     val ny = event.y / view.height.toFloat()
                                     when {

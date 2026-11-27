@@ -126,23 +126,37 @@ class ReflowReaderViewModel(
 
     private fun openSession() {
         viewModelScope.launch {
-            val outline = runCatching { libraryVault.getWorkOutline(workId) }.getOrNull()
-            cachedOutline = outline
-            val fonts = runCatching { fontManager?.listFonts().orEmpty() }.getOrDefault(emptyList())
-            val prefs = appPreferences.state.value
-
-            readerEngine.open(workId, ReadingSurfaceMode.REFLOWABLE)
-            readerEngine.applyTheme(prefs.theme)
-            readerEngine.applyTypography(prefs.typography)
-            surfaceController.setPaginationMode(prefs.paginationMode)
-
-            val chTitle = resolveChapterTitle(readerEngine.activeState.value.currentCursor?.ordinal)
-            _uiState.value = _uiState.value.copy(
-                bookTitle = outline?.title.orEmpty(),
-                currentChapterTitle = chTitle,
-                registeredFonts = fonts,
-            )
+            val active = readerEngine.activeState.value
+            val needsOpen = active.workId != workId || active.mode != ReadingSurfaceMode.REFLOWABLE
+            openOrSyncSession(callOpen = needsOpen)
         }
+    }
+
+    fun reopenSurface() {
+        viewModelScope.launch {
+            openOrSyncSession(callOpen = true)
+        }
+    }
+
+    private suspend fun openOrSyncSession(callOpen: Boolean) {
+        val outline = runCatching { libraryVault.getWorkOutline(workId) }.getOrNull()
+        cachedOutline = outline
+        val fonts = runCatching { fontManager?.listFonts().orEmpty() }.getOrDefault(emptyList())
+        val prefs = appPreferences.state.value
+
+        if (callOpen) {
+            readerEngine.open(workId, ReadingSurfaceMode.REFLOWABLE)
+        }
+        readerEngine.applyTheme(prefs.theme)
+        readerEngine.applyTypography(prefs.typography)
+        surfaceController.setPaginationMode(prefs.paginationMode)
+
+        val chTitle = resolveChapterTitle(readerEngine.activeState.value.currentCursor?.ordinal)
+        _uiState.value = _uiState.value.copy(
+            bookTitle = outline?.title.orEmpty(),
+            currentChapterTitle = chTitle,
+            registeredFonts = fonts,
+        )
     }
 
     private fun resolveChapterTitle(ordinal: ChapterOrdinal?): String {

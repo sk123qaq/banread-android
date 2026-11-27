@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.net.URI
 import java.util.UUID
 
 data class ByokEditorState(
@@ -356,6 +357,17 @@ class SettingsViewModel(
 
     fun fetchAvailableModels() {
         val cur = _uiState.value.editor
+        val endpointErr = validateByokEndpoint(cur.endpoint)
+        if (endpointErr != null) {
+            _uiState.value = _uiState.value.copy(
+                editor = cur.copy(
+                    isFetchingModels = false,
+                    fetchStatusMessage = null,
+                    fetchErrorMessage = endpointErr,
+                ),
+            )
+            return
+        }
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(
                 editor = cur.copy(
@@ -408,9 +420,10 @@ class SettingsViewModel(
         val cleanModelId = cur.modelId.trim()
         val cleanDisplayName = cur.displayName.trim().ifBlank { cleanModelId }
 
-        if (cleanEndpoint.isEmpty()) {
+        val endpointErr = validateByokEndpoint(cleanEndpoint)
+        if (endpointErr != null) {
             _uiState.value = _uiState.value.copy(
-                editor = cur.copy(validationError = "Base URL 不能为空"),
+                editor = cur.copy(validationError = endpointErr),
             )
             return
         }
@@ -511,6 +524,18 @@ class SettingsViewModel(
     }
 
     companion object {
+        internal fun validateByokEndpoint(endpoint: String): String? {
+            val clean = endpoint.trim()
+            if (clean.isEmpty()) return "Base URL 不能为空"
+            val parsed = runCatching { URI(clean) }.getOrNull()
+            val scheme = parsed?.scheme?.lowercase()
+            val host = parsed?.host
+            if ((scheme != "http" && scheme != "https") || host.isNullOrBlank()) {
+                return "Base URL 须以 http:// 或 https:// 开头"
+            }
+            return null
+        }
+
         fun presetsByGroup(): Map<ProviderPresetGroup, List<ProviderPreset>> = mapOf(
             ProviderPresetGroup.AGGREGATOR to ProviderPresetCatalog.byGroup(ProviderPresetGroup.AGGREGATOR),
             ProviderPresetGroup.OFFICIAL_OR_LOCAL to ProviderPresetCatalog.byGroup(ProviderPresetGroup.OFFICIAL_OR_LOCAL),

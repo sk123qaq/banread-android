@@ -12,6 +12,7 @@ import app.banread.model.FootnoteLink
 import app.banread.model.ReadProfileId
 import app.banread.model.ReaderTheme
 import app.banread.model.ReadingAnchor
+import app.banread.model.ReadingSurfaceMode
 import app.banread.model.TextQuote
 import app.banread.model.WorkId
 import app.banread.reader.FootnoteClickEvent
@@ -136,5 +137,33 @@ class BookDetailAndReaderViewModelTest {
         vm.returnToPreFootnoteLocation()
         assertNull(vm.uiState.value.preFootnoteReturnAnchor)
         assertEquals(ChapterOrdinal(2), reader.goToCalls.last().first.ordinal)
+    }
+
+    @Test
+    fun `ReflowReaderViewModel skips redundant open when already open on REFLOWABLE and preserves pendingWatermarkJump`() = runTest {
+        val workId = WorkId("w_preopen")
+        val vault = FakeLibraryVault().apply {
+            worksFlow.value = listOf(sampleWorkSummary("w_preopen", "预打开小说"))
+        }
+        val reader = FakeReaderEngine()
+        reader.watermarkByWork[workId.raw] = ChapterOrdinal(3)
+        reader.open(workId, ReadingSurfaceMode.REFLOWABLE)
+        val previewAnchor = vault.resolveAnchor(workId, ChapterOrdinal(10), BlockId("B01"))
+        reader.goTo(previewAnchor)
+        assertEquals(1, reader.openCalls)
+        assertEquals(ChapterOrdinal(10), reader.activeState.value.pendingWatermarkJump)
+
+        val surface = FakeReflowSurfaceController()
+        val prefs = InMemoryAppPreferencesStore()
+        val vm = ReflowReaderViewModel(workId, vault, reader, surface, null, prefs)
+
+        // Must NOT re-open and wipe pendingWatermarkJump
+        assertEquals(1, reader.openCalls)
+        assertEquals(ChapterOrdinal(10), vm.uiState.value.sessionState.pendingWatermarkJump)
+        assertEquals(ChapterOrdinal(3), vm.uiState.value.sessionState.spoilerWatermark)
+
+        // Explicit reopenSurface() (e.g. after switching from PDF) DOES invoke open()
+        vm.reopenSurface()
+        assertEquals(2, reader.openCalls)
     }
 }

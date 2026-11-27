@@ -156,4 +156,22 @@ class SettingsViewModelTest {
         assertEquals(2, vm.uiState.value.providers.size)
         assertTrue(vm.uiState.value.providers.first { it.id == "p1" }.isDefaultCompanion)
     }
+
+    @Test
+    fun `BYOK editor rejects endpoint without http or https scheme in both fetchAvailableModels and saveByokEditor`() = runTest {
+        val runtime = AiRuntimeFactory.createInMemory()
+        val vm = SettingsViewModel(runtime, null, InMemoryAppPreferencesStore())
+
+        vm.openAddByokDialog()
+        vm.updateEditorEndpoint("api.deepseek.com/v1")
+        vm.updateEditorModelId("deepseek-chat")
+
+        vm.fetchAvailableModels()
+        assertEquals("Base URL 须以 http:// 或 https:// 开头", vm.uiState.value.editor.fetchErrorMessage)
+
+        vm.saveByokEditor()
+        assertEquals("Base URL 须以 http:// 或 https:// 开头", vm.uiState.value.editor.validationError)
+        assertTrue(vm.uiState.value.editor.isOpen)
+        assertTrue(runtime.listProviderProfiles().isEmpty())
+    }
 }
