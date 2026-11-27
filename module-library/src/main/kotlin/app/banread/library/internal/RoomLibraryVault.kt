@@ -528,6 +528,8 @@ internal class RoomLibraryVault private constructor(
             bodyChapters = body,
             notesChapters = notes,
             frontBackChapters = frontBack,
+            readProfileId = ReadProfileId(work.readProfileId),
+            literatureSubKind = work.literatureSubKind,
         )
     }
 
