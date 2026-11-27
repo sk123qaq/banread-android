@@ -1,6 +1,7 @@
 package app.banread.ai.internal
 
 import app.banread.model.AppFailure
+import app.banread.model.AppFailureException
 import app.banread.model.LlmPromptRequest
 import app.banread.model.LlmStreamEvent
 import kotlinx.coroutines.CancellationException
@@ -14,7 +15,12 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -31,6 +37,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.resume
 import kotlin.random.Random
 
 internal data class ResolvedModelContext(val modelId: String) : CoroutineContext.Element {
@@ -391,6 +398,87 @@ internal object HttpStreamingSupport {
     }.flowOn(Dispatchers.IO)
 
     fun jsonBody(jsonText: String) = jsonText.toRequestBody(jsonMediaType)
+
+    suspend fun executeJsonGet(
+        client: OkHttpClient,
+        providerId: String,
+        apiKey: String,
+        request: Request,
+    ): Result<JsonObject> = suspendCancellableCoroutine { cont ->
+        val effectiveClient = if (client.callTimeoutMillis == 0 || client.readTimeoutMillis == 0) {
+            client.newBuilder()
+                .apply {
+                    if (client.readTimeoutMillis == 0) readTimeout(15, TimeUnit.SECONDS)
+                    if (client.callTimeoutMillis == 0) callTimeout(20, TimeUnit.SECONDS)
+                }
+                .build()
+        } else {
+            client
+        }
+        val call = effectiveClient.newCall(request)
+        cont.invokeOnCancellation { call.cancel() }
+        call.enqueue(
+            object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    if (!cont.isActive) return
+                    val msg = Redactor.redact(e.message ?: "Network failure", apiKey)
+                    cont.resume(
+                        Result.failure(
+                            AppFailureException(
+                                AppFailure.ProviderAuthOrQuota(
+                                    providerId = providerId,
+                                    httpCode = null,
+                                    message = msg,
+                                ),
+                            ),
+                        ),
+                    )
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    response.use { resp ->
+                        if (!cont.isActive) return
+                        val code = resp.code
+                        val bodyText = runCatching { resp.body?.string().orEmpty() }.getOrDefault("")
+                        if (!resp.isSuccessful) {
+                            val snippet = bodyText.ifBlank { resp.message.ifBlank { "HTTP $code" } }.take(300)
+                            cont.resume(
+                                Result.failure(
+                                    AppFailureException(
+                                        AppFailure.ProviderAuthOrQuota(
+                                            providerId = providerId,
+                                            httpCode = code,
+                                            message = Redactor.redact("HTTP $code: $snippet", apiKey),
+                                        ),
+                                    ),
+                                ),
+                            )
+                            return
+                        }
+                        val parsed = runCatching {
+                            jsonParser.parseToJsonElement(bodyText).jsonObject
+                        }
+                        if (parsed.isSuccess) {
+                            cont.resume(Result.success(parsed.getOrThrow()))
+                        } else {
+                            val ex = parsed.exceptionOrNull()
+                            cont.resume(
+                                Result.failure(
+                                    AppFailureException(
+                                        AppFailure.ProviderAuthOrQuota(
+                                            providerId = providerId,
+                                            httpCode = code,
+                                            message = Redactor.redact(ex?.message ?: "Invalid JSON response", apiKey),
+                                        ),
+                                    ),
+                                ),
+                            )
+                        }
+                    }
+                }
+            },
+        )
+    }
 
     private fun redactFailedEvent(event: LlmStreamEvent.Failed, apiKey: String): LlmStreamEvent.Failed {
         val failure = event.failure

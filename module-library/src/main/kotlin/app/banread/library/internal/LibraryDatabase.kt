@@ -11,6 +11,9 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
+import kotlinx.coroutines.flow.Flow
 
 @Entity(
     tableName = "works",
@@ -28,6 +31,8 @@ internal data class WorkEntity(
     val profileSource: String, // AUTO | DESKTOP | USER_OVERRIDE
     val clothColor: String,
     val coverRel: String?,
+    val coverWidth: Int? = null,
+    val coverHeight: Int? = null,
     val originalFilePath: String,
     val compiledRootPath: String,
     val format: String, // EPUB | MOBI | AZW3 | PDF | BCBOOK
@@ -94,6 +99,12 @@ internal data class FootnoteEntity(
 
 @Dao
 internal interface LibraryDao {
+    @Query("SELECT * FROM works ORDER BY addedAtMs DESC")
+    suspend fun listAllWorks(): List<WorkEntity>
+
+    @Query("SELECT * FROM works ORDER BY addedAtMs DESC")
+    fun observeAllWorks(): Flow<List<WorkEntity>>
+
     @Query("SELECT * FROM works WHERE workId = :workId LIMIT 1")
     suspend fun findWorkById(workId: String): WorkEntity?
 
@@ -170,6 +181,14 @@ internal interface LibraryDao {
     suspend fun deleteWorkById(workId: String)
 
     @Transaction
+    suspend fun deleteWorkTree(workId: String) {
+        deleteFootnotesForWork(workId)
+        deleteBlocksForWork(workId)
+        deleteChaptersForWork(workId)
+        deleteWorkById(workId)
+    }
+
+    @Transaction
     suspend fun replaceWorkTree(
         work: WorkEntity,
         chapters: List<ChapterEntity>,
@@ -178,10 +197,7 @@ internal interface LibraryDao {
         supersededWorkId: String? = null,
     ) {
         if (supersededWorkId != null && supersededWorkId != work.workId) {
-            deleteFootnotesForWork(supersededWorkId)
-            deleteBlocksForWork(supersededWorkId)
-            deleteChaptersForWork(supersededWorkId)
-            deleteWorkById(supersededWorkId)
+            deleteWorkTree(supersededWorkId)
         }
         upsertWork(work)
         deleteFootnotesForWork(work.workId)
@@ -200,19 +216,27 @@ internal interface LibraryDao {
         ChapterBlockEntity::class,
         FootnoteEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 internal abstract class LibraryDatabase : RoomDatabase() {
     abstract fun libraryDao(): LibraryDao
 
     companion object {
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE works ADD COLUMN coverWidth INTEGER")
+                db.execSQL("ALTER TABLE works ADD COLUMN coverHeight INTEGER")
+            }
+        }
+
         fun build(context: Context, allowInMemory: Boolean): LibraryDatabase {
             val builder = if (allowInMemory) {
                 Room.inMemoryDatabaseBuilder(context, LibraryDatabase::class.java)
                     .allowMainThreadQueries()
             } else {
                 Room.databaseBuilder(context, LibraryDatabase::class.java, "banread_library_v1.db")
+                    .addMigrations(MIGRATION_1_2)
                     .fallbackToDestructiveMigration()
             }
             return builder.build()

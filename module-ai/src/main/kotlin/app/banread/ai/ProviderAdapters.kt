@@ -4,10 +4,14 @@ import app.banread.ai.internal.HttpStreamingSupport
 import app.banread.ai.internal.Redactor
 import app.banread.ai.internal.resolveEffectiveModel
 import app.banread.model.AppFailure
+import app.banread.model.DiscoveredModel
 import app.banread.model.LlmPromptRequest
 import app.banread.model.LlmProviderPort
 import app.banread.model.LlmStreamEvent
 import app.banread.model.ProviderCapabilities
+import app.banread.model.ProviderKind
+import app.banread.model.ThinkingLevel
+import app.banread.model.resolveModelsEndpoint
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -25,6 +29,11 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.Base64
 
+/**
+ * OpenAI-compatible SSE + model-discovery adapter.
+ * Maps [ThinkingLevel] (`LOW` -> `"low"`, `MEDIUM` -> `"medium"`, `HIGH` -> `"high"`, `MAX` -> `"high"`
+ * for broad OpenAI-compat gateway support) to `reasoning_effort`, omitting it on `OFF`.
+ */
 class OpenAiCompatAdapter(
     private val defaultModelId: String = "gpt-4o-mini",
     override val capabilities: ProviderCapabilities = ProviderCapabilities(
@@ -36,6 +45,38 @@ class OpenAiCompatAdapter(
     private val retryDelayBaseMs: Long = 250L,
     private val maxRetries: Int = 3,
 ) : LlmProviderPort {
+
+    override suspend fun listModels(endpoint: String, apiKey: String): Result<List<DiscoveredModel>> {
+        val url = resolveModelsEndpoint(ProviderKind.OPENAI_COMPAT, endpoint)
+        val request = Request.Builder()
+            .url(url)
+            .apply {
+                if (apiKey.isNotBlank()) {
+                    header("Authorization", "Bearer $apiKey")
+                }
+            }
+            .header("Accept", "application/json")
+            .get()
+            .build()
+        return HttpStreamingSupport.executeJsonGet(client, "openai_compat", apiKey, request).map { root ->
+            val items = root["data"] as? JsonArray ?: return@map emptyList()
+            val seen = linkedSetOf<String>()
+            items.mapNotNull { el ->
+                val obj = el as? JsonObject ?: return@mapNotNull null
+                val id = obj.stringOrNull("id")?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+                if (!seen.add(id)) return@mapNotNull null
+                val displayName = obj.stringOrNull("name")?.takeIf { it.isNotBlank() }
+                    ?: obj.stringOrNull("display_name")?.takeIf { it.isNotBlank() }
+                    ?: id
+                val ownedBy = obj.stringOrNull("owned_by")?.takeIf { it.isNotBlank() }
+                DiscoveredModel(
+                    id = id,
+                    displayName = displayName,
+                    ownedBy = ownedBy,
+                )
+            }
+        }
+    }
 
     override fun stream(endpoint: String, apiKey: String, payload: LlmPromptRequest): Flow<LlmStreamEvent> {
         val url = resolveEndpoint(endpoint)
@@ -170,6 +211,16 @@ class OpenAiCompatAdapter(
             )
         }
         payload.maxOutputTokens?.let { put("max_tokens", it) }
+        val reasoningEffort = when (payload.thinkingLevel) {
+            ThinkingLevel.OFF -> null
+            ThinkingLevel.LOW -> "low"
+            ThinkingLevel.MEDIUM -> "medium"
+            ThinkingLevel.HIGH -> "high"
+            ThinkingLevel.MAX -> "high"
+        }
+        if (reasoningEffort != null) {
+            put("reasoning_effort", reasoningEffort)
+        }
     }
 }
 
@@ -184,6 +235,46 @@ class GeminiAdapter(
     private val retryDelayBaseMs: Long = 250L,
     private val maxRetries: Int = 3,
 ) : LlmProviderPort {
+
+    override suspend fun listModels(endpoint: String, apiKey: String): Result<List<DiscoveredModel>> {
+        val url = resolveModelsEndpoint(ProviderKind.GEMINI, endpoint)
+        val request = Request.Builder()
+            .url(url)
+            .apply {
+                if (apiKey.isNotBlank()) {
+                    header("x-goog-api-key", apiKey)
+                }
+            }
+            .header("Accept", "application/json")
+            .get()
+            .build()
+        return HttpStreamingSupport.executeJsonGet(client, "gemini", apiKey, request).map { root ->
+            val items = root["models"] as? JsonArray ?: return@map emptyList()
+            data class Candidate(val model: DiscoveredModel, val supportsGenerateContent: Boolean)
+            val parsed = items.mapNotNull { el ->
+                val obj = el as? JsonObject ?: return@mapNotNull null
+                val rawName = obj.stringOrNull("name")?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+                val id = rawName.removePrefix("models/")
+                val displayName = obj.stringOrNull("displayName")?.takeIf { it.isNotBlank() } ?: id
+                val methodsArr = obj["supportedGenerationMethods"] as? JsonArray
+                val supportsGen = if (methodsArr == null) {
+                    true
+                } else {
+                    methodsArr.any { m -> (m as? JsonPrimitive)?.contentOrNull == "generateContent" }
+                }
+                Candidate(
+                    model = DiscoveredModel(
+                        id = id,
+                        displayName = displayName,
+                        ownedBy = "google",
+                    ),
+                    supportsGenerateContent = supportsGen,
+                )
+            }
+            val preferred = parsed.filter { it.supportsGenerateContent }
+            (if (preferred.isNotEmpty()) preferred else parsed).map { it.model }
+        }
+    }
 
     override fun stream(endpoint: String, apiKey: String, payload: LlmPromptRequest): Flow<LlmStreamEvent> {
         return HttpStreamingSupport.streamSseWithRetry(
@@ -310,7 +401,8 @@ class GeminiAdapter(
                 )
             },
         )
-        if (payload.expectJson || payload.maxOutputTokens != null) {
+        val thinkingBudget = thinkingBudgetTokens(payload.thinkingLevel)
+        if (payload.expectJson || payload.maxOutputTokens != null || thinkingBudget != null) {
             put(
                 "generationConfig",
                 buildJsonObject {
@@ -318,6 +410,15 @@ class GeminiAdapter(
                         put("responseMimeType", "application/json")
                     }
                     payload.maxOutputTokens?.let { put("maxOutputTokens", it) }
+                    if (thinkingBudget != null) {
+                        put(
+                            "thinkingConfig",
+                            buildJsonObject {
+                                put("includeThoughts", true)
+                                put("thinkingBudget", thinkingBudget)
+                            },
+                        )
+                    }
                 },
             )
         }
@@ -335,6 +436,34 @@ class AnthropicAdapter(
     private val retryDelayBaseMs: Long = 250L,
     private val maxRetries: Int = 3,
 ) : LlmProviderPort {
+
+    override suspend fun listModels(endpoint: String, apiKey: String): Result<List<DiscoveredModel>> {
+        val url = resolveModelsEndpoint(ProviderKind.ANTHROPIC, endpoint)
+        val request = Request.Builder()
+            .url(url)
+            .apply {
+                if (apiKey.isNotBlank()) {
+                    header("x-api-key", apiKey)
+                }
+            }
+            .header("anthropic-version", "2023-06-01")
+            .header("Accept", "application/json")
+            .get()
+            .build()
+        return HttpStreamingSupport.executeJsonGet(client, "anthropic", apiKey, request).map { root ->
+            val items = root["data"] as? JsonArray ?: return@map emptyList()
+            items.mapNotNull { el ->
+                val obj = el as? JsonObject ?: return@mapNotNull null
+                val id = obj.stringOrNull("id")?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+                val displayName = obj.stringOrNull("display_name")?.takeIf { it.isNotBlank() } ?: id
+                DiscoveredModel(
+                    id = id,
+                    displayName = displayName,
+                    ownedBy = "anthropic",
+                )
+            }
+        }
+    }
 
     override fun stream(endpoint: String, apiKey: String, payload: LlmPromptRequest): Flow<LlmStreamEvent> {
         val url = resolveEndpoint(endpoint)
@@ -412,9 +541,21 @@ class AnthropicAdapter(
     }
 
     private fun buildPayloadJson(model: String, payload: LlmPromptRequest): JsonObject = buildJsonObject {
+        val budgetTokens = thinkingBudgetTokens(payload.thinkingLevel)
+        val requestedMax = payload.maxOutputTokens ?: 4096
+        val effectiveMaxTokens = if (budgetTokens != null) maxOf(requestedMax, budgetTokens + 1024) else requestedMax
         put("model", model)
-        put("max_tokens", payload.maxOutputTokens ?: 4096)
+        put("max_tokens", effectiveMaxTokens)
         put("stream", true)
+        if (budgetTokens != null) {
+            put(
+                "thinking",
+                buildJsonObject {
+                    put("type", "enabled")
+                    put("budget_tokens", budgetTokens)
+                },
+            )
+        }
         if (payload.systemPrompt.isNotBlank()) {
             put("system", payload.systemPrompt)
         }
@@ -471,6 +612,34 @@ class OllamaAdapter(
     private val retryDelayBaseMs: Long = 250L,
     private val maxRetries: Int = 3,
 ) : LlmProviderPort {
+
+    override suspend fun listModels(endpoint: String, apiKey: String): Result<List<DiscoveredModel>> {
+        val url = resolveModelsEndpoint(ProviderKind.OLLAMA, endpoint)
+        val request = Request.Builder()
+            .url(url)
+            .apply {
+                if (apiKey.isNotBlank()) {
+                    header("Authorization", "Bearer $apiKey")
+                }
+            }
+            .header("Accept", "application/json")
+            .get()
+            .build()
+        return HttpStreamingSupport.executeJsonGet(client, "ollama", apiKey, request).map { root ->
+            val items = root["models"] as? JsonArray ?: return@map emptyList()
+            items.mapNotNull { el ->
+                val obj = el as? JsonObject ?: return@mapNotNull null
+                val name = obj.stringOrNull("name")?.trim()?.takeIf { it.isNotEmpty() }
+                    ?: obj.stringOrNull("model")?.trim()?.takeIf { it.isNotEmpty() }
+                    ?: return@mapNotNull null
+                DiscoveredModel(
+                    id = name,
+                    displayName = name,
+                    ownedBy = "ollama",
+                )
+            }
+        }
+    }
 
     override fun stream(endpoint: String, apiKey: String, payload: LlmPromptRequest): Flow<LlmStreamEvent> {
         val url = resolveEndpoint(endpoint)
@@ -536,6 +705,9 @@ class OllamaAdapter(
     private fun buildPayloadJson(model: String, payload: LlmPromptRequest): JsonObject = buildJsonObject {
         put("model", model)
         put("stream", true)
+        if (payload.thinkingLevel != ThinkingLevel.OFF) {
+            put("think", true)
+        }
         if (payload.expectJson) {
             put("format", "json")
         }
@@ -576,6 +748,14 @@ class OllamaAdapter(
             },
         )
     }
+}
+
+private fun thinkingBudgetTokens(level: ThinkingLevel): Int? = when (level) {
+    ThinkingLevel.OFF -> null
+    ThinkingLevel.LOW -> 1024
+    ThinkingLevel.MEDIUM -> 4096
+    ThinkingLevel.HIGH -> 10240
+    ThinkingLevel.MAX -> 24576
 }
 
 private fun JsonObject.stringOrNull(key: String): String? {
