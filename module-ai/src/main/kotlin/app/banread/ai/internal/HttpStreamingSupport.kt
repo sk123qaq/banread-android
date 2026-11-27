@@ -221,21 +221,21 @@ internal object HttpStreamingSupport {
                             return
                         }
 
-                        val detail = buildString {
-                            if (code != null) append("HTTP $code")
-                            val msg = rawBody.ifBlank { t?.message ?: "Request failed" }
-                            if (msg.isNotBlank()) {
-                                if (isNotEmpty()) append(": ")
-                                append(msg.take(300))
-                            }
-                        }
+                        val readable = ProviderErrorText.readable(code, rawBody, t?.message)
+                        AiLog.failure(
+                            providerId = providerId,
+                            httpCode = code,
+                            url = request.url.toString(),
+                            type = ProviderErrorText.parse(rawBody).type,
+                            redactedBody = Redactor.redact(rawBody.ifBlank { t?.message.orEmpty() }, apiKey),
+                        )
                         if (completed.compareAndSet(false, true)) {
                             trySend(
                                 LlmStreamEvent.Failed(
                                     AppFailure.ProviderAuthOrQuota(
                                         providerId = providerId,
                                         httpCode = code,
-                                        message = Redactor.redact(detail, apiKey),
+                                        message = Redactor.redact(readable, apiKey),
                                     ),
                                 ),
                             )
@@ -316,12 +316,19 @@ internal object HttpStreamingSupport {
                                 retryDelayMs = computeBackoffMs(attempt, retryAfter, retryDelayBaseMs)
                                 return@coroutineScope
                             }
-                            val msg = rawBody.ifBlank { "HTTP $code" }.take(300)
+                            val msg = ProviderErrorText.readable(code, rawBody)
+                            AiLog.failure(
+                                providerId = providerId,
+                                httpCode = code,
+                                url = request.url.toString(),
+                                type = ProviderErrorText.parse(rawBody).type,
+                                redactedBody = Redactor.redact(rawBody, apiKey),
+                            )
                             failedEvent = LlmStreamEvent.Failed(
                                 AppFailure.ProviderAuthOrQuota(
                                     providerId = providerId,
                                     httpCode = code,
-                                    message = Redactor.redact("HTTP $code: $msg", apiKey),
+                                    message = Redactor.redact(msg, apiKey),
                                 ),
                             )
                             return@coroutineScope
@@ -441,14 +448,21 @@ internal object HttpStreamingSupport {
                         val code = resp.code
                         val bodyText = runCatching { resp.body?.string().orEmpty() }.getOrDefault("")
                         if (!resp.isSuccessful) {
-                            val snippet = bodyText.ifBlank { resp.message.ifBlank { "HTTP $code" } }.take(300)
+                            val readable = ProviderErrorText.readable(code, bodyText, resp.message)
+                            AiLog.failure(
+                                providerId = providerId,
+                                httpCode = code,
+                                url = request.url.toString(),
+                                type = ProviderErrorText.parse(bodyText).type,
+                                redactedBody = Redactor.redact(bodyText, apiKey),
+                            )
                             cont.resume(
                                 Result.failure(
                                     AppFailureException(
                                         AppFailure.ProviderAuthOrQuota(
                                             providerId = providerId,
                                             httpCode = code,
-                                            message = Redactor.redact("HTTP $code: $snippet", apiKey),
+                                            message = Redactor.redact(readable, apiKey),
                                         ),
                                     ),
                                 ),
