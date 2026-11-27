@@ -1,13 +1,10 @@
 package app.banread.companion.internal
 
 import android.content.Context
-import android.database.sqlite.SQLiteDatabase
 import app.banread.model.AiRuntime
 import app.banread.model.AppFailure
 import app.banread.model.AppFailureException
 import app.banread.model.AuditedArtifact
-import app.banread.model.BcBookManifest
-import app.banread.model.ChapterOrdinal
 import app.banread.model.CompanionEngine
 import app.banread.model.CompanionEvent
 import app.banread.model.CompanionRequest
@@ -30,12 +27,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
-import org.xmlpull.v1.XmlPullParser
-import org.xmlpull.v1.XmlPullParserFactory
+import java.io.Closeable
 import java.io.File
-import java.io.StringReader
+import java.security.MessageDigest
 import java.util.UUID
-import java.util.zip.ZipFile
 import kotlin.math.ceil
 
 internal class RoomCompanionEngine(
@@ -43,10 +38,9 @@ internal class RoomCompanionEngine(
     private val aiRuntime: AiRuntime,
     private val profileRegistry: ProfileRegistry,
     private val syncCoordinator: SyncCoordinator?,
-    private val context: Context,
-    private val filesRoot: File,
     private val db: CompanionDatabase,
-) : CompanionEngine {
+    private val ownsDatabase: Boolean,
+) : CompanionEngine, Closeable {
 
     private val dao = db.companionDao()
     private val contextBuilder = ContextBuilder(libraryVault, dao)
@@ -54,6 +48,12 @@ internal class RoomCompanionEngine(
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
+    }
+
+    override fun close() {
+        if (ownsDatabase) {
+            db.close()
+        }
     }
 
     override suspend fun recommendedTools(workId: WorkId): ProfileToolbox {
@@ -68,18 +68,10 @@ internal class RoomCompanionEngine(
     }
 
     override fun runTool(request: CompanionRequest): Flow<CompanionEvent> = flow {
-        // 1. Strict 0-Token Cross-Book Guard BEFORE any AiRuntime interaction
-        if (profileRegistry.isCrossSearchTool(request.tool)) {
-            if (syncCoordinator == null) {
-                emit(CompanionEvent.Failure(AppFailure.DesktopConnectionRequired(request.tool.raw)))
-                return@flow
-            }
-        }
-
         val (profileId, subKind) = resolveWorkProfile(request.workId)
         val effectiveToolId = resolveEffectiveToolId(request.tool, profileId)
 
-        // 2. Build anti-spoiler gated context exclusively via LibraryVault
+        // 1. Build anti-spoiler gated context exclusively via LibraryVault
         val ctx = when (val outcome = contextBuilder.build(request.workId, request.scope, request.gate)) {
             is ContextBuildOutcome.GateLocked -> {
                 emit(CompanionEvent.Failure(AppFailure.CapacityPreflightBlocked(0L, outcome.reason)))
@@ -88,35 +80,10 @@ internal class RoomCompanionEngine(
             is ContextBuildOutcome.Ready -> outcome.context
         }
 
-        // 3. If cross-search tool, query SyncCoordinator; fail fast with 0 LLM tokens if disconnected
-        val crossBookHits: List<CrossBookHit> = if (profileRegistry.isCrossSearchTool(request.tool)) {
-            val coord = syncCoordinator!!
-            val queryText = listOf(ctx.workTitle, ctx.chapterTitle, ctx.selectedText.take(120))
-                .filter { it.isNotBlank() }
-                .joinToString(" ")
-            val passage = ctx.selectedText.ifBlank { ctx.contextText.take(240) }
-            val hitResult = coord.queryCrossBookHits(request.workId, queryText, passage)
-            if (hitResult.isFailure) {
-                val ex = hitResult.exceptionOrNull()
-                val failure = when (ex) {
-                    is AppFailureException -> when (ex.failure) {
-                        is AppFailure.DesktopConnectionRequired -> ex.failure
-                        else -> AppFailure.DesktopConnectionRequired(request.tool.raw)
-                    }
-                    else -> AppFailure.DesktopConnectionRequired(request.tool.raw)
-                }
-                emit(CompanionEvent.Failure(failure))
-                return@flow
-            }
-            hitResult.getOrDefault(emptyList())
-        } else {
-            emptyList()
-        }
-
         val scopeKey = scopeKeyFor(request.scope)
         val gateKey = progressGateKeyFor(request.scope, request.gate)
 
-        // 4. Room L3 Cache Lookup & FullBook SWR
+        // 2. Room L3 Cache Lookup & FullBook SWR (allows offline hits for precomputed cross-book results)
         if (!request.forceRefresh) {
             val exact = dao.getExactResult(
                 workId = request.workId.raw,
@@ -139,11 +106,15 @@ internal class RoomCompanionEngine(
                 return@flow
             }
 
-            if (request.scope is ToolScope.FullBook && request.gate is SpoilerGate.UpTo) {
+            if (request.scope is ToolScope.FullBook) {
+                val targetGateOrdinal = when (val g = request.gate) {
+                    is SpoilerGate.UpTo -> g.unlockedMaxOrdinal.value
+                    SpoilerGate.FullBookUnlocked -> Int.MAX_VALUE
+                }
                 val swrCandidate = findBestEarlierFullBookCache(
                     workId = request.workId,
                     toolId = effectiveToolId,
-                    targetGateOrdinal = (request.gate as SpoilerGate.UpTo).unlockedMaxOrdinal.value,
+                    targetGateOrdinal = targetGateOrdinal,
                 )
                 if (swrCandidate != null) {
                     dao.touchResult(
@@ -161,7 +132,36 @@ internal class RoomCompanionEngine(
             }
         }
 
-        // 5. Build prompt and stream from AiRuntime
+        // 3. Strict 0-Token Cross-Book Guard when cache misses or forceRefresh = true
+        val crossBookHits: List<CrossBookHit> = if (profileRegistry.isCrossSearchTool(request.tool)) {
+            val coord = syncCoordinator
+            if (coord == null) {
+                emit(CompanionEvent.Failure(AppFailure.DesktopConnectionRequired(request.tool.raw)))
+                return@flow
+            }
+            val queryText = listOf(ctx.workTitle, ctx.chapterTitle, ctx.selectedText.take(120))
+                .filter { it.isNotBlank() }
+                .joinToString(" ")
+            val passage = ctx.selectedText.ifBlank { ctx.contextText.take(240) }
+            val hitResult = coord.queryCrossBookHits(request.workId, queryText, passage)
+            if (hitResult.isFailure) {
+                val ex = hitResult.exceptionOrNull()
+                val failure = when (ex) {
+                    is AppFailureException -> when (ex.failure) {
+                        is AppFailure.DesktopConnectionRequired -> ex.failure
+                        else -> AppFailure.DesktopConnectionRequired(request.tool.raw)
+                    }
+                    else -> AppFailure.DesktopConnectionRequired(request.tool.raw)
+                }
+                emit(CompanionEvent.Failure(failure))
+                return@flow
+            }
+            hitResult.getOrDefault(emptyList())
+        } else {
+            emptyList()
+        }
+
+        // 4. Build prompt and stream from AiRuntime
         val builtPrompt = PromptCatalog.buildPrompt(
             toolId = ToolId(effectiveToolId),
             readProfileId = profileId,
@@ -266,7 +266,8 @@ internal class RoomCompanionEngine(
         }
 
         val currentGateOrd = (gate as? SpoilerGate.UpTo)?.unlockedMaxOrdinal?.value
-        val existingTurns = dao.getQaTurns(workId.raw, effectiveThreadId).filter { turn ->
+        val allTurns = dao.getQaTurns(workId.raw, effectiveThreadId)
+        val existingTurns = allTurns.filter { turn ->
             currentGateOrd == null || (turn.gateOrdinal != null && turn.gateOrdinal <= currentGateOrd)
         }
 
@@ -317,7 +318,7 @@ internal class RoomCompanionEngine(
         }
 
         val answer = completedText.orEmpty()
-        val nextTurn = (existingTurns.maxOfOrNull { it.turnIndex } ?: -1) + 1
+        val nextTurn = (allTurns.maxOfOrNull { it.turnIndex } ?: -1) + 1
         val scopeKey = scopeKeyFor(scope)
         val now = System.currentTimeMillis()
         dao.insertQaTurn(
@@ -457,96 +458,8 @@ internal class RoomCompanionEngine(
     }
 
     private suspend fun resolveWorkProfile(workId: WorkId): Pair<ReadProfileId, String?> {
-        // 1. Check disk LibraryDatabase (production persistent DB, reflects overrideProfile)
-        queryDiskLibraryDb(workId)?.let { return it }
-
-        // 2. Check .bcbook Study Pack manifest on disk (works even when LibraryVault is in-memory)
-        val bcbookFile = File(filesRoot, "books/${workId.raw}.bcbook")
-        if (bcbookFile.isFile) {
-            readBcBookProfile(bcbookFile)?.let { return it }
-        }
-
-        // 3. Check .epub OPF subjects on disk
-        val epubFile = File(filesRoot, "books/${workId.raw}.epub")
-        if (epubFile.isFile) {
-            readEpubProfile(epubFile)?.let { return it }
-        }
-
-        // 4. Verify work exists in LibraryVault and fall back to default profile
-        libraryVault.getWorkOutline(workId)
-        return profileRegistry.defaultReadType to null
-    }
-
-    private suspend fun queryDiskLibraryDb(workId: WorkId): Pair<ReadProfileId, String?>? = withContext(Dispatchers.IO) {
-        val dbFile = context.getDatabasePath("banread_library_v1.db")
-        if (!dbFile.isFile) return@withContext null
-        runCatching {
-            SQLiteDatabase.openDatabase(dbFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY).use { sqlDb ->
-                sqlDb.rawQuery(
-                    "SELECT readProfileId, literatureSubKind FROM works WHERE workId = ? LIMIT 1",
-                    arrayOf(workId.raw),
-                ).use { cursor ->
-                    if (cursor.moveToFirst()) {
-                        val rt = cursor.getString(0)
-                        val sub = if (cursor.isNull(1)) null else cursor.getString(1)?.takeIf { it.isNotBlank() }
-                        ReadProfileId(rt) to sub
-                    } else {
-                        null
-                    }
-                }
-            }
-        }.getOrNull()
-    }
-
-    private suspend fun readBcBookProfile(bcbookFile: File): Pair<ReadProfileId, String?>? = withContext(Dispatchers.IO) {
-        runCatching {
-            ZipFile(bcbookFile).use { zip ->
-                val entry = zip.getEntry("manifest.json") ?: return@use null
-                val manifestText = zip.getInputStream(entry).bufferedReader(Charsets.UTF_8).use { it.readText() }
-                val manifest = json.decodeFromString(BcBookManifest.serializer(), manifestText)
-                manifest.readType to manifest.subKind.takeIf { it.isNotBlank() }
-            }
-        }.getOrNull()
-    }
-
-    private suspend fun readEpubProfile(epubFile: File): Pair<ReadProfileId, String?>? = withContext(Dispatchers.IO) {
-        runCatching {
-            ZipFile(epubFile).use { zip ->
-                val containerEntry = zip.getEntry("META-INF/container.xml") ?: return@use null
-                val containerXml = zip.getInputStream(containerEntry).bufferedReader(Charsets.UTF_8).use { it.readText() }
-                val opfPath = Regex("""full-path\s*=\s*["']([^"']+)["']""").find(containerXml)?.groupValues?.get(1)
-                    ?: return@use null
-                val opfEntry = zip.getEntry(opfPath) ?: return@use null
-                val opfXml = zip.getInputStream(opfEntry).bufferedReader(Charsets.UTF_8).use { it.readText() }
-                val subjects = parseOpfSubjects(opfXml)
-                val s1 = subjects.getOrNull(0)
-                val s2 = subjects.getOrNull(1)
-                val resolved = if (s1 != null && s2 == null && s1 !in profileRegistry.taxonomy) {
-                    val parent = profileRegistry.taxonomy.entries.firstOrNull { s1 in it.value }?.key
-                    if (parent != null) profileRegistry.resolveProfile(parent, s1)
-                    else profileRegistry.resolveProfile(s1, null)
-                } else {
-                    profileRegistry.resolveProfile(s1, s2)
-                }
-                resolved.profile.readType to resolved.subKind.takeIf { it.isNotBlank() }
-            }
-        }.getOrNull()
-    }
-
-    private fun parseOpfSubjects(opfXml: String): List<String> {
-        val subjects = mutableListOf<String>()
-        val factory = XmlPullParserFactory.newInstance().apply { isNamespaceAware = true }
-        val parser = factory.newPullParser()
-        parser.setInput(StringReader(opfXml))
-        var event = parser.eventType
-        while (event != XmlPullParser.END_DOCUMENT) {
-            if (event == XmlPullParser.START_TAG && parser.name.equals("subject", ignoreCase = true)) {
-                val txt = runCatching { parser.nextText().trim() }.getOrDefault("")
-                if (txt.isNotEmpty()) subjects += txt
-            }
-            event = parser.next()
-        }
-        return subjects
+        val outline = libraryVault.getWorkOutline(workId)
+        return (outline.readProfileId ?: profileRegistry.defaultReadType) to outline.literatureSubKind
     }
 
     private fun resolveEffectiveToolId(tool: ToolId, profileId: ReadProfileId): String {
@@ -565,7 +478,11 @@ internal class RoomCompanionEngine(
                 is ReadingAnchor.BlockOffset -> a.blockId.value
                 is ReadingAnchor.PdfPage -> "p${a.pageIndex}"
             }
-            "selection:${scope.anchor.ordinal.twoDigit()}:$blk"
+            val textHash12 = MessageDigest.getInstance("SHA-256")
+                .digest(scope.selectedText.trim().toByteArray(Charsets.UTF_8))
+                .joinToString("") { "%02x".format(it) }
+                .take(12)
+            "selection:${scope.anchor.ordinal.twoDigit()}:$blk:$textHash12"
         }
         is ToolScope.Chapter -> "chapter:${scope.ordinal.twoDigit()}"
         ToolScope.FullBook -> "full_book"
@@ -623,9 +540,8 @@ internal class RoomCompanionEngine(
                 aiRuntime = aiRuntime,
                 profileRegistry = profileRegistry,
                 syncCoordinator = syncCoordinator,
-                context = context,
-                filesRoot = filesRoot,
                 db = db,
+                ownsDatabase = allowInMemoryDb,
             )
         }
     }

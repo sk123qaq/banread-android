@@ -154,7 +154,7 @@ internal object HttpStreamingSupport {
                                         }
                                     } else if (ev is LlmStreamEvent.Failed) {
                                         if (completed.compareAndSet(false, true)) {
-                                            trySend(ev)
+                                            trySend(redactFailedEvent(ev, apiKey))
                                         }
                                     } else {
                                         trySend(ev)
@@ -333,7 +333,7 @@ internal object HttpStreamingSupport {
                             onLine(
                                 line,
                                 fullContent,
-                                { ev -> pending += ev },
+                                { ev -> pending += if (ev is LlmStreamEvent.Failed) redactFailedEvent(ev, apiKey) else ev },
                                 { completed = true },
                             )
                             for (ev in pending) {
@@ -391,4 +391,15 @@ internal object HttpStreamingSupport {
     }.flowOn(Dispatchers.IO)
 
     fun jsonBody(jsonText: String) = jsonText.toRequestBody(jsonMediaType)
+
+    private fun redactFailedEvent(event: LlmStreamEvent.Failed, apiKey: String): LlmStreamEvent.Failed {
+        val failure = event.failure
+        if (failure !is AppFailure.ProviderAuthOrQuota) return event
+        val redacted = Redactor.redact(failure.message, apiKey)
+        return if (redacted == failure.message) {
+            event
+        } else {
+            LlmStreamEvent.Failed(failure.copy(message = redacted))
+        }
+    }
 }

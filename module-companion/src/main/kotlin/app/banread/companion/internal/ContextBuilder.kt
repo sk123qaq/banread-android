@@ -516,23 +516,25 @@ internal class ContextBuilder(
                     gapMarkers++
                 }
             }
-            val run = mutableListOf(curIdx)
-            var nxt = pos + 1
-            while (nxt < ordered.size && ordered[nxt] == run.last() + 1) {
-                val cand = ordered[nxt]
-                if (bodySemantic[cand].isHeading || bodySemantic[cand].text.length > 40) break
-                run += cand
-                nxt++
+            val cur = bodySemantic[curIdx]
+            if (!cur.isHeading && cur.text.length <= 40) {
+                val run = mutableListOf(curIdx)
+                var nxt = pos + 1
+                while (nxt < ordered.size && ordered[nxt] == run.last() + 1) {
+                    val cand = ordered[nxt]
+                    if (bodySemantic[cand].isHeading || bodySemantic[cand].text.length > 40) break
+                    run += cand
+                    nxt++
+                }
+                if (run.size >= 3 && run.sumOf { bodySemantic[it].text.length }.toDouble() / run.size < 25.0) {
+                    val joined = run.joinToString(" ") { bodySemantic[it].text }
+                    parts += "[${bodySemantic[run.first()].blockId.value}–${bodySemantic[run.last()].blockId.value}] ${snippet(joined)}"
+                    prevIdx = run.last()
+                    pos = nxt
+                    continue
+                }
             }
-            if (run.size >= 3 && run.sumOf { bodySemantic[it].text.length }.toDouble() / run.size < 25.0) {
-                val joined = run.joinToString(" ") { bodySemantic[it].text }
-                parts += "[${bodySemantic[run.first()].blockId.value}–${bodySemantic[run.last()].blockId.value}] ${snippet(joined)}"
-                prevIdx = run.last()
-                pos = nxt
-                continue
-            }
-            val blk = bodySemantic[curIdx]
-            parts += "[${blk.blockId.value}] ${snippet(blk.text)}"
+            parts += "[${cur.blockId.value}] ${snippet(cur.text)}"
             prevIdx = curIdx
             pos++
         }

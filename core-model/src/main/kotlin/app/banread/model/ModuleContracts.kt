@@ -49,6 +49,8 @@ data class WorkOutline(
     val bodyChapters: List<ChapterOutlineItem>,
     val notesChapters: List<ChapterOutlineItem>,
     val frontBackChapters: List<ChapterOutlineItem>,
+    val readProfileId: ReadProfileId? = null,
+    val literatureSubKind: String? = null,
 )
 
 data class FootnoteDetail(

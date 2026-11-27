@@ -1,6 +1,7 @@
 package app.banread.ai
 
 import app.banread.ai.internal.HttpStreamingSupport
+import app.banread.ai.internal.Redactor
 import app.banread.ai.internal.resolveEffectiveModel
 import app.banread.model.AppFailure
 import app.banread.model.LlmPromptRequest
@@ -74,7 +75,7 @@ class OpenAiCompatAdapter(
                             AppFailure.ProviderAuthOrQuota(
                                 providerId = payload.providerId ?: "openai_compat",
                                 httpCode = null,
-                                message = msg,
+                                message = Redactor.redact(msg, apiKey),
                             ),
                         ),
                     )
@@ -222,7 +223,7 @@ class GeminiAdapter(
                             AppFailure.ProviderAuthOrQuota(
                                 providerId = payload.providerId ?: "gemini",
                                 httpCode = null,
-                                message = msg,
+                                message = Redactor.redact(msg, apiKey),
                             ),
                         ),
                     )
@@ -391,7 +392,7 @@ class AnthropicAdapter(
                                 AppFailure.ProviderAuthOrQuota(
                                     providerId = payload.providerId ?: "anthropic",
                                     httpCode = null,
-                                    message = msg,
+                                    message = Redactor.redact(msg, apiKey),
                                 ),
                             ),
                         )
@@ -501,7 +502,7 @@ class OllamaAdapter(
                             AppFailure.ProviderAuthOrQuota(
                                 providerId = payload.providerId ?: "ollama",
                                 httpCode = null,
-                                message = errorText,
+                                message = Redactor.redact(errorText, apiKey),
                             ),
                         ),
                     )

@@ -47,6 +47,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -58,6 +59,7 @@ import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.io.Closeable
 import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
@@ -77,6 +79,7 @@ class CompanionEngineContractTest {
     private lateinit var profileRegistry: ProfileRegistry
     private lateinit var libraryVault: LibraryVault
     private lateinit var fakeLlm: ScriptedLlmFakeAdapter
+    private val closeables = mutableListOf<Closeable>()
     private val json = Json { encodeDefaults = true; ignoreUnknownKeys = true }
 
     @Before
@@ -91,6 +94,13 @@ class CompanionEngineContractTest {
             allowInMemory = true,
         )
         fakeLlm = ScriptedLlmFakeAdapter()
+    }
+
+    @After
+    fun tearDown() {
+        closeables.forEach { runCatching { it.close() } }
+        closeables.clear()
+        runCatching { (libraryVault as? Closeable)?.close() }
     }
 
     private suspend fun createRuntimeAndConfigure(supportsVision: Boolean = true): app.banread.model.AiRuntime {
@@ -134,7 +144,9 @@ class CompanionEngineContractTest {
             context = context,
             filesRoot = filesRoot,
             allowInMemoryDb = true,
-        )
+        ).also { engine ->
+            (engine as? Closeable)?.let { closeables += it }
+        }
     }
 
     @Test
@@ -258,11 +270,11 @@ class CompanionEngineContractTest {
         val over24kBlocks = buildList {
             add(app.banread.model.GatedBlock(BlockId("B01"), "# 第一章 超长文本采样"))
             add(app.banread.model.GatedBlock(BlockId("B02"), "## 第一节 开头"))
-            for (i in 3..14) {
+            for (i in 3..10) {
                 add(app.banread.model.GatedBlock(BlockId("B${i.toString().padStart(2, '0')}"), "短台词$i。"))
             }
-            add(app.banread.model.GatedBlock(BlockId("B15"), "## 第二节 展开"))
-            for (i in 16..500) {
+            add(app.banread.model.GatedBlock(BlockId("B11"), "## 第二节 展开"))
+            for (i in 12..500) {
                 add(
                     app.banread.model.GatedBlock(
                         BlockId("B${i.toString().padStart(2, '0')}"),
@@ -292,7 +304,9 @@ class CompanionEngineContractTest {
             context = context,
             filesRoot = filesRoot,
             allowInMemoryDb = true,
-        )
+        ).also { engine ->
+            (engine as? Closeable)?.let { closeables += it }
+        }
         fakeLlm.enqueueResponse(
             """{"blueprint":"argument_map","caption":"长章采样","reading_note":"看结论","summary":"长章采样完成","data":{"nodes":[{"id":"A1","role":"conclusion","label":"核心结论","blocks":["B01"],"source":"原文"}],"edges":[]}}""",
         )
@@ -310,7 +324,9 @@ class CompanionEngineContractTest {
         val sampledPrompt = fakeLlm.recordedRequests.last().userPrompt
         assertTrue(sampledPrompt.contains("【全章小标题脉络】"))
         assertTrue(sampledPrompt.contains("【全章连续场景窗口节选"))
-        assertTrue(Regex("""\[B\d+–B\d+]""").containsMatchIn(sampledPrompt))
+        assertTrue("Heading B02 must remain standalone line", sampledPrompt.lines().any { it == "[B02] ## 第一节 开头" })
+        assertFalse("Heading B02 must not be swallowed into [B02–B10]", sampledPrompt.contains("[B02–B10]"))
+        assertTrue(Regex("""\[B03–B10]""").containsMatchIn(sampledPrompt))
         assertTrue(sampledPrompt.contains("……（略去"))
         assertTrue(sampledPrompt.contains("【本章自带脚注"))
     }
@@ -642,6 +658,97 @@ class CompanionEngineContractTest {
         val sensDiag = sensDone.artifact as AuditedArtifact.StructuredDiagram
         assertEquals("regime_threshold", sensDiag.data["mode"]?.jsonPrimitive?.content)
         assertTrue(sensDiag.data["regimes"]!!.jsonArray.size == 2)
+    }
+
+    @Test
+    fun `regression suite covers in-memory overrideProfile, selection key isolation, FullBookUnlocked SWR, offline precomputed cross-search, and askFollowUp gate turnIndex`() = runTest {
+        val bcbook = build20ChapterSpoilerBook(tempFolder.newFile("B0048.bcbook"), uid = "B0048")
+        val imported = libraryVault.ingestStudyPack(bcbook.absolutePath).getOrThrow()
+        val engine = createEngine(syncCoordinator = null)
+
+        // Bug 2: in-memory LibraryVault.overrideProfile immediately reflected in recommendedTools
+        libraryVault.overrideProfile(imported.workId, ReadProfileId("philosophy"), null)
+        val overriddenToolbox = engine.recommendedTools(imported.workId)
+        assertEquals(ReadProfileId("philosophy"), overriddenToolbox.profileId)
+        assertEquals(null, overriddenToolbox.literatureSubKind)
+
+        // Bug 3a: two different selectedText strings on the exact same BlockId("B02") do not collide in L3 cache
+        val ch3 = ChapterOrdinal(3)
+        val gate3 = SpoilerGate.UpTo(ch3)
+        val anchorB02 = libraryVault.resolveAnchor(imported.workId, ch3, BlockId("B02"))
+        fakeLlm.enqueueResponse("第一段划词解释 `[原文]`。")
+        fakeLlm.enqueueResponse("第二段划词解释 `[原文]`。")
+        val selA = engine.runTool(
+            CompanionRequest(imported.workId, ToolId("explain"), ToolScope.Selection(anchorB02, "红蜡封缄"), gate3),
+        ).toList().last() as CompanionEvent.Done
+        val selB = engine.runTool(
+            CompanionRequest(imported.workId, ToolId("explain"), ToolScope.Selection(anchorB02, "加急函件规制"), gate3),
+        ).toList().last() as CompanionEvent.Done
+        assertEquals(2, fakeLlm.recordedRequests.size)
+        assertTrue((selA.artifact as AuditedArtifact.MarkdownReadCard).markdown.contains("第一段"))
+        assertTrue((selB.artifact as AuditedArtifact.MarkdownReadCard).markdown.contains("第二段"))
+
+        // Bug 3b: FullBookUnlocked triggers SWR CachedHit(isStale = true) from latest gate:chXX cache
+        fakeLlm.enqueueResponse(
+            """{"blueprint":"argument_map","caption":"第12章全书论证","reading_note":"导读","summary":"第12章摘要","data":{"nodes":[{"id":"A1","role":"conclusion","label":"结论","blocks":["B01"],"source":"原文"}],"edges":[]}}""",
+        )
+        val full12 = engine.runTool(
+            CompanionRequest(imported.workId, ToolId("argument_map"), ToolScope.FullBook, SpoilerGate.UpTo(ChapterOrdinal(12))),
+        ).toList().last()
+        assertTrue(full12 is CompanionEvent.Done)
+        assertEquals(3, fakeLlm.recordedRequests.size)
+
+        val fullUnlockedHit = engine.runTool(
+            CompanionRequest(imported.workId, ToolId("argument_map"), ToolScope.FullBook, SpoilerGate.FullBookUnlocked),
+        ).toList().single() as CompanionEvent.CachedHit
+        assertTrue(fullUnlockedHit.isStale)
+        assertEquals("第12章全书论证", fullUnlockedHit.artifact.caption)
+        assertEquals(3, fakeLlm.recordedRequests.size)
+
+        // Bug 3c: precomputed cross-book cache hits offline (syncCoordinator == null), while forceRefresh or uncached misses fail with 0 LLM calls
+        val offlineCacheDir = tempFolder.newFolder("offline_cross_cache")
+        val ch3Tools = File(offlineCacheDir, "ch_03/chapter_tools").apply { mkdirs() }
+        File(ch3Tools, "history_compare_context_compare_context.json").writeText(
+            """{"action":"compare_context","blueprint":"extension_dossier","figure":{"blueprint":"extension_dossier","caption":"离线预置史家对照","reading_note":"预置对照","summary":"桌面导出","sections":[{"id":"historiography","title":"史观对撞","items":[{"title":"海关规制","body":"预置分析","blocks":["B01"],"source":"原文"}]}]}}""",
+        )
+        engine.importDesktopPrecomputedCache(imported.workId, offlineCacheDir.absolutePath)
+
+        val offlineCacheHit = engine.runTool(
+            CompanionRequest(imported.workId, ToolId("compare_context"), ToolScope.Chapter(ch3), gate3),
+        ).toList().single() as CompanionEvent.CachedHit
+        assertFalse(offlineCacheHit.isStale)
+        assertEquals("离线预置史家对照", offlineCacheHit.artifact.caption)
+        assertEquals(3, fakeLlm.recordedRequests.size)
+
+        val offlineForceFail = engine.runTool(
+            CompanionRequest(imported.workId, ToolId("compare_context"), ToolScope.Chapter(ch3), gate3, forceRefresh = true),
+        ).toList().single() as CompanionEvent.Failure
+        assertTrue(offlineForceFail.error is AppFailure.DesktopConnectionRequired)
+        val offlineUncachedFail = engine.runTool(
+            CompanionRequest(imported.workId, ToolId("method_audit"), ToolScope.Chapter(ch3), gate3),
+        ).toList().single() as CompanionEvent.Failure
+        assertTrue(offlineUncachedFail.error is AppFailure.DesktopConnectionRequired)
+        assertEquals(3, fakeLlm.recordedRequests.size)
+
+        // Bug 3d: askFollowUp at UpTo(10) followed by askFollowUp at UpTo(3) never leaks turn 10 and never collides turnIndex
+        fakeLlm.enqueueResponse("第十章阶段回答_SECRET_TURN10 `[原文]`。")
+        fakeLlm.enqueueResponse("第三章阶段回答 `[原文]`。")
+        fakeLlm.enqueueResponse("回到第十章继续追问 `[原文]`。")
+
+        val ask10 = engine.askFollowUp("thread-gate", imported.workId, ToolScope.Chapter(ch3), SpoilerGate.UpTo(ChapterOrdinal(10)), "第十章提问").toList()
+        assertTrue(ask10.last() is CompanionEvent.Done)
+
+        val ask3 = engine.askFollowUp("thread-gate", imported.workId, ToolScope.Chapter(ch3), gate3, "第三章提问").toList()
+        assertTrue(ask3.last() is CompanionEvent.Done)
+        val promptAt3 = fakeLlm.recordedRequests.last().userPrompt
+        assertFalse("Turn from gate 10 leaked into gate 3 prompt", promptAt3.contains("SECRET_TURN10"))
+
+        val ask10Again = engine.askFollowUp("thread-gate", imported.workId, ToolScope.Chapter(ch3), SpoilerGate.UpTo(ChapterOrdinal(10)), "再次追问").toList()
+        assertTrue(ask10Again.last() is CompanionEvent.Done)
+        val promptAt10Again = fakeLlm.recordedRequests.last().userPrompt
+        assertTrue(promptAt10Again.contains("第十章提问"))
+        assertTrue(promptAt10Again.contains("第三章提问"))
+        assertTrue(promptAt10Again.contains("第三章阶段回答"))
     }
 
     // ---- Test Helpers ----

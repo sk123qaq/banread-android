@@ -177,15 +177,25 @@ internal abstract class CompanionDatabase : RoomDatabase() {
     abstract fun companionDao(): CompanionDao
 
     companion object {
+        @Volatile
+        private var persistentInstance: CompanionDatabase? = null
+
         fun build(context: Context, allowInMemory: Boolean): CompanionDatabase {
-            val builder = if (allowInMemory) {
-                Room.inMemoryDatabaseBuilder(context, CompanionDatabase::class.java)
+            if (allowInMemory) {
+                return Room.inMemoryDatabaseBuilder(context, CompanionDatabase::class.java)
                     .allowMainThreadQueries()
-            } else {
-                Room.databaseBuilder(context, CompanionDatabase::class.java, "banread_companion_v1.db")
-                    .fallbackToDestructiveMigration()
+                    .build()
             }
-            return builder.build()
+            return persistentInstance ?: synchronized(this) {
+                persistentInstance ?: Room.databaseBuilder(
+                    context.applicationContext ?: context,
+                    CompanionDatabase::class.java,
+                    "banread_companion_v1.db",
+                )
+                    .fallbackToDestructiveMigration()
+                    .build()
+                    .also { persistentInstance = it }
+            }
         }
     }
 }

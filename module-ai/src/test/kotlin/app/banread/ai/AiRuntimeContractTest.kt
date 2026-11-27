@@ -411,6 +411,41 @@ class AiRuntimeContractTest {
         job.cancelAndJoin()
     }
 
+    @Test
+    fun `redacts API keys inside HTTP 200 SSE inline JSON error payloads`() = runTest {
+        val inlineSecret = "sk-inline-leak-99999"
+        server.route("/v1/chat/completions") { _ ->
+            val sse = "data: {\"error\":{\"message\":\"Incorrect API key provided: $inlineSecret\"}}\n\n"
+                .toByteArray(Charsets.UTF_8)
+            TestHttpResponse(
+                code = 200,
+                headers = mapOf("Content-Type" to "text/event-stream; charset=utf-8"),
+                body = sse,
+            )
+        }
+        server.start()
+
+        val runtime = AiRuntimeFactory.createInMemory(configDir = tempFolder.newFolder("ai_cfg_inline_err"))
+        runtime.saveProviderConfig(
+            ProviderConfig(
+                id = "inline-err",
+                displayName = "Inline Err",
+                kind = ProviderKind.OPENAI_COMPAT,
+                endpoint = baseUrl(),
+                modelId = "gpt-4o-mini",
+                capabilities = ProviderCapabilities(true, false, 32_000),
+            ),
+            rawApiKey = inlineSecret,
+        )
+
+        val events = runtime.streamCompletion(
+            LlmPromptRequest(providerId = "inline-err", systemPrompt = "s", userPrompt = "u"),
+        ).toList()
+        val failed = events.filterIsInstance<LlmStreamEvent.Failed>().single().failure as AppFailure.ProviderAuthOrQuota
+        assertFalse("Inline secret leaked in error: ${failed.message}", failed.message.contains(inlineSecret))
+        assertTrue(failed.message.contains("[REDACTED]"))
+    }
+
     private data class TestHttpRequest(
         val method: String,
         val fullPath: String,
