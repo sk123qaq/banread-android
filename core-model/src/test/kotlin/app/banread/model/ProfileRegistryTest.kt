@@ -1,6 +1,9 @@
 package app.banread.model
 
 import app.banread.model.registry.ProfileRegistry
+import java.nio.file.Files
+import java.nio.file.Path
+import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -11,10 +14,25 @@ class ProfileRegistryTest {
     private val registry = ProfileRegistry.loadFromClasspath()
 
     @Test
-    fun `loads 7 profiles with social as default`() {
+    fun `loads 7 profiles with social as default under strict schema parsing`() {
         assertEquals(1, registry.schemaVersion)
         assertEquals(7, registry.profiles.size)
         assertEquals(ReadProfileId("social"), registry.defaultReadType)
+        assertEquals(ReadProfileId("social"), registry.routingRules.defaultReadType)
+        assertEquals(10, registry.routingRules.subjectSets.size)
+        assertEquals(10, registry.routingRules.rules.size)
+        assertTrue(registry.routingRules.resolvedPairs.isNotEmpty())
+    }
+
+    @Test
+    fun `core-model resource and app asset profiles json are byte-identical`() {
+        val coreBytes = ProfileRegistry::class.java.getResourceAsStream("/profiles.generated.json")!!
+            .use { it.readAllBytes() }
+        val appAssetPath = Path.of("..", "app", "src", "main", "assets", "profiles.generated.json")
+            .takeIf { Files.isRegularFile(it) }
+            ?: Path.of("app", "src", "main", "assets", "profiles.generated.json")
+        assertTrue(Files.isRegularFile(appAssetPath), "Missing app asset file at $appAssetPath")
+        assertArrayEquals(coreBytes, Files.readAllBytes(appAssetPath))
     }
 
     @Test
@@ -65,10 +83,9 @@ class ProfileRegistryTest {
 
     @Test
     fun `clothColor matches desktop deterministic CLOTHES formula`() {
-        // sum("B0001") = 66 + 48 + 48 + 48 + 49 = 259; 259 % 8 = 3 -> "#A87A3E"
         assertEquals("#A87A3E", registry.clothColor("B0001"))
 
-        val clothes = listOf("#1E3A36", "#2C4056", "#6B2B2B", "#A87A3E", "#4A5839", "#3F4E5A", "#5A3E2B", "#2F4F4F")
+        val clothes = ProfileRegistry.DEFAULT_CLOTH_PALETTE
         for (uid in listOf("B0001", "B0042", "B0108", "B0215", "B1800")) {
             val expected = clothes[uid.sumOf { it.code } % 8]
             assertEquals(expected, registry.clothColor(uid))
@@ -76,30 +93,30 @@ class ProfileRegistryTest {
     }
 
     @Test
-    fun `subject routing resolves subKinds and boundary hints deterministically`() {
-        val drama = registry.resolveProfile("文学", "戏剧")
-        assertEquals(ReadProfileId("literature"), drama.profile.readType)
-        assertEquals("drama", drama.subKind)
-        assertTrue(drama.subKindHint.contains("戏剧"))
+    fun `resolveProfile matches every entry in resolved_pairs and edge cases`() {
+        for (pair in registry.routingRules.resolvedPairs) {
+            val resolved = registry.resolveProfile(pair.subject1, pair.subject2)
+            assertEquals(pair.readType, resolved.profile.readType, "readType mismatch for $pair")
+            assertEquals(pair.subKind, resolved.subKind, "subKind mismatch for $pair")
+            assertEquals(pair.boundaryHint, resolved.boundaryHint, "boundaryHint mismatch for $pair")
+        }
 
-        val essay = registry.resolveProfile("文学", "散文随笔")
-        assertEquals("essay", essay.subKind)
-        assertTrue(essay.boundaryHint.contains("散文随笔"))
+        val empty = registry.resolveProfile("", "")
+        assertEquals(ReadProfileId("social"), empty.profile.readType)
+        assertTrue(empty.boundaryHint.isNotEmpty())
 
-        val techPractical = registry.resolveProfile("科学技术", "计算机与技术")
-        assertEquals(ReadProfileId("practical"), techPractical.profile.readType)
-
-        val techScience = registry.resolveProfile("科学技术", "物理与天文")
-        assertEquals(ReadProfileId("science"), techScience.profile.readType)
-
-        val hist = registry.resolveProfile("人文社科", "历史")
-        assertEquals(ReadProfileId("history"), hist.profile.readType)
-
-        val philo = registry.resolveProfile("人文社科", "思想与哲学")
-        assertEquals(ReadProfileId("philosophy"), philo.profile.readType)
-
-        val uncertain = registry.resolveProfile("拿不准", null)
+        val uncertain = registry.resolveProfile("拿不准", "")
         assertEquals(ReadProfileId("social"), uncertain.profile.readType)
         assertTrue(uncertain.boundaryHint.isNotEmpty())
+
+        val essay = registry.resolveProfile("文学", "散文随笔")
+        assertEquals(ReadProfileId("literature"), essay.profile.readType)
+        assertEquals("essay", essay.subKind)
+        assertTrue(essay.boundaryHint.isNotEmpty())
+        assertTrue(essay.subKindHint.contains("散文随笔"))
+
+        val drama = registry.resolveProfile("文学", "戏剧")
+        assertEquals("drama", drama.subKind)
+        assertTrue(drama.subKindHint.contains("戏剧"))
     }
 }

@@ -180,6 +180,40 @@ class WireContractsTest {
         assertEquals(fixture, roundTripped)
     }
 
+    @Test
+    fun `parses DesktopBookSummary with optional sub_kind field`() {
+        val withSubKind = """
+            {
+              "uid": "B0099",
+              "title": "雷雨",
+              "author": "曹禺",
+              "subjects": ["文学", "戏剧"],
+              "read_type": "literature",
+              "sub_kind": "drama",
+              "cloth_color": "#2C4056",
+              "logical_chapter_count": 4,
+              "has_companion_cache": true,
+              "canonical_version": 1
+            }
+        """.trimIndent()
+        val parsedWith = json.decodeFromString(DesktopBookSummary.serializer(), withSubKind)
+        assertEquals("drama", parsedWith.subKind)
+
+        val withoutSubKind = """
+            {
+              "uid": "B0001",
+              "title": "大明王朝的七张面孔",
+              "read_type": "history",
+              "cloth_color": "#A87A3E",
+              "logical_chapter_count": 12,
+              "has_companion_cache": false,
+              "canonical_version": 1
+            }
+        """.trimIndent()
+        val parsedWithout = json.decodeFromString(DesktopBookSummary.serializer(), withoutSubKind)
+        assertEquals("", parsedWithout.subKind)
+    }
+
     @Serializable
     private data class NotesGateFixture(
         @SerialName("work_id")

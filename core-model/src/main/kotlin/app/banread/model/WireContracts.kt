@@ -105,6 +105,8 @@ data class DesktopBookSummary(
     val subjects: List<String> = emptyList(),
     @SerialName("read_type")
     val readType: ReadProfileId,
+    @SerialName("sub_kind")
+    val subKind: String = "",
     @SerialName("cloth_color")
     val clothColor: String,
     @SerialName("logical_chapter_count")

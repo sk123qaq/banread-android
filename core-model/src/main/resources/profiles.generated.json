@@ -1,18 +1,6 @@
 {
   "schema_version": 1,
   "default_read_type": "social",
-  "cloth_palette": [
-    "#1E3A36",
-    "#2C4056",
-    "#6B2B2B",
-    "#A87A3E",
-    "#4A5839",
-    "#3F4E5A",
-    "#5A3E2B",
-    "#2F4F4F"
-  ],
-  "uncertain_label": "拿不准",
-  "no_sub_label": "不细分",
   "taxonomy": {
     "文学": [
       "严肃文学小说",
@@ -93,19 +81,6 @@
       "图册与写真",
       "杂志与工具书"
     ]
-  },
-  "top_rubric": {
-    "文学": "小说、诗、散文、戏剧等文学作品，含推理科幻奇幻网络小说、诺奖等文学奖获奖作品",
-    "人文社科": "历史、哲学、宗教、政治、法律、社会、经济、人类学、考古、心理、语言",
-    "商业与管理": "企业战略、管理、投资理财、金融、创业创新、营销品牌，不含公告等单页文件",
-    "科学技术": "数学、物理、天文、生物、医学、计算机、工程、科普读物",
-    "建筑与古迹": "建筑史、古建筑、寺塔祠庙、城市与聚落规划、文物保护",
-    "艺术与图像": "美术史、绘画与概念设计、佛教美术、书法、设计；不含写真集与杂志",
-    "游戏": "游戏设计、开发、引擎、设定集、美术集、攻略、游戏研究",
-    "影视动画漫画": "电影、动画、漫画、影史、制作；不含真人写真集",
-    "写作与编剧": "编剧理论、对白、写作方法、叙事结构",
-    "生活与实用": "饮食、健康、身体、两性与情色、职业、家居手工",
-    "其他": "写真集与成人向图册、摄影写真、杂志、财报公告与培训资料等非书文档、来源不明或不属于以上任何一类"
   },
   "profiles": [
     {
@@ -377,226 +352,886 @@
     "poetry": "抒情诗：先连读捕获全篇基调，再重音体会高频意象与节奏冲突。",
     "essay": "散文随笔（边界体裁）：默认按文学意象与抒情结构伴读，亦可一键切为「历史书」或「哲学书」。"
   },
-  "routing_rules": [
-    {
-      "subject1": [
+  "routing_rules": {
+    "default_read_type": "social",
+    "uncertain_label": "拿不准",
+    "no_sub_label": "不细分",
+    "subject_sets": {
+      "practical_subject1": [
+        "写作与编剧",
         "商业与管理",
-        "生活与实用",
-        "写作与编剧"
+        "生活与实用"
       ],
-      "subject2": null,
-      "read_type": "practical",
-      "sub_kind": "",
-      "boundary_hint": ""
-    },
-    {
-      "subject1": [
-        "科学技术"
+      "practical_tech_sub2": [
+        "工程与制造",
+        "计算机与技术"
       ],
-      "subject2": [
-        "计算机与技术",
-        "工程与制造"
-      ],
-      "read_type": "practical",
-      "sub_kind": "",
-      "boundary_hint": ""
-    },
-    {
-      "subject1": [
-        "科学技术"
-      ],
-      "subject2": null,
-      "read_type": "science",
-      "sub_kind": "",
-      "boundary_hint": ""
-    },
-    {
-      "subject1": [
-        "游戏"
-      ],
-      "subject2": [
-        "设定集与美术集"
-      ],
-      "read_type": "visual",
-      "sub_kind": "",
-      "boundary_hint": ""
-    },
-    {
-      "subject1": [
-        "游戏"
-      ],
-      "subject2": [
-        "游戏设计",
+      "practical_game_sub2": [
         "开发与工程",
-        "攻略与资料"
+        "攻略与资料",
+        "游戏设计"
       ],
-      "read_type": "practical",
-      "sub_kind": "",
-      "boundary_hint": ""
+      "lit_fiction_sub2": [
+        "严肃文学小说",
+        "儿童与青少年文学",
+        "类型小说",
+        "网络文学"
+      ],
+      "history_tech_art_sub2": [
+        "佛教美术",
+        "美术史"
+      ],
+      "history_social_sub2": [
+        "人类学与考古",
+        "历史"
+      ],
+      "science_sub2": [
+        "不细分",
+        "数学与统计",
+        "物理与天文",
+        "生命与医学",
+        "科普"
+      ],
+      "philosophy_sub2": [
+        "宗教与神话",
+        "思想与哲学"
+      ],
+      "social_sub2": [
+        "不细分",
+        "心理与认知",
+        "政治与法律",
+        "社会与经济",
+        "语言与文字"
+      ],
+      "visual_art_sub2": [
+        "书法篆刻",
+        "摄影",
+        "绘画与概念设计",
+        "设计"
+      ]
     },
-    {
-      "subject1": [
-        "游戏"
-      ],
-      "subject2": null,
-      "read_type": "social",
-      "sub_kind": "",
-      "boundary_hint": ""
-    },
-    {
-      "subject1": [
-        "文学"
-      ],
-      "subject2": [
-        "戏剧"
-      ],
-      "read_type": "literature",
-      "sub_kind": "drama",
-      "boundary_hint": ""
-    },
-    {
-      "subject1": [
-        "文学"
-      ],
-      "subject2": [
-        "诗歌"
-      ],
-      "read_type": "literature",
-      "sub_kind": "poetry",
-      "boundary_hint": ""
-    },
-    {
-      "subject1": [
-        "文学"
-      ],
-      "subject2": [
-        "散文随笔"
-      ],
-      "read_type": "literature",
-      "sub_kind": "essay",
-      "boundary_hint": "散文随笔常兼有纪实或哲思气质；当前默认「想象文学」，可在上方切换「历史书」或「哲学书」。"
-    },
-    {
-      "subject1": [
-        "文学"
-      ],
-      "subject2": null,
-      "read_type": "literature",
-      "sub_kind": "fiction",
-      "boundary_hint": ""
-    },
-    {
-      "subject1": [
-        "建筑与古迹"
-      ],
-      "subject2": null,
-      "read_type": "history",
-      "sub_kind": "",
-      "boundary_hint": ""
-    },
-    {
-      "subject1": [
-        "艺术与图像"
-      ],
-      "subject2": [
-        "美术史",
-        "佛教美术"
-      ],
-      "read_type": "history",
-      "sub_kind": "",
-      "boundary_hint": ""
-    },
-    {
-      "subject1": [
-        "艺术与图像"
-      ],
-      "subject2": null,
-      "read_type": "visual",
-      "sub_kind": "",
-      "boundary_hint": ""
-    },
-    {
-      "subject1": [
-        "影视动画漫画"
-      ],
-      "subject2": [
-        "电影与影史"
-      ],
-      "read_type": "history",
-      "sub_kind": "",
-      "boundary_hint": ""
-    },
-    {
-      "subject1": [
-        "影视动画漫画"
-      ],
-      "subject2": null,
-      "read_type": "visual",
-      "sub_kind": "",
-      "boundary_hint": ""
-    },
-    {
-      "subject1": [
-        "人文社科"
-      ],
-      "subject2": [
-        "历史",
-        "人类学与考古"
-      ],
-      "read_type": "history",
-      "sub_kind": "",
-      "boundary_hint": ""
-    },
-    {
-      "subject1": [
-        "人文社科"
-      ],
-      "subject2": [
-        "思想与哲学",
-        "宗教与神话"
-      ],
-      "read_type": "philosophy",
-      "sub_kind": "",
-      "boundary_hint": ""
-    },
-    {
-      "subject1": [
-        "人文社科"
-      ],
-      "subject2": null,
-      "read_type": "social",
-      "sub_kind": "",
-      "boundary_hint": ""
-    },
-    {
-      "subject1": [
-        "其他"
-      ],
-      "subject2": [
-        "图册与写真"
-      ],
-      "read_type": "visual",
-      "sub_kind": "",
-      "boundary_hint": ""
-    },
-    {
-      "subject1": [
-        "其他"
-      ],
-      "subject2": null,
-      "read_type": "social",
-      "sub_kind": "",
-      "boundary_hint": "当前学科未细分或属工具/待归类，暂按「社会科学」通用论证视图展示，可按需手动切换。"
-    },
-    {
-      "subject1": [
-        "拿不准",
-        ""
-      ],
-      "subject2": null,
-      "read_type": "social",
-      "sub_kind": "",
-      "boundary_hint": "该书尚未确定学科分类，默认提供「社会科学」通用阅读视角，可在上方一键切换。"
-    }
-  ]
+    "rules": [
+      {
+        "subject1_in": [
+          "写作与编剧",
+          "商业与管理",
+          "生活与实用"
+        ],
+        "default": {
+          "read_type": "practical",
+          "sub_kind": "",
+          "boundary_hint": ""
+        },
+        "sub2_overrides": []
+      },
+      {
+        "subject1_in": [
+          "科学技术"
+        ],
+        "default": {
+          "read_type": "science",
+          "sub_kind": "",
+          "boundary_hint": ""
+        },
+        "sub2_overrides": [
+          {
+            "subject2_in": [
+              "工程与制造",
+              "计算机与技术"
+            ],
+            "read_type": "practical",
+            "sub_kind": ""
+          },
+          {
+            "subject2_in": [
+              "不细分",
+              "数学与统计",
+              "物理与天文",
+              "生命与医学",
+              "科普"
+            ],
+            "read_type": "science",
+            "sub_kind": ""
+          }
+        ]
+      },
+      {
+        "subject1_in": [
+          "游戏"
+        ],
+        "default": {
+          "read_type": "social",
+          "sub_kind": "",
+          "boundary_hint": ""
+        },
+        "sub2_overrides": [
+          {
+            "subject2_in": [
+              "设定集与美术集"
+            ],
+            "read_type": "visual",
+            "sub_kind": ""
+          },
+          {
+            "subject2_in": [
+              "开发与工程",
+              "攻略与资料",
+              "游戏设计"
+            ],
+            "read_type": "practical",
+            "sub_kind": ""
+          }
+        ]
+      },
+      {
+        "subject1_in": [
+          "文学"
+        ],
+        "default": {
+          "read_type": "literature",
+          "sub_kind": "fiction",
+          "boundary_hint": ""
+        },
+        "sub2_overrides": [
+          {
+            "subject2_in": [
+              "戏剧"
+            ],
+            "read_type": "literature",
+            "sub_kind": "drama",
+            "boundary_hint": ""
+          },
+          {
+            "subject2_in": [
+              "诗歌"
+            ],
+            "read_type": "literature",
+            "sub_kind": "poetry",
+            "boundary_hint": ""
+          },
+          {
+            "subject2_in": [
+              "散文随笔"
+            ],
+            "read_type": "literature",
+            "sub_kind": "essay",
+            "boundary_hint": "散文随笔常兼有纪实或哲思气质；当前默认「想象文学」，可在上方切换「历史书」或「哲学书」。"
+          },
+          {
+            "subject2_in": [
+              "不细分",
+              "严肃文学小说",
+              "儿童与青少年文学",
+              "类型小说",
+              "网络文学"
+            ],
+            "read_type": "literature",
+            "sub_kind": "fiction",
+            "boundary_hint": ""
+          }
+        ]
+      },
+      {
+        "subject1_in": [
+          "建筑与古迹"
+        ],
+        "default": {
+          "read_type": "history",
+          "sub_kind": "",
+          "boundary_hint": ""
+        },
+        "sub2_overrides": []
+      },
+      {
+        "subject1_in": [
+          "艺术与图像"
+        ],
+        "default": {
+          "read_type": "visual",
+          "sub_kind": "",
+          "boundary_hint": ""
+        },
+        "sub2_overrides": [
+          {
+            "subject2_in": [
+              "佛教美术",
+              "美术史"
+            ],
+            "read_type": "history",
+            "sub_kind": ""
+          },
+          {
+            "subject2_in": [
+              "不细分",
+              "书法篆刻",
+              "摄影",
+              "绘画与概念设计",
+              "设计"
+            ],
+            "read_type": "visual",
+            "sub_kind": ""
+          }
+        ]
+      },
+      {
+        "subject1_in": [
+          "影视动画漫画"
+        ],
+        "default": {
+          "read_type": "visual",
+          "sub_kind": "",
+          "boundary_hint": ""
+        },
+        "sub2_overrides": [
+          {
+            "subject2_in": [
+              "电影与影史"
+            ],
+            "read_type": "history",
+            "sub_kind": ""
+          }
+        ]
+      },
+      {
+        "subject1_in": [
+          "人文社科"
+        ],
+        "default": {
+          "read_type": "social",
+          "sub_kind": "",
+          "boundary_hint": ""
+        },
+        "sub2_overrides": [
+          {
+            "subject2_in": [
+              "人类学与考古",
+              "历史"
+            ],
+            "read_type": "history",
+            "sub_kind": ""
+          },
+          {
+            "subject2_in": [
+              "宗教与神话",
+              "思想与哲学"
+            ],
+            "read_type": "philosophy",
+            "sub_kind": ""
+          },
+          {
+            "subject2_in": [
+              "不细分",
+              "心理与认知",
+              "政治与法律",
+              "社会与经济",
+              "语言与文字"
+            ],
+            "read_type": "social",
+            "sub_kind": ""
+          }
+        ]
+      },
+      {
+        "subject1_in": [
+          "其他"
+        ],
+        "default": {
+          "read_type": "social",
+          "sub_kind": "",
+          "boundary_hint": "当前学科未细分或属工具/待归类，暂按「社会科学」通用论证视图展示，可按需手动切换。"
+        },
+        "sub2_overrides": [
+          {
+            "subject2_in": [
+              "图册与写真"
+            ],
+            "read_type": "visual",
+            "sub_kind": "",
+            "boundary_hint": ""
+          }
+        ]
+      },
+      {
+        "subject1_in": [
+          "拿不准",
+          ""
+        ],
+        "default": {
+          "read_type": "social",
+          "sub_kind": "",
+          "boundary_hint": "该书尚未确定学科分类，默认提供「社会科学」通用阅读视角，可在上方一键切换。"
+        },
+        "sub2_overrides": []
+      }
+    ],
+    "resolved_pairs": [
+      {
+        "subject1": "",
+        "subject2": "",
+        "read_type": "social",
+        "sub_kind": "",
+        "boundary_hint": "该书尚未确定学科分类，默认提供「社会科学」通用阅读视角，可在上方一键切换。"
+      },
+      {
+        "subject1": "拿不准",
+        "subject2": "",
+        "read_type": "social",
+        "sub_kind": "",
+        "boundary_hint": "该书尚未确定学科分类，默认提供「社会科学」通用阅读视角，可在上方一键切换。"
+      },
+      {
+        "subject1": "文学",
+        "subject2": "",
+        "read_type": "literature",
+        "sub_kind": "fiction",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "文学",
+        "subject2": "不细分",
+        "read_type": "literature",
+        "sub_kind": "fiction",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "文学",
+        "subject2": "严肃文学小说",
+        "read_type": "literature",
+        "sub_kind": "fiction",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "文学",
+        "subject2": "类型小说",
+        "read_type": "literature",
+        "sub_kind": "fiction",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "文学",
+        "subject2": "网络文学",
+        "read_type": "literature",
+        "sub_kind": "fiction",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "文学",
+        "subject2": "诗歌",
+        "read_type": "literature",
+        "sub_kind": "poetry",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "文学",
+        "subject2": "散文随笔",
+        "read_type": "literature",
+        "sub_kind": "essay",
+        "boundary_hint": "散文随笔常兼有纪实或哲思气质；当前默认「想象文学」，可在上方切换「历史书」或「哲学书」。"
+      },
+      {
+        "subject1": "文学",
+        "subject2": "戏剧",
+        "read_type": "literature",
+        "sub_kind": "drama",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "文学",
+        "subject2": "儿童与青少年文学",
+        "read_type": "literature",
+        "sub_kind": "fiction",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "人文社科",
+        "subject2": "",
+        "read_type": "social",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "人文社科",
+        "subject2": "不细分",
+        "read_type": "social",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "人文社科",
+        "subject2": "历史",
+        "read_type": "history",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "人文社科",
+        "subject2": "思想与哲学",
+        "read_type": "philosophy",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "人文社科",
+        "subject2": "宗教与神话",
+        "read_type": "philosophy",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "人文社科",
+        "subject2": "政治与法律",
+        "read_type": "social",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "人文社科",
+        "subject2": "社会与经济",
+        "read_type": "social",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "人文社科",
+        "subject2": "人类学与考古",
+        "read_type": "history",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "人文社科",
+        "subject2": "心理与认知",
+        "read_type": "social",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "人文社科",
+        "subject2": "语言与文字",
+        "read_type": "social",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "商业与管理",
+        "subject2": "",
+        "read_type": "practical",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "商业与管理",
+        "subject2": "不细分",
+        "read_type": "practical",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "商业与管理",
+        "subject2": "战略",
+        "read_type": "practical",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "商业与管理",
+        "subject2": "管理与组织",
+        "read_type": "practical",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "商业与管理",
+        "subject2": "投资与金融",
+        "read_type": "practical",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "商业与管理",
+        "subject2": "创新与创业",
+        "read_type": "practical",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "商业与管理",
+        "subject2": "营销与品牌",
+        "read_type": "practical",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "科学技术",
+        "subject2": "",
+        "read_type": "science",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "科学技术",
+        "subject2": "不细分",
+        "read_type": "science",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "科学技术",
+        "subject2": "数学与统计",
+        "read_type": "science",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "科学技术",
+        "subject2": "物理与天文",
+        "read_type": "science",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "科学技术",
+        "subject2": "生命与医学",
+        "read_type": "science",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "科学技术",
+        "subject2": "计算机与技术",
+        "read_type": "practical",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "科学技术",
+        "subject2": "工程与制造",
+        "read_type": "practical",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "科学技术",
+        "subject2": "科普",
+        "read_type": "science",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "建筑与古迹",
+        "subject2": "",
+        "read_type": "history",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "建筑与古迹",
+        "subject2": "不细分",
+        "read_type": "history",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "建筑与古迹",
+        "subject2": "中国古建筑",
+        "read_type": "history",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "建筑与古迹",
+        "subject2": "宗教建筑",
+        "read_type": "history",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "建筑与古迹",
+        "subject2": "城市与聚落",
+        "read_type": "history",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "建筑与古迹",
+        "subject2": "建筑史与理论",
+        "read_type": "history",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "建筑与古迹",
+        "subject2": "地方文物",
+        "read_type": "history",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "艺术与图像",
+        "subject2": "",
+        "read_type": "visual",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "艺术与图像",
+        "subject2": "不细分",
+        "read_type": "visual",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "艺术与图像",
+        "subject2": "美术史",
+        "read_type": "history",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "艺术与图像",
+        "subject2": "佛教美术",
+        "read_type": "history",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "艺术与图像",
+        "subject2": "绘画与概念设计",
+        "read_type": "visual",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "艺术与图像",
+        "subject2": "摄影",
+        "read_type": "visual",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "艺术与图像",
+        "subject2": "设计",
+        "read_type": "visual",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "艺术与图像",
+        "subject2": "书法篆刻",
+        "read_type": "visual",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "游戏",
+        "subject2": "",
+        "read_type": "social",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "游戏",
+        "subject2": "不细分",
+        "read_type": "social",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "游戏",
+        "subject2": "游戏设计",
+        "read_type": "practical",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "游戏",
+        "subject2": "开发与工程",
+        "read_type": "practical",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "游戏",
+        "subject2": "设定集与美术集",
+        "read_type": "visual",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "游戏",
+        "subject2": "攻略与资料",
+        "read_type": "practical",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "游戏",
+        "subject2": "游戏研究",
+        "read_type": "social",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "影视动画漫画",
+        "subject2": "",
+        "read_type": "visual",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "影视动画漫画",
+        "subject2": "不细分",
+        "read_type": "visual",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "影视动画漫画",
+        "subject2": "漫画与画集",
+        "read_type": "visual",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "影视动画漫画",
+        "subject2": "动画与动画电影",
+        "read_type": "visual",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "影视动画漫画",
+        "subject2": "电影与影史",
+        "read_type": "history",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "影视动画漫画",
+        "subject2": "编剧与制作",
+        "read_type": "visual",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "写作与编剧",
+        "subject2": "",
+        "read_type": "practical",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "写作与编剧",
+        "subject2": "不细分",
+        "read_type": "practical",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "写作与编剧",
+        "subject2": "编剧理论与对白",
+        "read_type": "practical",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "写作与编剧",
+        "subject2": "写作方法",
+        "read_type": "practical",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "写作与编剧",
+        "subject2": "叙事与故事结构",
+        "read_type": "practical",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "生活与实用",
+        "subject2": "",
+        "read_type": "practical",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "生活与实用",
+        "subject2": "不细分",
+        "read_type": "practical",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "生活与实用",
+        "subject2": "饮食",
+        "read_type": "practical",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "生活与实用",
+        "subject2": "健康与身体",
+        "read_type": "practical",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "生活与实用",
+        "subject2": "两性与情色",
+        "read_type": "practical",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "生活与实用",
+        "subject2": "求职与职业",
+        "read_type": "practical",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "生活与实用",
+        "subject2": "手工与家居",
+        "read_type": "practical",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "其他",
+        "subject2": "",
+        "read_type": "social",
+        "sub_kind": "",
+        "boundary_hint": "当前学科未细分或属工具/待归类，暂按「社会科学」通用论证视图展示，可按需手动切换。"
+      },
+      {
+        "subject1": "其他",
+        "subject2": "不细分",
+        "read_type": "social",
+        "sub_kind": "",
+        "boundary_hint": "当前学科未细分或属工具/待归类，暂按「社会科学」通用论证视图展示，可按需手动切换。"
+      },
+      {
+        "subject1": "其他",
+        "subject2": "待归类",
+        "read_type": "social",
+        "sub_kind": "",
+        "boundary_hint": "当前学科未细分或属工具/待归类，暂按「社会科学」通用论证视图展示，可按需手动切换。"
+      },
+      {
+        "subject1": "其他",
+        "subject2": "图册与写真",
+        "read_type": "visual",
+        "sub_kind": "",
+        "boundary_hint": ""
+      },
+      {
+        "subject1": "其他",
+        "subject2": "杂志与工具书",
+        "read_type": "social",
+        "sub_kind": "",
+        "boundary_hint": "当前学科未细分或属工具/待归类，暂按「社会科学」通用论证视图展示，可按需手动切换。"
+      }
+    ]
+  }
 }

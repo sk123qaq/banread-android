@@ -43,9 +43,7 @@ data class ReadProfile(
 )
 
 @Serializable
-data class RoutingRule(
-    val subject1: List<String>,
-    val subject2: List<String>? = null,
+data class RuleOutcome(
     @SerialName("read_type")
     val readType: ReadProfileId,
     @SerialName("sub_kind")
@@ -55,25 +53,67 @@ data class RoutingRule(
 )
 
 @Serializable
+data class Sub2Override(
+    @SerialName("subject2_in")
+    val subject2In: List<String>,
+    @SerialName("read_type")
+    val readType: ReadProfileId,
+    @SerialName("sub_kind")
+    val subKind: String = "",
+    @SerialName("boundary_hint")
+    val boundaryHint: String = "",
+)
+
+@Serializable
+data class Subject1RoutingRule(
+    @SerialName("subject1_in")
+    val subject1In: List<String>,
+    val default: RuleOutcome,
+    @SerialName("sub2_overrides")
+    val sub2Overrides: List<Sub2Override> = emptyList(),
+)
+
+@Serializable
+data class ResolvedSubjectPair(
+    val subject1: String,
+    val subject2: String,
+    @SerialName("read_type")
+    val readType: ReadProfileId,
+    @SerialName("sub_kind")
+    val subKind: String = "",
+    @SerialName("boundary_hint")
+    val boundaryHint: String = "",
+)
+
+@Serializable
+data class RoutingRulesSpec(
+    @SerialName("default_read_type")
+    val defaultReadType: ReadProfileId,
+    @SerialName("uncertain_label")
+    val uncertainLabel: String,
+    @SerialName("no_sub_label")
+    val noSubLabel: String,
+    @SerialName("subject_sets")
+    val subjectSets: Map<String, List<String>>,
+    val rules: List<Subject1RoutingRule>,
+    @SerialName("resolved_pairs")
+    val resolvedPairs: List<ResolvedSubjectPair>,
+)
+
+@Serializable
 data class ProfilesCatalogDocument(
     @SerialName("schema_version")
     val schemaVersion: Int,
     @SerialName("default_read_type")
     val defaultReadType: ReadProfileId,
-    @SerialName("cloth_palette")
-    val clothPalette: List<String>,
-    @SerialName("uncertain_label")
-    val uncertainLabel: String,
-    @SerialName("no_sub_label")
-    val noSubLabel: String,
     val taxonomy: Map<String, List<String>>,
-    @SerialName("top_rubric")
-    val topRubric: Map<String, String>,
     val profiles: List<ReadProfile>,
     @SerialName("literature_subkind_hints")
     val literatureSubKindHints: Map<String, String>,
     @SerialName("routing_rules")
-    val routingRules: List<RoutingRule>,
+    val routingRules: RoutingRulesSpec,
+    @SerialName("cloth_palette")
+    val clothPalette: List<String>? = null,
 )
 
 data class ResolvedProfile(
@@ -96,13 +136,13 @@ class ProfileRegistry private constructor(
 
     val schemaVersion: Int get() = doc.schemaVersion
     val defaultReadType: ReadProfileId get() = doc.defaultReadType
-    val clothPalette: List<String> get() = doc.clothPalette
-    val uncertainLabel: String get() = doc.uncertainLabel
-    val noSubLabel: String get() = doc.noSubLabel
+    val clothPalette: List<String> get() = doc.clothPalette ?: DEFAULT_CLOTH_PALETTE
+    val uncertainLabel: String get() = doc.routingRules.uncertainLabel
+    val noSubLabel: String get() = doc.routingRules.noSubLabel
     val taxonomy: Map<String, List<String>> get() = doc.taxonomy
-    val topRubric: Map<String, String> get() = doc.topRubric
     val profiles: List<ReadProfile> get() = doc.profiles
     val literatureSubKindHints: Map<String, String> get() = doc.literatureSubKindHints
+    val routingRules: RoutingRulesSpec get() = doc.routingRules
 
     fun profileById(id: ReadProfileId): ReadProfile =
         profilesById[id.raw] ?: profilesById.getValue(defaultReadType.raw)
@@ -114,12 +154,34 @@ class ProfileRegistry private constructor(
         val c1 = cleaned.getOrElse(0) { "" }
         val c2 = cleaned.getOrElse(1) { "" }
 
-        val matchedRule = doc.routingRules.firstOrNull { rule ->
-            c1 in rule.subject1 && (rule.subject2 == null || c2 in rule.subject2)
+        val matchedRule = doc.routingRules.rules.firstOrNull { c1 in it.subject1In }
+        val matchedOverride = if (matchedRule != null && c2.isNotEmpty()) {
+            matchedRule.sub2Overrides.firstOrNull { c2 in it.subject2In }
+        } else {
+            null
         }
-        val readType = matchedRule?.readType ?: doc.defaultReadType
-        val subKind = matchedRule?.subKind.orEmpty()
-        val boundaryHint = matchedRule?.boundaryHint.orEmpty()
+
+        val readType: ReadProfileId
+        val subKind: String
+        val boundaryHint: String
+        when {
+            matchedOverride != null -> {
+                readType = matchedOverride.readType
+                subKind = matchedOverride.subKind
+                boundaryHint = matchedOverride.boundaryHint
+            }
+            matchedRule != null -> {
+                readType = matchedRule.default.readType
+                subKind = matchedRule.default.subKind
+                boundaryHint = matchedRule.default.boundaryHint
+            }
+            else -> {
+                readType = doc.routingRules.defaultReadType
+                subKind = ""
+                boundaryHint = ""
+            }
+        }
+
         val baseProfile = profileById(readType)
         val subKindHint = if (baseProfile.readType.raw == "literature" && subKind.isNotEmpty()) {
             doc.literatureSubKindHints[subKind].orEmpty()
@@ -143,16 +205,28 @@ class ProfileRegistry private constructor(
     fun isCrossSearchTool(toolId: ToolId): Boolean = toolId.raw in crossSearchToolIds
 
     fun clothColor(uid: String): String {
-        require(doc.clothPalette.isNotEmpty()) { "cloth_palette must not be empty" }
+        val palette = clothPalette
+        require(palette.isNotEmpty()) { "cloth_palette must not be empty" }
         val codeSum = uid.sumOf { it.code }
-        return doc.clothPalette[codeSum % doc.clothPalette.size]
+        return palette[codeSum % palette.size]
     }
 
     companion object {
-        private val json = Json { ignoreUnknownKeys = true }
+        val DEFAULT_CLOTH_PALETTE: List<String> = listOf(
+            "#1E3A36",
+            "#2C4056",
+            "#6B2B2B",
+            "#A87A3E",
+            "#4A5839",
+            "#3F4E5A",
+            "#5A3E2B",
+            "#2F4F4F",
+        )
+
+        private val strictJson = Json { ignoreUnknownKeys = false }
 
         fun fromJson(jsonText: String): ProfileRegistry {
-            val parsed = json.decodeFromString(ProfilesCatalogDocument.serializer(), jsonText)
+            val parsed = strictJson.decodeFromString(ProfilesCatalogDocument.serializer(), jsonText)
             return ProfileRegistry(parsed)
         }
 
