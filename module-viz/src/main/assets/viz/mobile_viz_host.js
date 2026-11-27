@@ -62,6 +62,8 @@
   var errorMsgEl = document.getElementById('viz-error-msg');
   var errorFallbackEl = document.getElementById('viz-error-fallback');
   var zoomModalEl = document.getElementById('zoom-modal');
+  var zoomTitleEl = document.getElementById('zoom-title');
+  var zoomBodyEl = document.getElementById('zoom-body');
   var zoomCloseBtnEl = document.getElementById('btn-zoom-close');
 
   var state = {
@@ -358,7 +360,7 @@
       ? '<div class="bp-summary-foot">' + extractInlineMarkdown(artifact.summary) + '</div>'
       : '';
     containerEl.innerHTML =
-      '<div class="bp-card">' +
+      '<div class="bp-card" data-host-markdown="true">' +
       '<div class="bp-card-head"><h4 class="bp-title">' +
       caption +
       '</h4></div>' +
@@ -403,7 +405,11 @@
   }
 
   function getContainerMeasure() {
-    var width = Math.floor((mountEl && mountEl.clientWidth) || (shellEl && shellEl.clientWidth) || 0);
+    var activeContainer =
+      state.viewportMode === 'fullscreen' ? (zoomModalEl || shellEl) : (mountEl || shellEl);
+    var width = Math.floor(
+      (activeContainer && activeContainer.clientWidth) || (shellEl && shellEl.clientWidth) || 0
+    );
     var height = Math.floor(
       (shellEl && shellEl.clientHeight) ||
         document.documentElement.clientHeight ||
@@ -425,39 +431,56 @@
     if (badgeEl) badgeEl.textContent = bp;
 
     try {
-      if (bp === 'markdown_read_card' || typeof artifact.markdown === 'string') {
-        if (zoomModalEl) {
-          zoomModalEl.classList.remove('open');
-          zoomModalEl.hidden = true;
-        }
-        renderMarkdownCard(mountEl, artifact);
-      } else if (state.viewportMode === 'fullscreen' && RD.diagrams && typeof RD.diagrams.openZoomModal === 'function') {
+      var isMarkdown = bp === 'markdown_read_card' || typeof artifact.markdown === 'string';
+      var isFullscreen = state.viewportMode === 'fullscreen';
+
+      if (isFullscreen) {
+        if (mountEl) mountEl.innerHTML = '';
         if (zoomModalEl) zoomModalEl.hidden = false;
-        RD.diagrams.renderBlueprintCard(mountEl, artifact, { onFocusBlock: handleFocusBlock });
-        RD.diagrams.openZoomModal(artifact, handleFocusBlock);
+        if (isMarkdown) {
+          if (zoomTitleEl) zoomTitleEl.textContent = artifact.caption || '伴读精读卡';
+          if (zoomModalEl) zoomModalEl.classList.add('open');
+          if (zoomBodyEl) renderMarkdownCard(zoomBodyEl, artifact);
+        } else if (RD.diagrams && typeof RD.diagrams.openZoomModal === 'function') {
+          RD.diagrams.openZoomModal(artifact, handleFocusBlock);
+        } else if (zoomBodyEl && RD.diagrams && typeof RD.diagrams.renderBlueprintCard === 'function') {
+          if (zoomTitleEl) zoomTitleEl.textContent = artifact.caption || '全屏图解';
+          if (zoomModalEl) zoomModalEl.classList.add('open');
+          RD.diagrams.renderBlueprintCard(zoomBodyEl, artifact, { onFocusBlock: handleFocusBlock });
+        } else {
+          throw new Error('diagram_renderer.js failed to register fullscreen renderer');
+        }
       } else {
         if (zoomModalEl) {
           zoomModalEl.classList.remove('open');
           zoomModalEl.hidden = true;
         }
-        if (!RD.diagrams || typeof RD.diagrams.renderBlueprintCard !== 'function') {
-          throw new Error('diagram_renderer.js failed to register RD.diagrams.renderBlueprintCard');
+        if (zoomBodyEl) zoomBodyEl.innerHTML = '';
+        if (isMarkdown) {
+          renderMarkdownCard(mountEl, artifact);
+        } else {
+          if (!RD.diagrams || typeof RD.diagrams.renderBlueprintCard !== 'function') {
+            throw new Error('diagram_renderer.js failed to register RD.diagrams.renderBlueprintCard');
+          }
+          RD.diagrams.renderBlueprintCard(mountEl, artifact, { onFocusBlock: handleFocusBlock });
         }
-        RD.diagrams.renderBlueprintCard(mountEl, artifact, { onFocusBlock: handleFocusBlock });
       }
 
       state.lastRenderedWidth = width;
-      var renderedRect = mountEl.getBoundingClientRect();
+      var measureTarget = isFullscreen ? (zoomBodyEl || zoomModalEl || shellEl) : mountEl;
+      var renderedRect = measureTarget.getBoundingClientRect();
+      var outWidth = Math.max(width, Math.ceil(renderedRect.width || 0));
       var outHeight = Math.max(height, Math.ceil(renderedRect.height || 0));
       emitToHost({
         type: 'render_ready',
         blueprint: bp,
-        width: width,
+        width: outWidth,
         height: outHeight,
       });
     } catch (err) {
       var msg = err && err.message ? err.message : String(err);
-      mountEl.innerHTML = '';
+      if (mountEl) mountEl.innerHTML = '';
+      if (zoomBodyEl) zoomBodyEl.innerHTML = '';
       showError(msg, artifact);
       emitError(msg);
     }
@@ -631,7 +654,13 @@
           if (target.closest('[data-expand-anchors]') || target.hasAttribute('data-toggle-detail')) {
             return;
           }
-          if (jumpEl.closest('#viz-inspector') || jumpEl.closest('.md-card-body') || jumpEl.hasAttribute('data-block-id')) {
+          if (
+            jumpEl.closest('#viz-inspector') ||
+            jumpEl.closest('.md-card-body') ||
+            jumpEl.closest('.bp-summary-foot') ||
+            jumpEl.closest('[data-host-markdown]') ||
+            jumpEl.hasAttribute('data-block-id')
+          ) {
             e.stopPropagation();
             var bid = jumpEl.getAttribute('data-block-id') || jumpEl.getAttribute('data-jump');
             emitJump(bid);
@@ -714,9 +743,11 @@
       'touchmove',
       function (e) {
         if (e.touches.length === 2 && pinchStartDist > 0) {
+          e.preventDefault();
           var dist = touchDistance(e.touches);
           setZoom(pinchStartScale * (dist / pinchStartDist));
         } else if (e.touches.length === 1 && isPanning && state.scale > 1.02) {
+          e.preventDefault();
           var dx = e.touches[0].clientX - panStartX;
           var dy = e.touches[0].clientY - panStartY;
           state.panX = Math.max(-240, Math.min(240, panOriginX + dx));
@@ -724,7 +755,7 @@
           applyTransform();
         }
       },
-      { passive: true }
+      { passive: false }
     );
 
     stageViewportEl.addEventListener(

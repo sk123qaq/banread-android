@@ -65,7 +65,13 @@ class VizWebViewPool(
         return created
     }
 
-    internal fun ensureInitialized(): WebView = acquireWebView(appContext)
+    internal fun ensureInitialized(): WebView {
+        val existing = pooledWebView
+        if (existing != null) {
+            return existing
+        }
+        return acquireWebView(appContext)
+    }
 
     fun detachWebView() {
         val existing = pooledWebView ?: return

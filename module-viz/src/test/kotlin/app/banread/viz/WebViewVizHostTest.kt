@@ -218,6 +218,72 @@ class WebViewVizHostTest {
         cancel.recycle()
     }
 
+    @Test
+    fun `regression Bug 1 - attachWebView does not detach already-mounted pooled WebView`() {
+        val pool = VizWebViewPool(
+            context = context,
+            webMessageListenerSupported = { false },
+        )
+        val host = WebViewVizHost(
+            webViewPool = pool,
+            mainPoster = { it() },
+        )
+
+        val container = FrameLayout(context)
+        val wv = host.acquireWebView(context)
+        container.addView(wv)
+        assertEquals(1, container.childCount)
+        assertSame(wv, container.getChildAt(0))
+
+        host.attachWebView { }
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(1, container.childCount)
+        assertSame(wv, container.getChildAt(0))
+        pool.release()
+    }
+
+    @Test
+    fun `regression Bug 2 - retrying renderArtifact with same artifact after JS error dispatches fresh render`() = runTest {
+        val scripts = mutableListOf<String>()
+        val recordingPool = VizWebViewPool(
+            context = context,
+            webViewFactory = { ctx ->
+                object : VizTouchWebView(ctx) {
+                    override fun evaluateJavascript(script: String, resultCallback: ValueCallback<String>?) {
+                        scripts += script
+                        super.evaluateJavascript(script, resultCallback)
+                    }
+                }
+            },
+            webMessageListenerSupported = { false },
+        )
+        val events = mutableListOf<VizHostEvent>()
+        val host = WebViewVizHost(
+            webViewPool = recordingPool,
+            mainPoster = { it() },
+        )
+        host.attachWebView { events += it }
+        host.handleBridgeSignalForTest("""{"type":"host_ready"}""")
+
+        val artifact = AuditedArtifact.MarkdownReadCard(
+            caption = "重试测试卡",
+            markdown = "内容 `[B07]`",
+        )
+
+        host.renderArtifact(artifact, ReaderTheme.PAPER_LIGHT)
+        assertEquals(1, scripts.size)
+        assertTrue(scripts.single().contains("window.BanReadVizHost.renderArtifact("))
+
+        scripts.clear()
+        host.handleBridgeSignalForTest("""{"type":"error","message":"transient"}""")
+        assertEquals(listOf(VizHostEvent.Error("transient")), events)
+
+        host.renderArtifact(artifact, ReaderTheme.PAPER_LIGHT)
+        assertEquals(1, scripts.size)
+        assertTrue(scripts.single().contains("window.BanReadVizHost.renderArtifact("))
+    }
+
     private fun fakeRequest(url: String): WebResourceRequest = object : WebResourceRequest {
         override fun getUrl(): Uri = Uri.parse(url)
         override fun isForMainFrame(): Boolean = false
