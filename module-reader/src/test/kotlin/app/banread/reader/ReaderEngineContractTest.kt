@@ -512,6 +512,52 @@ class ReaderEngineContractTest {
     }
 
     @Test
+    fun `regression - released webview never receives bridge scripts, queued scripts flush on next attach`() = runTest {
+        fun recordingWebView(recorded: MutableList<String>) = object : WebView(context) {
+            override fun evaluateJavascript(script: String, resultCallback: ValueCallback<String>?) {
+                recorded += script
+                super.evaluateJavascript(script, resultCallback)
+            }
+        }
+
+        val recordedScripts = mutableListOf<String>()
+        val webAdapter = FoliateWebAdapter(context, filesRoot)
+        val firstWebView = recordingWebView(recordedScripts)
+        webAdapter.attachWebView(firstWebView)
+        val firstBridge = Shadows.shadowOf(firstWebView).getJavascriptInterface("BanReadNative")
+        firstBridge.javaClass.getDeclaredMethod("onBridgeReady", String::class.java).invoke(firstBridge, "{}")
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+        webAdapter.setHorizontalMarginDp(24f)
+        webAdapter.updateStyles("body {}")
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(
+            "Expected updateStyles on attached webview: $recordedScripts",
+            recordedScripts.any { it.contains("BanReadBridge.updateStyles") },
+        )
+
+        // 阅读器退出：旧 WebView 已 detach/destroy，后续 bridge 调用不得再打到它
+        recordedScripts.clear()
+        webAdapter.detachWebView()
+        webAdapter.setHorizontalMarginDp(19f)
+        webAdapter.updateStyles("body {}")
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        assertTrue("Scripts leaked to released webview: $recordedScripts", recordedScripts.isEmpty())
+
+        // 重进阅读器：新 WebView attach + bridge ready 后才补执行排队脚本
+        val secondWebView = recordingWebView(recordedScripts)
+        webAdapter.attachWebView(secondWebView)
+        assertTrue("Queued script must wait for bridge ready: $recordedScripts", recordedScripts.isEmpty())
+        val secondBridge = Shadows.shadowOf(secondWebView).getJavascriptInterface("BanReadNative")
+        secondBridge.javaClass.getDeclaredMethod("onBridgeReady", String::class.java).invoke(secondBridge, "{}")
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(
+            "Expected queued updateStyles flushed on reattach: $recordedScripts",
+            recordedScripts.any { it.contains("BanReadBridge.updateStyles") && it.contains("19.0") },
+        )
+    }
+
+    @Test
     fun `regression - Bugs 3 4 5 reader_bridge JS finite progress, gap margin, BlockOffset overlays, openSeq guard`() = runTest {
         val bridgeFile = File("src/main/assets/reader/reader_bridge.js")
         assumeTrue("reader_bridge.js not found from CWD", bridgeFile.isFile)
@@ -679,7 +725,7 @@ class ReaderEngineContractTest {
                 assert.strictEqual(secondView.inited, true, 'newer openBook should initialize');
                 assert.strictEqual(firstView.inited, false, 'stale openBook must not initialize');
 
-                // Bug 3: updateStyles 转发 horizontalMarginPx -> margin = marginPx px，gap = 分页模式 m/W（24px / 384）
+                // Bug 3（兜底路径）：首开还测不到真实宽度，gap 用 384 兜底；SLIDE 分页 gap = 24/384 = 6.250%
                 bridge.updateStyles('body {}', 'SLIDE', 24);
                 assert.strictEqual(secondView.renderer.attrs.margin, '24px');
                 assert.strictEqual(secondView.renderer.attrs.gap, '6.250%');
@@ -714,6 +760,26 @@ class ReaderEngineContractTest {
                 assert.strictEqual(secondView.addedAnnotations.length, 0);
                 await Promise.resolve();
                 assert.strictEqual(secondView.addedAnnotations.length, 2);
+
+                // Bug 3（兜底路径）：VERTICAL_SCROLL 滚动模式 gap 反解 24/(384+24) = 5.882%
+                bridge.updateStyles('body {}', 'VERTICAL_SCROLL', 24);
+                assert.strictEqual(secondView.renderer.attrs.margin, '24px');
+                assert.strictEqual(secondView.renderer.attrs.gap, '5.882%');
+                assert.strictEqual(secondView.renderer.attrs.flow, 'scrolled');
+
+                // Bug 3（真实宽度路径）：首次渲染后拿到真实宽度 400，relocate 按 400 重算
+                // gap = 24/(400+24)*100 = 5.660%，首开即正确，无需二次打开
+                secondView.renderer.getBoundingClientRect = () => ({ width: 400 });
+                secondView.emit('relocate', { fraction: 0.4, section: { current: 0 } });
+                assert.strictEqual(secondView.renderer.attrs.margin, '24px');
+                assert.strictEqual(secondView.renderer.attrs.gap, '5.660%');
+
+                // 宽度未变时不得重涂 gap（否则 ResizeObserver -> relocate -> 重涂 会死循环）
+                delete secondView.renderer.attrs.margin;
+                delete secondView.renderer.attrs.gap;
+                secondView.emit('relocate', { fraction: 0.4, section: { current: 0 } });
+                assert.strictEqual(secondView.renderer.attrs.margin, undefined);
+                assert.strictEqual(secondView.renderer.attrs.gap, undefined);
             })().catch(err => { console.error(err); process.exit(1); });
             """.trimIndent(),
         )
