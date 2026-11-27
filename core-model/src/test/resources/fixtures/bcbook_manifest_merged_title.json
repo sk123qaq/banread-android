@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "uid": "B0001",
+  "title": "大明王朝的七张面孔",
+  "author": "张宏杰",
+  "subjects": ["人文社科", "历史"],
+  "read_type": "history",
+  "sub_kind": "",
+  "book_source_sha256": "3b8a9c4e1f7d2a60b5c8e3d4f9a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d",
+  "cloth_color": "#A87A3E",
+  "cover_rel": null,
+  "block_version": 2,
+  "canonical_version": 1,
+  "logical_chapters": [
+    {
+      "ordinal": 1,
+      "n": "00",
+      "title": "自序：帝国的侧面",
+      "chapter_role": "body",
+      "merged": true,
+      "source_files": ["00_扉页.md", "01_前置页.md"],
+      "chapter_content_sha256": "9f1e2d3c4b5a69788796a5b4c3d2e1f00123456789abcdef0123456789abcdef",
+      "chars": 700
+    },
+    {
+      "ordinal": 2,
+      "n": "02",
+      "title": "第一章 朱元璋：权力洁癖与制度陷阱",
+      "chapter_role": "body",
+      "merged": false,
+      "source_files": ["02_第一章.md"],
+      "chapter_content_sha256": "a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0",
+      "chars": 14250
+    },
+    {
+      "ordinal": 3,
+      "n": "03",
+      "title": "后记与参考书目",
+      "chapter_role": "front_back",
+      "merged": false,
+      "source_files": ["03_后记.md"],
+      "chapter_content_sha256": "c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b2",
+      "chars": 2180
+    }
+  ]
+}

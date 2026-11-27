@@ -1,0 +1,73 @@
+{
+  "question": "对比明初废相分权与内阁制衡的制度逻辑",
+  "related_search": {
+    "active": true,
+    "threshold": 0.45,
+    "max_books": 15,
+    "exclude_books": ["B0001"],
+    "qualified_count": 2,
+    "selected_books": ["B0108", "B0215"]
+  },
+  "plan": {
+    "query": "废相 分权 内阁 皇权 制度",
+    "stop": "margin_reached",
+    "ranking": [
+      {
+        "uid": "B0108",
+        "book": "B0108",
+        "title": "万历十五年",
+        "type": "历史书",
+        "chapters": 6,
+        "score": 41.823,
+        "relevance": 0.87,
+        "vec_best": 0.79,
+        "coverage": 0.75,
+        "groups": ["废相", "内阁", "皇权"],
+        "total_groups": 4,
+        "best_path": "books/B0108/md/03_首辅申时行.md",
+        "best_line": 42,
+        "best_text": "文官集团依托票拟制度维系道德与行政平衡，但无力突破祖制框架。",
+        "support": 9,
+        "pinned": false
+      },
+      {
+        "uid": "B0215",
+        "book": "B0215",
+        "title": "中国历代政治得失",
+        "type": "历史书",
+        "chapters": 5,
+        "score": 33.41,
+        "relevance": 0.72,
+        "vec_best": 0.68,
+        "coverage": 0.5,
+        "groups": ["废相", "内阁"],
+        "total_groups": 4,
+        "best_path": "books/B0215/md/04_明代.md",
+        "best_line": 19,
+        "best_text": "明代废止宰相后，内阁大学士仅备顾问，票拟仍须司礼监批红方能生效。",
+        "support": 6,
+        "pinned": false
+      }
+    ]
+  },
+  "normalized_hits": [
+    {
+      "uid": "B0108",
+      "title": "万历十五年",
+      "type": "历史书",
+      "relevance": 0.87,
+      "best_path": "books/B0108/md/03_首辅申时行.md",
+      "best_line": 42,
+      "snippet": "文官集团依托票拟制度维系道德与行政平衡，但无力突破祖制框架。"
+    },
+    {
+      "uid": "B0215",
+      "title": "中国历代政治得失",
+      "type": "历史书",
+      "relevance": 0.72,
+      "best_path": "books/B0215/md/04_明代.md",
+      "best_line": 19,
+      "snippet": "明代废止宰相后，内阁大学士仅备顾问，票拟仍须司礼监批红方能生效。"
+    }
+  ]
+}

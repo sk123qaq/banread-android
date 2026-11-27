@@ -1,0 +1,51 @@
+{
+  "work_id": "B0042",
+  "gate_at_chapter_3": {
+    "type": "up_to",
+    "unlockedMaxOrdinal": 3
+  },
+  "chapters": [
+    { "ordinal": 1, "n": "01", "title": "导言", "chapter_role": "front_back", "merged": false, "source_files": ["01_导言.md"], "chapter_content_sha256": "1111111111111111111111111111111111111111111111111111111111111111", "chars": 1200 },
+    { "ordinal": 2, "n": "02", "title": "第一章 雾夜", "chapter_role": "body", "merged": false, "source_files": ["02_第一章.md"], "chapter_content_sha256": "2222222222222222222222222222222222222222222222222222222222222222", "chars": 8400 },
+    { "ordinal": 3, "n": "03", "title": "第二章 密信", "chapter_role": "body", "merged": false, "source_files": ["03_第二章.md"], "chapter_content_sha256": "3333333333333333333333333333333333333333333333333333333333333333", "chars": 9100 },
+    { "ordinal": 4, "n": "04", "title": "第三章 书房", "chapter_role": "body", "merged": false, "source_files": ["04_第三章.md"], "chapter_content_sha256": "4444444444444444444444444444444444444444444444444444444444444444", "chars": 7800 },
+    { "ordinal": 5, "n": "05", "title": "第四章 码头", "chapter_role": "body", "merged": false, "source_files": ["05_第四章.md"], "chapter_content_sha256": "5555555555555555555555555555555555555555555555555555555555555555", "chars": 8100 },
+    { "ordinal": 6, "n": "06", "title": "第五章 证词", "chapter_role": "body", "merged": false, "source_files": ["06_第五章.md"], "chapter_content_sha256": "6666666666666666666666666666666666666666666666666666666666666666", "chars": 7600 },
+    { "ordinal": 7, "n": "07", "title": "第六章 钟楼", "chapter_role": "body", "merged": false, "source_files": ["07_第六章.md"], "chapter_content_sha256": "7777777777777777777777777777777777777777777777777777777777777777", "chars": 8900 },
+    { "ordinal": 8, "n": "08", "title": "第七章 灰烬", "chapter_role": "body", "merged": false, "source_files": ["08_第七章.md"], "chapter_content_sha256": "8888888888888888888888888888888888888888888888888888888888888888", "chars": 8200 },
+    { "ordinal": 9, "n": "09", "title": "第八章 暗流", "chapter_role": "body", "merged": false, "source_files": ["09_第八章.md"], "chapter_content_sha256": "9999999999999999999999999999999999999999999999999999999999999999", "chars": 7900 },
+    { "ordinal": 10, "n": "10", "title": "第九章 归档", "chapter_role": "body", "merged": false, "source_files": ["10_第九章.md"], "chapter_content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "chars": 8500 },
+    { "ordinal": 11, "n": "11", "title": "第十章 岔路", "chapter_role": "body", "merged": false, "source_files": ["11_第十章.md"], "chapter_content_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "chars": 8700 },
+    { "ordinal": 12, "n": "12", "title": "第十一章 账簿", "chapter_role": "body", "merged": false, "source_files": ["12_第十一章.md"], "chapter_content_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "chars": 9000 },
+    { "ordinal": 13, "n": "13", "title": "第十二章 旧照", "chapter_role": "body", "merged": false, "source_files": ["13_第十二章.md"], "chapter_content_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "chars": 7400 },
+    { "ordinal": 14, "n": "14", "title": "第十三章 审讯", "chapter_role": "body", "merged": false, "source_files": ["14_第十三章.md"], "chapter_content_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "chars": 9300 },
+    { "ordinal": 15, "n": "15", "title": "第十四章 回声", "chapter_role": "body", "merged": false, "source_files": ["15_第十四章.md"], "chapter_content_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "chars": 8100 },
+    { "ordinal": 16, "n": "16", "title": "第十五章 对峙", "chapter_role": "body", "merged": false, "source_files": ["16_第十五章.md"], "chapter_content_sha256": "0101010101010101010101010101010101010101010101010101010101010101", "chars": 9600 },
+    { "ordinal": 17, "n": "17", "title": "第十六章 真相", "chapter_role": "body", "merged": false, "source_files": ["17_第十六章.md"], "chapter_content_sha256": "0202020202020202020202020202020202020202020202020202020202020202", "chars": 10200 },
+    { "ordinal": 18, "n": "18", "title": "第十七章 余波", "chapter_role": "body", "merged": false, "source_files": ["18_第十七章.md"], "chapter_content_sha256": "0303030303030303030303030303030303030303030303030303030303030303", "chars": 6900 },
+    { "ordinal": 19, "n": "19", "title": "尾声", "chapter_role": "body", "merged": false, "source_files": ["19_尾声.md"], "chapter_content_sha256": "0404040404040404040404040404040404040404040404040404040404040404", "chars": 4500 },
+    { "ordinal": 20, "n": "20", "title": "全书注释", "chapter_role": "notes", "merged": false, "source_files": ["20_注释.md"], "chapter_content_sha256": "0505050505050505050505050505050505050505050505050505050505050505", "chars": 11200 }
+  ],
+  "footnote_links": [
+    {
+      "id": "fn_ch03_n45",
+      "workId": "B0042",
+      "sourceChapterOrdinal": 3,
+      "sourceBlockId": "B18",
+      "marker": "[45]",
+      "targetChapterOrdinal": 20,
+      "targetBlockId": "B45",
+      "previewText": "此处“红蜡封缄”沿用十九世纪港口海关的加急函件规制。"
+    },
+    {
+      "id": "fn_ch14_n102",
+      "workId": "B0042",
+      "sourceChapterOrdinal": 14,
+      "sourceBlockId": "B27",
+      "marker": "[102]",
+      "targetChapterOrdinal": 20,
+      "targetBlockId": "B102",
+      "previewText": "审讯笔录中提及的匿名线人实为第七章失踪的账房先生（剧透尾注）。"
+    }
+  ]
+}

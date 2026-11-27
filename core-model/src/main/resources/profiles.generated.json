@@ -1,0 +1,602 @@
+{
+  "schema_version": 1,
+  "default_read_type": "social",
+  "cloth_palette": [
+    "#1E3A36",
+    "#2C4056",
+    "#6B2B2B",
+    "#A87A3E",
+    "#4A5839",
+    "#3F4E5A",
+    "#5A3E2B",
+    "#2F4F4F"
+  ],
+  "uncertain_label": "拿不准",
+  "no_sub_label": "不细分",
+  "taxonomy": {
+    "文学": [
+      "严肃文学小说",
+      "类型小说",
+      "网络文学",
+      "诗歌",
+      "散文随笔",
+      "戏剧",
+      "儿童与青少年文学"
+    ],
+    "人文社科": [
+      "历史",
+      "思想与哲学",
+      "宗教与神话",
+      "政治与法律",
+      "社会与经济",
+      "人类学与考古",
+      "心理与认知",
+      "语言与文字"
+    ],
+    "商业与管理": [
+      "战略",
+      "管理与组织",
+      "投资与金融",
+      "创新与创业",
+      "营销与品牌"
+    ],
+    "科学技术": [
+      "数学与统计",
+      "物理与天文",
+      "生命与医学",
+      "计算机与技术",
+      "工程与制造",
+      "科普"
+    ],
+    "建筑与古迹": [
+      "中国古建筑",
+      "宗教建筑",
+      "城市与聚落",
+      "建筑史与理论",
+      "地方文物"
+    ],
+    "艺术与图像": [
+      "美术史",
+      "佛教美术",
+      "绘画与概念设计",
+      "摄影",
+      "设计",
+      "书法篆刻"
+    ],
+    "游戏": [
+      "游戏设计",
+      "开发与工程",
+      "设定集与美术集",
+      "攻略与资料",
+      "游戏研究"
+    ],
+    "影视动画漫画": [
+      "漫画与画集",
+      "动画与动画电影",
+      "电影与影史",
+      "编剧与制作"
+    ],
+    "写作与编剧": [
+      "编剧理论与对白",
+      "写作方法",
+      "叙事与故事结构"
+    ],
+    "生活与实用": [
+      "饮食",
+      "健康与身体",
+      "两性与情色",
+      "求职与职业",
+      "手工与家居"
+    ],
+    "其他": [
+      "待归类",
+      "图册与写真",
+      "杂志与工具书"
+    ]
+  },
+  "top_rubric": {
+    "文学": "小说、诗、散文、戏剧等文学作品，含推理科幻奇幻网络小说、诺奖等文学奖获奖作品",
+    "人文社科": "历史、哲学、宗教、政治、法律、社会、经济、人类学、考古、心理、语言",
+    "商业与管理": "企业战略、管理、投资理财、金融、创业创新、营销品牌，不含公告等单页文件",
+    "科学技术": "数学、物理、天文、生物、医学、计算机、工程、科普读物",
+    "建筑与古迹": "建筑史、古建筑、寺塔祠庙、城市与聚落规划、文物保护",
+    "艺术与图像": "美术史、绘画与概念设计、佛教美术、书法、设计；不含写真集与杂志",
+    "游戏": "游戏设计、开发、引擎、设定集、美术集、攻略、游戏研究",
+    "影视动画漫画": "电影、动画、漫画、影史、制作；不含真人写真集",
+    "写作与编剧": "编剧理论、对白、写作方法、叙事结构",
+    "生活与实用": "饮食、健康、身体、两性与情色、职业、家居手工",
+    "其他": "写真集与成人向图册、摄影写真、杂志、财报公告与培训资料等非书文档、来源不明或不属于以上任何一类"
+  },
+  "profiles": [
+    {
+      "read_type": "practical",
+      "name": "实用型书",
+      "adler_category": "1. 实用型书",
+      "goal": "锁定「目的 → 手段 → 成立条件 → 避坑边界」，提炼可执行 SOP、条件决策与失效复盘",
+      "sub_kind": "",
+      "sub_kind_hint": "",
+      "blueprints": [
+        {
+          "blueprint": "flow_swimlane",
+          "label": "SOP 流程图",
+          "description": "提炼可复用的先后执行步骤与避坑门禁"
+        },
+        {
+          "blueprint": "decision_tree",
+          "label": "条件决策树",
+          "description": "明确什么场景用哪一招与止损红线"
+        },
+        {
+          "blueprint": "quadrant_matrix",
+          "label": "优先级四象限",
+          "description": "精选高杠杆动作并标明行动口诀"
+        }
+      ],
+      "extensions": [
+        {
+          "action": "checklist",
+          "label": "行动自检清单",
+          "hint": "按启动前、执行中、踩坑红线三区提纯可勾选清单",
+          "cross_search": false
+        },
+        {
+          "action": "failure_postmortem",
+          "label": "反例与失效复盘",
+          "hint": "拆解书内反面案例、常见执行误区与纠偏动作",
+          "cross_search": false
+        }
+      ]
+    },
+    {
+      "read_type": "literature",
+      "name": "想象文学",
+      "adler_category": "2. 想象文学",
+      "goal": "重沉浸与体验：把握叙事张力、人物阵营、舞台/空间动线、伏笔视角与细读意象",
+      "sub_kind": "",
+      "sub_kind_hint": "",
+      "blueprints": [
+        {
+          "blueprint": "tension_curve",
+          "label": "叙事张力曲线",
+          "description": "提炼 6–9 个关键戏剧节拍与情绪起伏"
+        },
+        {
+          "blueprint": "relation_graph",
+          "label": "人物与阵营图谱",
+          "description": "按阵营分群展示核心人物关系、不对称信息与变化"
+        },
+        {
+          "blueprint": "spatial_route",
+          "label": "空间与舞台动线",
+          "description": "自适应二维地点动线或封闭舞台调度图"
+        }
+      ],
+      "extensions": [
+        {
+          "action": "narrative_clues",
+          "label": "叙事视角与伏笔线索",
+          "hint": "梳理视角切换、时间结构、草蛇灰线与信息差（严禁剧透）",
+          "cross_search": false
+        },
+        {
+          "action": "imagery",
+          "label": "意象、潜台词与细读",
+          "hint": "分三区提纯核心意象、舞台潜台词与声景名句细读",
+          "cross_search": false
+        }
+      ]
+    },
+    {
+      "read_type": "history",
+      "name": "历史书",
+      "adler_category": "3. 历史书",
+      "goal": "多线并行时空对照、权力阵营拆解、历史因果演进与跨史家视角比对",
+      "sub_kind": "",
+      "sub_kind_hint": "",
+      "blueprints": [
+        {
+          "blueprint": "parallel_timeline",
+          "label": "多线平行时间轴",
+          "description": "同一时期不同行为体、阵营或地区并置对照"
+        },
+        {
+          "blueprint": "power_hierarchy",
+          "label": "权力与阵营结构",
+          "description": "拆解中枢、派系、盟友、敌对与制度约束"
+        },
+        {
+          "blueprint": "spatial_route",
+          "label": "地理与空间态势",
+          "description": "展示真实地理方位、行军动线与地缘格局"
+        },
+        {
+          "blueprint": "historical_causality",
+          "label": "历史因果演进图",
+          "description": "拆解深层结构、触发事件、催化机制与转折"
+        }
+      ],
+      "extensions": [
+        {
+          "action": "historical_dossier",
+          "label": "人物与名物档案",
+          "hint": "速查本章核心人物阵营与官制、条约、名物术语",
+          "cross_search": false
+        },
+        {
+          "action": "compare_context",
+          "label": "多史家视角对照",
+          "hint": "三段式对照史观归因、史料盲区与同代世界史锚点",
+          "cross_search": true
+        }
+      ]
+    },
+    {
+      "read_type": "science",
+      "name": "科学与数学",
+      "adler_category": "4. 科学与数学",
+      "goal": "理清公理/观测推导、临界相变与真实参数响应、物理/演化机制、核心词典与适用边界",
+      "sub_kind": "",
+      "sub_kind_hint": "",
+      "blueprints": [
+        {
+          "blueprint": "derivation_dag",
+          "label": "公理-定理推导图",
+          "description": "广度汇流拆解前提/观测如何推出定理或科学结论"
+        },
+        {
+          "blueprint": "sensitivity_chart",
+          "label": "临界条件与参数响应图",
+          "description": "呈现定性相变阈值区间或真实定量参数响应"
+        },
+        {
+          "blueprint": "system_flow",
+          "label": "机制与装置流图",
+          "description": "拆解物理过程、实验装置或演化迭代机制"
+        }
+      ],
+      "extensions": [
+        {
+          "action": "concept_glossary",
+          "label": "核心概念与公式词典",
+          "hint": "速查核心科学概念、符号量纲、直觉类比与精确定义",
+          "cross_search": false
+        },
+        {
+          "action": "boundary_check",
+          "label": "演进与适用边界",
+          "hint": "分三区梳理旧认知推翻、直观类比与极端失效条件",
+          "cross_search": false
+        }
+      ]
+    },
+    {
+      "read_type": "philosophy",
+      "name": "哲学书",
+      "adler_category": "5. 哲学书",
+      "goal": "抠紧作者专属词义边界，剥离前提 → 推论 → 结论、批判谱系、论战交锋与反例边界",
+      "sub_kind": "",
+      "sub_kind_hint": "",
+      "blueprints": [
+        {
+          "blueprint": "argument_map",
+          "label": "论证逻辑树",
+          "description": "剥离核心论点、并行前提、推论与潜在反驳"
+        },
+        {
+          "blueprint": "term_contrast",
+          "label": "词义辨析双栏表",
+          "description": "对比日常汉语直觉与作者专属定义（附原词）"
+        },
+        {
+          "blueprint": "lineage_dag",
+          "label": "批判谱系图",
+          "description": "呈现思想家、学派之间的继承、改造与批判关系"
+        }
+      ],
+      "extensions": [
+        {
+          "action": "sparring_dossier",
+          "label": "学术交锋档案",
+          "hint": "拆解核心论战交锋并剖析经典思想实验与隐喻",
+          "cross_search": false
+        },
+        {
+          "action": "counterexample_lab",
+          "label": "反例与现实检验",
+          "hint": "揪出隐含前提、构造极端反例并检验当代适用边界",
+          "cross_search": false
+        }
+      ]
+    },
+    {
+      "read_type": "social",
+      "name": "社会科学",
+      "adler_category": "6. 社会科学",
+      "goal": "以议题为中心：厘清混杂术语、多变量因果反馈与跨作者对照",
+      "sub_kind": "",
+      "sub_kind_hint": "",
+      "blueprints": [
+        {
+          "blueprint": "causal_loop",
+          "label": "因果反馈回路图",
+          "description": "标出 + / - 反馈、滞后与锁定回路"
+        },
+        {
+          "blueprint": "concept_matrix",
+          "label": "跨学派概念矩阵",
+          "description": "对照不同学派与政策立场对同一概念的界定分歧"
+        },
+        {
+          "blueprint": "metric_chart",
+          "label": "实证数据与指标图",
+          "description": "还原原文真实统计数字，纯定性章节诚实退场"
+        }
+      ],
+      "extensions": [
+        {
+          "action": "method_audit",
+          "label": "方法与样本局限",
+          "hint": "识别本章研究方法、因果识别偏差与后续演进边界，并联动书库跨书综述",
+          "cross_search": true
+        },
+        {
+          "action": "actor_incentives",
+          "label": "行动者激励与博弈",
+          "hint": "拆解各方利益主体的目标激励、约束条件与博弈策略",
+          "cross_search": false
+        }
+      ]
+    },
+    {
+      "read_type": "visual",
+      "name": "图册与视觉",
+      "adler_category": "补充类（图册与设定集）",
+      "goal": "建立构图元素、文物/工艺原型与时代流派索引",
+      "sub_kind": "",
+      "sub_kind_hint": "",
+      "blueprints": [
+        {
+          "blueprint": "element_matrix",
+          "label": "构图元素索引表",
+          "description": "整理视觉维度、原型出处与美术气氛"
+        }
+      ],
+      "extensions": [
+        {
+          "action": "craft_notes",
+          "label": "工艺流派考据",
+          "hint": "补足图注背后缺少的年代、技法与源流背景",
+          "cross_search": false
+        }
+      ]
+    }
+  ],
+  "literature_subkind_hints": {
+    "fiction": "小说：宜把握情节连贯与人物命运演变，先沉浸再结构复盘。",
+    "drama": "戏剧：把文本还原为舞台，留意人物动作、停顿神态与潜台词。",
+    "poetry": "抒情诗：先连读捕获全篇基调，再重音体会高频意象与节奏冲突。",
+    "essay": "散文随笔（边界体裁）：默认按文学意象与抒情结构伴读，亦可一键切为「历史书」或「哲学书」。"
+  },
+  "routing_rules": [
+    {
+      "subject1": [
+        "商业与管理",
+        "生活与实用",
+        "写作与编剧"
+      ],
+      "subject2": null,
+      "read_type": "practical",
+      "sub_kind": "",
+      "boundary_hint": ""
+    },
+    {
+      "subject1": [
+        "科学技术"
+      ],
+      "subject2": [
+        "计算机与技术",
+        "工程与制造"
+      ],
+      "read_type": "practical",
+      "sub_kind": "",
+      "boundary_hint": ""
+    },
+    {
+      "subject1": [
+        "科学技术"
+      ],
+      "subject2": null,
+      "read_type": "science",
+      "sub_kind": "",
+      "boundary_hint": ""
+    },
+    {
+      "subject1": [
+        "游戏"
+      ],
+      "subject2": [
+        "设定集与美术集"
+      ],
+      "read_type": "visual",
+      "sub_kind": "",
+      "boundary_hint": ""
+    },
+    {
+      "subject1": [
+        "游戏"
+      ],
+      "subject2": [
+        "游戏设计",
+        "开发与工程",
+        "攻略与资料"
+      ],
+      "read_type": "practical",
+      "sub_kind": "",
+      "boundary_hint": ""
+    },
+    {
+      "subject1": [
+        "游戏"
+      ],
+      "subject2": null,
+      "read_type": "social",
+      "sub_kind": "",
+      "boundary_hint": ""
+    },
+    {
+      "subject1": [
+        "文学"
+      ],
+      "subject2": [
+        "戏剧"
+      ],
+      "read_type": "literature",
+      "sub_kind": "drama",
+      "boundary_hint": ""
+    },
+    {
+      "subject1": [
+        "文学"
+      ],
+      "subject2": [
+        "诗歌"
+      ],
+      "read_type": "literature",
+      "sub_kind": "poetry",
+      "boundary_hint": ""
+    },
+    {
+      "subject1": [
+        "文学"
+      ],
+      "subject2": [
+        "散文随笔"
+      ],
+      "read_type": "literature",
+      "sub_kind": "essay",
+      "boundary_hint": "散文随笔常兼有纪实或哲思气质；当前默认「想象文学」，可在上方切换「历史书」或「哲学书」。"
+    },
+    {
+      "subject1": [
+        "文学"
+      ],
+      "subject2": null,
+      "read_type": "literature",
+      "sub_kind": "fiction",
+      "boundary_hint": ""
+    },
+    {
+      "subject1": [
+        "建筑与古迹"
+      ],
+      "subject2": null,
+      "read_type": "history",
+      "sub_kind": "",
+      "boundary_hint": ""
+    },
+    {
+      "subject1": [
+        "艺术与图像"
+      ],
+      "subject2": [
+        "美术史",
+        "佛教美术"
+      ],
+      "read_type": "history",
+      "sub_kind": "",
+      "boundary_hint": ""
+    },
+    {
+      "subject1": [
+        "艺术与图像"
+      ],
+      "subject2": null,
+      "read_type": "visual",
+      "sub_kind": "",
+      "boundary_hint": ""
+    },
+    {
+      "subject1": [
+        "影视动画漫画"
+      ],
+      "subject2": [
+        "电影与影史"
+      ],
+      "read_type": "history",
+      "sub_kind": "",
+      "boundary_hint": ""
+    },
+    {
+      "subject1": [
+        "影视动画漫画"
+      ],
+      "subject2": null,
+      "read_type": "visual",
+      "sub_kind": "",
+      "boundary_hint": ""
+    },
+    {
+      "subject1": [
+        "人文社科"
+      ],
+      "subject2": [
+        "历史",
+        "人类学与考古"
+      ],
+      "read_type": "history",
+      "sub_kind": "",
+      "boundary_hint": ""
+    },
+    {
+      "subject1": [
+        "人文社科"
+      ],
+      "subject2": [
+        "思想与哲学",
+        "宗教与神话"
+      ],
+      "read_type": "philosophy",
+      "sub_kind": "",
+      "boundary_hint": ""
+    },
+    {
+      "subject1": [
+        "人文社科"
+      ],
+      "subject2": null,
+      "read_type": "social",
+      "sub_kind": "",
+      "boundary_hint": ""
+    },
+    {
+      "subject1": [
+        "其他"
+      ],
+      "subject2": [
+        "图册与写真"
+      ],
+      "read_type": "visual",
+      "sub_kind": "",
+      "boundary_hint": ""
+    },
+    {
+      "subject1": [
+        "其他"
+      ],
+      "subject2": null,
+      "read_type": "social",
+      "sub_kind": "",
+      "boundary_hint": "当前学科未细分或属工具/待归类，暂按「社会科学」通用论证视图展示，可按需手动切换。"
+    },
+    {
+      "subject1": [
+        "拿不准",
+        ""
+      ],
+      "subject2": null,
+      "read_type": "social",
+      "sub_kind": "",
+      "boundary_hint": "该书尚未确定学科分类，默认提供「社会科学」通用阅读视角，可在上方一键切换。"
+    }
+  ]
+}

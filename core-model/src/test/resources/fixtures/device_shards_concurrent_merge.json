@@ -1,0 +1,75 @@
+{
+  "work_id": "B0001",
+  "progress_shards": [
+    {
+      "work_id": "B0001",
+      "device_id": "pixel-8-mobile",
+      "cursor": {
+        "type": "block_offset",
+        "ordinal": 12,
+        "blockId": "B14",
+        "charStart": 0,
+        "charEnd": 24,
+        "snippet": "皇帝不得不在宫禁内部重新物色代笔之人"
+      },
+      "watermark": 12,
+      "updated_at_epoch_ms": 1764230400000
+    },
+    {
+      "work_id": "B0001",
+      "device_id": "desktop-linux",
+      "cursor": {
+        "type": "block_offset",
+        "ordinal": 2,
+        "blockId": "B42",
+        "charStart": 10,
+        "charEnd": 38,
+        "snippet": "洪武十三年正月大狱由此发端"
+      },
+      "watermark": 10,
+      "updated_at_epoch_ms": 1764234000000
+    }
+  ],
+  "note_entries": [
+    {
+      "note_id": "note-mobile-01",
+      "work_id": "B0001",
+      "device_id": "pixel-8-mobile",
+      "anchor": {
+        "type": "reflow_cfi",
+        "ordinal": 5,
+        "href": "ch05.xhtml",
+        "progression": 0.42,
+        "totalProgression": 0.28,
+        "cfi": "epubcfi(/6/10!/4/2/18/1:0)",
+        "textQuote": {
+          "prefix": "废相之后，",
+          "exact": "政事尽归六部",
+          "suffix": "，直达御前。"
+        },
+        "blockId": "B09"
+      },
+      "color_token": "amber",
+      "comment": "与第十二章内阁形成对照",
+      "updated_at_epoch_ms": 1764231000000,
+      "deleted_at_epoch_ms": null
+    },
+    {
+      "note_id": "note-desktop-02",
+      "work_id": "B0001",
+      "device_id": "desktop-linux",
+      "anchor": {
+        "type": "pdf_page",
+        "ordinal": 2,
+        "pageIndex": 18,
+        "normalizedBoxes": [
+          { "left": 0.12, "top": 0.34, "right": 0.88, "bottom": 0.41 }
+        ]
+      },
+      "color_token": "teal",
+      "comment": "已删批注墓碑",
+      "updated_at_epoch_ms": 1764235000000,
+      "deleted_at_epoch_ms": 1764235000000
+    }
+  ]
+}
