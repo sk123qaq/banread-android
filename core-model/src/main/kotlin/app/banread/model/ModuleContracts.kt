@@ -305,8 +305,8 @@ data class ProviderSummary(
     val thinkingLevel: ThinkingLevel = ThinkingLevel.OFF,
     val isDefaultCompanion: Boolean = false,
     val isDefaultVision: Boolean = false,
-    val maskedApiKey: String = if (hasApiKey) "••••" else "本地免 Key",
     val requiresApiKey: Boolean = kind != ProviderKind.OLLAMA,
+    val maskedApiKey: String = if (!requiresApiKey) "本地免 Key" else if (hasApiKey) "••••" else "未配置 Key",
 ) {
     val model: String get() = modelId
     val supportsVision: Boolean get() = capabilities.supportsVision

@@ -107,29 +107,14 @@ internal class DefaultAiRuntime(
         mutex.withLock {
             ensureLoadedLocked()
             val existing = configs[config.id]
-            configs[config.id] = config
+            val prevConfigs = configs.toMap()
+            val prevCompanionId = defaultCompanionId
+            val prevVisionId = defaultVisionId
 
-            // Default companion resolution
-            when {
-                config.isDefaultCompanion -> defaultCompanionId = config.id
-                defaultCompanionId == null || defaultCompanionId !in configs -> defaultCompanionId = config.id
-            }
-
-            // Default vision resolution
-            when {
-                config.isDefaultVision -> defaultVisionId = config.id
-                existing != null && defaultVisionId == config.id && !config.capabilities.supportsVision -> {
-                    defaultVisionId = configs.values.firstOrNull { it.capabilities.supportsVision }?.id
-                }
-                (defaultVisionId == null || defaultVisionId !in configs) && config.capabilities.supportsVision -> {
-                    defaultVisionId = config.id
-                }
-            }
-
-            syncDefaultFlagsLocked()
-            persistLocked()
-
+            // Persist or validate secret vault change BEFORE committing config metadata to disk,
+            // so a vault failure never leaves a metadata record on disk without its secret.
             val alias = secretAlias(config.id)
+            val prevSecret = if (existing != null) secretVault.getSecret(alias) else null
             if (!config.requiresApiKey) {
                 if (rawApiKey.isNullOrBlank()) {
                     secretVault.deleteSecret(alias)
@@ -143,6 +128,43 @@ internal class DefaultAiRuntime(
                     secretVault.deleteSecret(alias)
                 }
                 // If existing != null and rawApiKey is null/blank, preserve stored Tink secret.
+            }
+
+            try {
+                configs[config.id] = config
+
+                // Default companion resolution
+                when {
+                    config.isDefaultCompanion -> defaultCompanionId = config.id
+                    defaultCompanionId == null || defaultCompanionId !in configs -> defaultCompanionId = config.id
+                }
+
+                // Default vision resolution
+                when {
+                    config.isDefaultVision -> defaultVisionId = config.id
+                    existing != null && defaultVisionId == config.id && !config.capabilities.supportsVision -> {
+                        defaultVisionId = configs.values.firstOrNull { it.capabilities.supportsVision }?.id
+                    }
+                    (defaultVisionId == null || defaultVisionId !in configs) && config.capabilities.supportsVision -> {
+                        defaultVisionId = config.id
+                    }
+                }
+
+                syncDefaultFlagsLocked()
+                persistLocked()
+            } catch (ex: Throwable) {
+                configs.clear()
+                configs.putAll(prevConfigs)
+                defaultCompanionId = prevCompanionId
+                defaultVisionId = prevVisionId
+                runCatching {
+                    if (prevSecret != null) {
+                        secretVault.putSecret(alias, prevSecret)
+                    } else if (existing == null) {
+                        secretVault.deleteSecret(alias)
+                    }
+                }
+                throw ex
             }
         }
     }

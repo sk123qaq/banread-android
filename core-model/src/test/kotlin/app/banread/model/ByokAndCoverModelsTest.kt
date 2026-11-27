@@ -58,11 +58,23 @@ class ByokAndCoverModelsTest {
     @Test
     fun `maskApiKey masks secrets cleanly without leaking plaintext`() {
         assertEquals("本地免 Key", maskApiKey("", requiresApiKey = false))
-        assertEquals("本地免 Key", maskApiKey("   ", requiresApiKey = true))
         assertEquals("本地免 Key", maskApiKey("anything", requiresApiKey = false))
+        assertEquals("未配置 Key", maskApiKey("   ", requiresApiKey = true))
+        assertEquals("未配置 Key", maskApiKey(null, requiresApiKey = true))
         assertEquals("••••", maskApiKey("sk-123", requiresApiKey = true))
         assertEquals("sk-a••••efgh", maskApiKey("sk-ant-12345678abcdefgh", requiresApiKey = true))
         assertEquals("1234••••5678", maskApiKey("12345678", requiresApiKey = true))
+
+        val cloudMissingKeySummary = ProviderSummary(
+            id = "openai",
+            displayName = "OpenAI",
+            kind = ProviderKind.OPENAI_COMPAT,
+            modelId = "gpt-4.1",
+            hasApiKey = false,
+            capabilities = ProviderCapabilities(true, true, 128_000),
+            requiresApiKey = true,
+        )
+        assertEquals("未配置 Key", cloudMissingKeySummary.maskedApiKey)
     }
 
     @Test

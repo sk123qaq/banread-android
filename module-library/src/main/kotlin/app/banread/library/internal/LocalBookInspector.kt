@@ -8,6 +8,7 @@ import org.xmlpull.v1.XmlPullParserFactory
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.InputStream
+import java.net.URLDecoder
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.charset.Charset
@@ -291,25 +292,47 @@ internal object LocalBookInspector {
     }
 
     internal fun resolveSafeCoverZipPath(baseDir: String, rawHref: String): String? {
-        val cleanHref = rawHref.substringBefore('#').substringBefore('?').trim()
-        if (cleanHref.isEmpty()) return null
-        if (cleanHref.startsWith("/") || cleanHref.startsWith("\\") || '\\' in cleanHref || "://" in cleanHref) {
+        val rawNoFrag = rawHref.substringBefore('#').substringBefore('?').trim()
+        if (rawNoFrag.isEmpty()) return null
+        val decodedHref = decodeUriPath(rawNoFrag) ?: return null
+        if (decodedHref.isEmpty() ||
+            decodedHref.startsWith("/") ||
+            decodedHref.startsWith("\\") ||
+            '\\' in decodedHref ||
+            "://" in decodedHref ||
+            '\u0000' in decodedHref
+        ) {
             return null
         }
-        val rawSegments = cleanHref.split('/')
-        if (rawSegments.any { it == ".." }) {
-            return null
-        }
-        val combined = if (baseDir.isEmpty()) cleanHref else "$baseDir/$cleanHref"
+
         val resolvedParts = mutableListOf<String>()
-        for (seg in combined.split('/')) {
+        if (baseDir.isNotBlank()) {
+            for (seg in baseDir.split('/')) {
+                when (seg) {
+                    "", "." -> Unit
+                    ".." -> return null
+                    else -> resolvedParts += seg
+                }
+            }
+        }
+        for (seg in decodedHref.split('/')) {
             when (seg) {
                 "", "." -> Unit
-                ".." -> return null
+                ".." -> {
+                    if (resolvedParts.isEmpty()) return null
+                    resolvedParts.removeAt(resolvedParts.lastIndex)
+                }
                 else -> resolvedParts += seg
             }
         }
         return resolvedParts.joinToString("/").takeIf { it.isNotEmpty() }
+    }
+
+    private fun decodeUriPath(raw: String): String? {
+        if ('%' !in raw) return raw
+        return runCatching {
+            URLDecoder.decode(raw.replace("+", "%2B"), Charsets.UTF_8.name())
+        }.getOrNull()
     }
 
     private fun readBoundedBytes(input: InputStream, maxBytes: Long): ByteArray? {

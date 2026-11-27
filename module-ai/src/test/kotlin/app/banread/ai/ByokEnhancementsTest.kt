@@ -8,6 +8,7 @@ import app.banread.model.LlmStreamEvent
 import app.banread.model.ProviderCapabilities
 import app.banread.model.ProviderConfig
 import app.banread.model.ProviderKind
+import app.banread.model.SecretVaultPort
 import app.banread.model.ThinkingLevel
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
@@ -16,6 +17,7 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.OkHttpClient
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -35,6 +37,7 @@ import java.net.Socket
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 class ByokEnhancementsTest {
@@ -455,6 +458,89 @@ class ByokEnhancementsTest {
         val events = runtime.streamCompletion(LlmPromptRequest(systemPrompt = "s", userPrompt = "u")).toList()
         assertEquals("fake thinking", events.filterIsInstance<LlmStreamEvent.ThinkingDelta>().single().delta)
         assertEquals("fake answer", events.filterIsInstance<LlmStreamEvent.Completed>().single().fullText)
+    }
+
+    @Test
+    fun `stalled GET endpoint fails fast with ProviderAuthOrQuota instead of inheriting infinite readTimeout`() = runTest {
+        val heldSockets = CopyOnWriteArrayList<Socket>()
+        val stallServer = ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
+        val stallThread = Thread {
+            while (!stallServer.isClosed) {
+                val sock = runCatching { stallServer.accept() }.getOrNull() ?: break
+                heldSockets += sock
+                // Intentionally accept TCP and never write HTTP headers/body.
+            }
+        }.apply {
+            isDaemon = true
+            start()
+        }
+
+        try {
+            // 1. Default streaming client indeed has infinite readTimeout=0 / callTimeout=0.
+            val infiniteStreamClient = app.banread.ai.internal.HttpStreamingSupport.defaultClient()
+            assertEquals(0, infiniteStreamClient.readTimeoutMillis)
+            assertEquals(0, infiniteStreamClient.callTimeoutMillis)
+
+            // 2. Bounded client fails fast on stalled socket into ProviderAuthOrQuota(httpCode=null).
+            val shortTimeoutClient = OkHttpClient.Builder()
+                .connectTimeout(1, TimeUnit.SECONDS)
+                .readTimeout(250, TimeUnit.MILLISECONDS)
+                .callTimeout(400, TimeUnit.MILLISECONDS)
+                .build()
+            val runtime = AiRuntimeFactory.createInMemory(
+                providerAdapters = mapOf(
+                    ProviderKind.OPENAI_COMPAT to OpenAiCompatAdapter(client = shortTimeoutClient, maxRetries = 0),
+                ),
+            )
+            val startMs = System.currentTimeMillis()
+            val res = runtime.listAvailableModels(
+                kind = ProviderKind.OPENAI_COMPAT,
+                endpoint = "http://127.0.0.1:${stallServer.localPort}/v1",
+                rawApiKey = "sk-stall-test-1234",
+            )
+            val elapsedMs = System.currentTimeMillis() - startMs
+
+            assertTrue(res.isFailure)
+            assertTrue("Expected fast timeout (< 5s), took ${elapsedMs}ms", elapsedMs < 5_000L)
+            val failure = (res.exceptionOrNull() as AppFailureException).failure as AppFailure.ProviderAuthOrQuota
+            assertNull(failure.httpCode)
+            assertFalse(failure.message.contains("sk-stall-test-1234"))
+        } finally {
+            heldSockets.forEach { runCatching { it.close() } }
+            runCatching { stallServer.close() }
+            stallThread.interrupt()
+        }
+    }
+
+    @Test
+    fun `saveProviderConfig writes secretVault before persisting metadata and rolls back cleanly on vault failure`() = runTest {
+        val cfgDir = tempFolder.newFolder("ai_vault_fail")
+        val failingVault = object : SecretVaultPort {
+            override suspend fun putSecret(alias: String, plaintext: String) {
+                throw IllegalStateException("Keystore locked")
+            }
+
+            override suspend fun getSecret(alias: String): String? = null
+            override suspend fun deleteSecret(alias: String) = Unit
+        }
+        val runtime = AiRuntimeFactory.createInMemory(secretVault = failingVault, configDir = cfgDir)
+
+        val attempt = runCatching {
+            runtime.saveProviderConfig(
+                ProviderConfig(
+                    id = "openai",
+                    displayName = "OpenAI",
+                    kind = ProviderKind.OPENAI_COMPAT,
+                    endpoint = "https://api.openai.com/v1",
+                    modelId = "gpt-4.1",
+                    capabilities = ProviderCapabilities(true, true, 128_000),
+                ),
+                rawApiKey = "sk-should-not-persist",
+            )
+        }
+        assertTrue(attempt.isFailure)
+        assertTrue(runtime.listProviderProfiles().isEmpty())
+        assertFalse(cfgDir.resolve("providers_meta.json").exists())
     }
 
     private data class TestReq(

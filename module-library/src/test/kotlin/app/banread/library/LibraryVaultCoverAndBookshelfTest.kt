@@ -209,6 +209,48 @@ class LibraryVaultCoverAndBookshelfTest {
     }
 
     @Test
+    fun `EPUB nested OPF relative dotdot and percent-encoded cover path extracts while root escape still blocks`() = runTest {
+        val v = createVault()
+        val coverPng = buildPngBytes(300, 450)
+        val nestedEpub = buildNestedOpfEpub(
+            dest = tempFolder.newFile("nested_relative_cover.epub"),
+            opfZipPath = "OEBPS/Text/content.opf",
+            manifestItemsXml = """
+                <item id="ch1" href="ch1.xhtml" media-type="application/xhtml+xml"/>
+                <item id="cov" href="../Images/my%20cover.png" media-type="image/png" properties="cover-image"/>
+            """.trimIndent(),
+            chapterZipPath = "OEBPS/Text/ch1.xhtml",
+            coverEntryPath = "OEBPS/Images/my cover.png",
+            coverBytes = coverPng,
+        )
+        val importedNested = v.importLocalBook(nestedEpub.absolutePath).getOrThrow()
+        assertEquals("cover.png", importedNested.coverRel)
+        assertEquals(300, importedNested.coverWidth)
+        assertEquals(450, importedNested.coverHeight)
+        assertEquals(CoverDisplayMode.PORTRAIT_CROP, importedNested.coverDisplayMode)
+        val coverFile = v.resolveCoverFile(importedNested.workId)
+        assertNotNull(coverFile)
+        assertTrue(coverFile!!.readBytes().contentEquals(coverPng))
+
+        // Percent-encoded root escape (../../../outside_secret.png) from OEBPS/Text must still fail safely
+        val escapeEpub = buildNestedOpfEpub(
+            dest = tempFolder.newFile("nested_escape_cover.epub"),
+            opfZipPath = "OEBPS/Text/content.opf",
+            manifestItemsXml = """
+                <item id="ch1" href="ch1.xhtml" media-type="application/xhtml+xml"/>
+                <item id="cov" href="%2e%2e/%2e%2e/%2e%2e/outside_secret.png" media-type="image/png" properties="cover-image"/>
+            """.trimIndent(),
+            chapterZipPath = "OEBPS/Text/ch1.xhtml",
+            coverEntryPath = "OEBPS/Images/my cover.png",
+            coverBytes = coverPng,
+        )
+        val importedEscape = v.importLocalBook(escapeEpub.absolutePath).getOrThrow()
+        assertNull(importedEscape.coverRel)
+        assertEquals(CoverDisplayMode.CLOTH_FALLBACK, importedEscape.coverDisplayMode)
+        assertFalse(File(filesRoot, "outside_secret.png").exists())
+    }
+
+    @Test
     fun `PDF page-0 cover extraction persists cover via injectable PdfCoverRenderer and falls back cleanly on null`() = runTest {
         val fakeRenderer = PdfCoverRenderer { _, _ -> buildPngBytes(480, 720) }
         val vWithCover = createVault(pdfCoverRenderer = fakeRenderer)
@@ -452,6 +494,64 @@ class LibraryVaultCoverAndBookshelfTest {
                 zos.write(coverBytes)
                 zos.closeEntry()
             }
+        }
+        return dest
+    }
+
+    private fun buildNestedOpfEpub(
+        dest: File,
+        opfZipPath: String,
+        manifestItemsXml: String,
+        chapterZipPath: String,
+        coverEntryPath: String,
+        coverBytes: ByteArray,
+    ): File {
+        ZipOutputStream(FileOutputStream(dest)).use { zos ->
+            zos.putNextEntry(ZipEntry("mimetype"))
+            zos.write("application/epub+zip".toByteArray())
+            zos.closeEntry()
+
+            zos.putNextEntry(ZipEntry("META-INF/container.xml"))
+            zos.write(
+                """<?xml version="1.0" encoding="UTF-8"?>
+                <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+                  <rootfiles><rootfile full-path="$opfZipPath" media-type="application/oebps-package+xml"/></rootfiles>
+                </container>""".trimIndent().toByteArray(),
+            )
+            zos.closeEntry()
+
+            zos.putNextEntry(ZipEntry(opfZipPath))
+            zos.write(
+                """<?xml version="1.0" encoding="UTF-8"?>
+                <package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+                  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+                    <dc:title>${dest.nameWithoutExtension}</dc:title>
+                    <dc:creator>测试作者</dc:creator>
+                    <dc:subject>历史</dc:subject>
+                  </metadata>
+                  <manifest>
+                    $manifestItemsXml
+                  </manifest>
+                  <spine>
+                    <itemref idref="ch1"/>
+                  </spine>
+                </package>""".trimIndent().toByteArray(),
+            )
+            zos.closeEntry()
+
+            zos.putNextEntry(ZipEntry(chapterZipPath))
+            zos.write(
+                """<?xml version="1.0" encoding="UTF-8"?>
+                <html xmlns="http://www.w3.org/1999/xhtml">
+                  <head><title>第一章</title></head>
+                  <body><h1>第一章</h1><p>正文段落。</p></body>
+                </html>""".trimIndent().toByteArray(),
+            )
+            zos.closeEntry()
+
+            zos.putNextEntry(ZipEntry(coverEntryPath))
+            zos.write(coverBytes)
+            zos.closeEntry()
         }
         return dest
     }

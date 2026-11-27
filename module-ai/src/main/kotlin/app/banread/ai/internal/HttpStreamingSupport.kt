@@ -405,7 +405,17 @@ internal object HttpStreamingSupport {
         apiKey: String,
         request: Request,
     ): Result<JsonObject> = suspendCancellableCoroutine { cont ->
-        val call = client.newCall(request)
+        val effectiveClient = if (client.callTimeoutMillis == 0 || client.readTimeoutMillis == 0) {
+            client.newBuilder()
+                .apply {
+                    if (client.readTimeoutMillis == 0) readTimeout(15, TimeUnit.SECONDS)
+                    if (client.callTimeoutMillis == 0) callTimeout(20, TimeUnit.SECONDS)
+                }
+                .build()
+        } else {
+            client
+        }
+        val call = effectiveClient.newCall(request)
         cont.invokeOnCancellation { call.cancel() }
         call.enqueue(
             object : Callback {
