@@ -184,3 +184,8 @@ sealed interface AppFailure {
     data class ScannedPdfNeedsOcr(val workId: WorkId) : AppFailure
     data class NetworkOrSyncConflict(val message: String) : AppFailure
 }
+
+class AppFailureException(
+    val failure: AppFailure,
+    override val message: String = failure.toString(),
+) : RuntimeException(message)
