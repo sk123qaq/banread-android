@@ -288,25 +288,33 @@
     const body = document.getElementById('dlg-persp-list');
     if (!body) return;
     body.innerHTML = DATA.profiles
-      .map(
-        (p) =>
+      .map((p) => {
+        const m = String(p.adler_category || '').match(/^(\d+)\./);
+        const idxBadge = m ? String(Number(m[1])).padStart(2, '0') : '补充';
+        const subHint = p.read_type === 'visual' ? '<span class="muted" style="font-size:11.5px;font-weight:500">图册与设定集</span>' : '';
+        return (
           '<button type="button" class="settings-card" data-pick-profile="' +
           RD.esc(p.read_type) +
           '" style="text-align:left;width:100%;border:' +
           (p.read_type === state.activeProfileId ? '1.5px solid var(--cinnabar)' : '1px solid var(--line)') +
           '">' +
-          '<div style="display:flex;justify-content:space-between;align-items:center">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">' +
+          '<span style="display:inline-flex;align-items:center;gap:7px;min-width:0">' +
+          '<span class="mono persp-idx">' +
+          RD.esc(idxBadge) +
+          '</span>' +
           '<strong>' +
           RD.esc(p.name) +
-          ' · ' +
-          RD.esc(p.adler_category) +
           '</strong>' +
+          subHint +
+          '</span>' +
           (p.read_type === state.activeProfileId ? '<span class="cap-pill">当前</span>' : '') +
           '</div>' +
           '<span style="font-size:12px;color:var(--ink-2)">' +
           RD.esc(p.goal) +
           '</span></button>'
-      )
+        );
+      })
       .join('');
     body.querySelectorAll('[data-pick-profile]').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -405,6 +413,59 @@
     openModal('dlg-jump-ahead');
   }
 
+  function renderCoverSlotHtml(book) {
+    const kind = book && book.coverSvg ? book.coverKind || 'image-portrait' : 'cloth';
+    const formatStamp = '<span class="cv-stamp">' + RD.esc(book.format) + '</span>';
+    if (kind === 'image-portrait') {
+      return (
+        '<div class="cover-slot is-image-portrait" style="--cloth:' +
+        RD.esc(book.cloth) +
+        '">' +
+        '<img class="cover-img is-portrait" src="' +
+        RD.esc(book.coverSvg) +
+        '" alt="' +
+        RD.esc(book.title) +
+        ' 封面">' +
+        '<span class="cover-spine-sheen" aria-hidden="true"></span>' +
+        formatStamp +
+        '</div>'
+      );
+    }
+    if (kind === 'image-wide') {
+      return (
+        '<div class="cover-slot is-image-wide" style="--cloth:' +
+        RD.esc(book.cloth) +
+        '">' +
+        '<span class="cv-wide-tag">宽幅自适应</span>' +
+        '<div class="cover-wide-frame">' +
+        '<img class="cover-img is-wide" src="' +
+        RD.esc(book.coverSvg) +
+        '" alt="' +
+        RD.esc(book.title) +
+        ' 宽幅封面">' +
+        '</div>' +
+        formatStamp +
+        '</div>'
+      );
+    }
+    return (
+      '<div class="cover-slot is-cloth" style="--cloth:' +
+      RD.esc(book.cloth) +
+      '">' +
+      '<span class="cv-kicker">' +
+      RD.esc(book.kicker) +
+      '</span>' +
+      '<span class="cv-title">' +
+      RD.esc(book.title) +
+      '</span>' +
+      '<span class="cv-author">' +
+      RD.esc(book.author) +
+      '</span>' +
+      formatStamp +
+      '</div>'
+    );
+  }
+
   /* ==========================================================================
      页面 1：书架渲染
      ========================================================================== */
@@ -439,22 +500,14 @@
               '<button type="button" class="book-grid-card" data-open-book="' +
               RD.esc(b.id) +
               '">' +
-              '<div class="cover" style="--cloth:' +
-              RD.esc(b.cloth) +
-              '">' +
-              '<span class="cv-kicker">' +
-              RD.esc(b.kicker) +
-              '</span>' +
-              '<span class="cv-title">' +
+              renderCoverSlotHtml(b) +
+              '<div class="book-card-info">' +
+              '<div class="book-card-title">' +
               RD.esc(b.title) +
-              '</span>' +
-              '<span class="cv-author">' +
-              RD.esc(b.author) +
-              '</span>' +
-              '<span class="cv-stamp">' +
-              RD.esc(b.format) +
-              '</span>' +
               '</div>' +
+              '<div class="book-card-author">' +
+              RD.esc(b.author) +
+              '</div></div>' +
               '<div class="book-card-meta">' +
               '<span class="persp-pill">' +
               (b.cachedCount > 0 ? '<i class="cache-dot" aria-hidden="true"></i>' : '') +
@@ -728,21 +781,7 @@
       ' ▾</button></header>' +
       '<div class="app-scroll">' +
       '<div class="book-hero-mobile">' +
-      '<div class="cover" style="--cloth:' +
-      RD.esc(book.cloth) +
-      '">' +
-      '<span class="cv-kicker">' +
-      RD.esc(book.kicker) +
-      '</span>' +
-      '<span class="cv-title">' +
-      RD.esc(book.title) +
-      '</span>' +
-      '<span class="cv-author">' +
-      RD.esc(book.author) +
-      '</span>' +
-      '<span class="cv-stamp">' +
-      RD.esc(book.format) +
-      '</span></div>' +
+      renderCoverSlotHtml(book) +
       '<div class="book-hero-copy">' +
       '<h1>《' +
       RD.esc(book.title) +
@@ -1501,8 +1540,13 @@
      页面 4：三档伴读抽屉 HTML + 图谱渲染 + 事件绑定
      ========================================================================== */
   function renderCompanionSheetHtml(isDocked) {
+    const book = getCurrentBook();
     const profile = getProfile(state.activeProfileId);
     const tools = getToolsForProfile(state.activeProfileId);
+    const subGenre =
+      book && book.readType === 'literature' && profile.read_type === 'literature' && book.subKind === 'fiction'
+        ? profile.name + ' · 小说'
+        : profile.name;
     const scopeLabels = [
       ['selection', '选段'],
       ['chapter', '本章'],
@@ -1522,9 +1566,7 @@
       '<div class="comp-head-left">' +
       '<span class="comp-seal" aria-hidden="true">伴</span>' +
       '<button type="button" class="comp-persp-btn" id="btn-comp-persp">' +
-      RD.esc(profile.name) +
-      ' · ' +
-      RD.esc(profile.read_type === 'literature' ? '小说' : profile.adler_category.replace(/^\d+\.\s*/, '')) +
+      RD.esc(subGenre) +
       ' ▾</button></div>' +
       '<div class="comp-snap-btns">' +
       (!isDocked
@@ -2058,10 +2100,10 @@
       '<div class="view-toggle" role="group" aria-label="PDF 形态切换">' +
       '<button type="button" data-pdf-mode="scan" aria-pressed="' +
       (isScan ? 'true' : 'false') +
-      '">扫描版 PDF（几何原本）</button>' +
+      '">扫描版 · 几何原本</button>' +
       '<button type="button" data-pdf-mode="text" aria-pressed="' +
       (!isScan ? 'true' : 'false') +
-      '">文字版 PDF（操作系统导论）</button>' +
+      '">文字版 · 操作系统导论</button>' +
       '</div></header>' +
       (isScan ? scanBody : textBody) +
       companionHtml +
@@ -2205,12 +2247,12 @@
           (m) =>
             '<div class="settings-card">' +
             '<div class="model-head-row">' +
-            '<div><strong>' +
+            '<div class="model-title-wrap"><strong>' +
             RD.esc(m.name) +
             '</strong> <span class="mono muted" style="font-size:11px">' +
             RD.esc(m.maskedKey) +
             '</span></div>' +
-            '<div style="display:flex;gap:4px">' +
+            '<div class="model-caps">' +
             m.capabilities.map((c) => '<span class="cap-pill' + (c === 'Vision' ? ' vlm' : '') + '">' + RD.esc(c) + '</span>').join('') +
             '</div></div>' +
             '<div class="wb-sub">' +

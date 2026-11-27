@@ -1,5 +1,82 @@
 /* 伴读 Android 原型 · 预置样书、6+1视角配置、真实正文、全学科图谱样图与 BYOK 配置 */
 (function () {
+  const svgUri = (svg) => 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+
+  const COVER_KANT_SVG = svgUri(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 360">' +
+      '<rect width="240" height="360" fill="#1F3044"/>' +
+      '<rect x="12" y="14" width="216" height="332" fill="#F4EDE0" stroke="#C5A267" stroke-width="2"/>' +
+      '<rect x="18" y="20" width="204" height="320" fill="none" stroke="#1F3044" stroke-width="1.2"/>' +
+      '<text x="120" y="54" text-anchor="middle" font-family="serif" font-size="10" letter-spacing="2.2" fill="#6F5633">IMMANUEL KANT</text>' +
+      '<line x1="46" y1="64" x2="194" y2="64" stroke="#C5A267" stroke-width="1"/>' +
+      '<circle cx="120" cy="144" r="54" fill="none" stroke="#1F3044" stroke-width="1.4"/>' +
+      '<circle cx="120" cy="144" r="42" fill="none" stroke="#A8442F" stroke-width="1" stroke-dasharray="3 3"/>' +
+      '<polygon points="120,96 162,168 78,168" fill="rgba(31,48,68,0.08)" stroke="#1F3044" stroke-width="1.3"/>' +
+      '<line x1="66" y1="144" x2="174" y2="144" stroke="#C5A267" stroke-width="1"/>' +
+      '<line x1="120" y1="90" x2="120" y2="198" stroke="#C5A267" stroke-width="1"/>' +
+      '<text x="120" y="242" text-anchor="middle" font-family="serif" font-size="22" font-weight="700" fill="#1F3044">纯粹理性批判</text>' +
+      '<text x="120" y="266" text-anchor="middle" font-family="serif" font-size="10" letter-spacing="1.2" fill="#5A534A">KRITIK DER REINEN VERNUNFT</text>' +
+      '<rect x="64" y="286" width="112" height="22" rx="11" fill="#1F3044"/>' +
+      '<text x="120" y="301" text-anchor="middle" font-family="sans-serif" font-size="10" fill="#F4EDE0">哲学先验典藏导读本</text>' +
+    '</svg>'
+  );
+
+  const COVER_MICRO_SVG = svgUri(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 360">' +
+      '<rect width="240" height="360" fill="#E8E3D5"/>' +
+      '<rect x="0" y="0" width="240" height="128" fill="#3B4D36"/>' +
+      '<rect x="18" y="18" width="204" height="324" fill="none" stroke="#2D3B29" stroke-width="1"/>' +
+      '<text x="30" y="46" font-family="monospace" font-size="9.5" letter-spacing="1.8" fill="#D5DFCE">SOCIAL SCIENCE · EPUB</text>' +
+      '<text x="30" y="84" font-family="serif" font-size="23" font-weight="700" fill="#FAF7F0">微观激励与</text>' +
+      '<text x="30" y="112" font-family="serif" font-size="23" font-weight="700" fill="#FAF7F0">制度演进</text>' +
+      '<line x1="30" y1="156" x2="210" y2="156" stroke="#B7B09E" stroke-width="0.8"/>' +
+      '<path d="M40 278 Q105 266 196 178" fill="none" stroke="#A8442F" stroke-width="2.4"/>' +
+      '<path d="M42 192 Q115 248 198 274" fill="none" stroke="#1E5A4C" stroke-width="2.2" stroke-dasharray="5 3"/>' +
+      '<circle cx="122" cy="240" r="5" fill="#A8442F"/>' +
+      '<circle cx="72" cy="214" r="3.5" fill="#3B4D36"/>' +
+      '<circle cx="174" cy="198" r="3.5" fill="#1E5A4C"/>' +
+      '<text x="30" y="312" font-family="sans-serif" font-size="11" font-weight="600" fill="#2E362A">陈远 · 制度经济学专著</text>' +
+      '<text x="30" y="330" font-family="monospace" font-size="9.5" fill="#6B6559">PATH DEPENDENCE &amp; AGENCY</text>' +
+    '</svg>'
+  );
+
+  const COVER_EUCLID_SVG = svgUri(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 360">' +
+      '<rect width="240" height="360" fill="#F2E7CF"/>' +
+      '<rect x="12" y="14" width="216" height="332" fill="none" stroke="#473828" stroke-width="2.2"/>' +
+      '<rect x="17" y="19" width="206" height="322" fill="none" stroke="#473828" stroke-width="0.9"/>' +
+      '<line x1="184" y1="19" x2="184" y2="341" stroke="#473828" stroke-width="1"/>' +
+      '<polygon points="74,158 100,122 146,158" fill="rgba(168,68,47,0.12)" stroke="#2A2118" stroke-width="1.6"/>' +
+      '<polygon points="74,158 146,158 146,230 74,230" fill="none" stroke="#2A2118" stroke-width="1.3"/>' +
+      '<polygon points="74,158 100,122 64,96 38,132" fill="none" stroke="#2A2118" stroke-width="1.2"/>' +
+      '<polygon points="100,122 146,158 180,112 134,76" fill="none" stroke="#2A2118" stroke-width="1.2"/>' +
+      '<line x1="100" y1="122" x2="100" y2="230" stroke="#A8442F" stroke-width="1.2" stroke-dasharray="3 2"/>' +
+      '<text x="203" y="70" writing-mode="tb" font-family="serif" font-size="16" font-weight="700" fill="#2A2118">幾何原本 · 卷一</text>' +
+      '<text x="34" y="276" font-family="serif" font-size="11.5" fill="#473828">明刻徐光啟利瑪竇合譯</text>' +
+      '<text x="34" y="296" font-family="serif" font-size="10.5" fill="#6F5E4A">影印本 · 卷首命題圖版</text>' +
+    '</svg>'
+  );
+
+  const COVER_OSTEP_SVG = svgUri(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220">' +
+      '<rect width="320" height="220" fill="#223242"/>' +
+      '<rect x="10" y="10" width="300" height="200" rx="6" fill="#2A3E52" stroke="#53728F" stroke-width="1.2"/>' +
+      '<text x="24" y="38" font-family="monospace" font-size="10" letter-spacing="1.4" fill="#9AC0DE">SYSTEMS LECTURE EDITION · TEXT PDF</text>' +
+      '<text x="24" y="70" font-family="serif" font-size="22" font-weight="700" fill="#F8F6F0">操作系统导论</text>' +
+      '<text x="24" y="92" font-family="sans-serif" font-size="11.5" fill="#C9D8E6">Operating Systems: Three Easy Pieces</text>' +
+      '<rect x="24" y="114" width="124" height="72" rx="4" fill="#1C2936" stroke="#6E94B8" stroke-width="1"/>' +
+      '<text x="34" y="133" font-family="monospace" font-size="9.5" fill="#E3B35C">VIRTUALIZATION</text>' +
+      '<rect x="34" y="142" width="48" height="16" fill="#355570"/><text x="41" y="153" font-family="monospace" font-size="8.5" fill="#FFF">VPN 20b</text>' +
+      '<rect x="86" y="142" width="52" height="16" fill="#4D3D2A"/><text x="90" y="153" font-family="monospace" font-size="8.5" fill="#F8E2B8">Off 12b</text>' +
+      '<text x="34" y="175" font-family="monospace" font-size="8.5" fill="#9CE0C2">PTE -&gt; PFN Translation</text>' +
+      '<rect x="164" y="114" width="132" height="72" rx="4" fill="#1C2936" stroke="#6E94B8" stroke-width="1"/>' +
+      '<text x="174" y="133" font-family="monospace" font-size="9.5" fill="#8CD7BC">CONCURRENCY &amp; I/O</text>' +
+      '<line x1="174" y1="150" x2="282" y2="150" stroke="#4D6E8A" stroke-width="1"/>' +
+      '<rect x="174" y="158" width="66" height="14" rx="2" fill="#A8442F"/><text x="180" y="168" font-family="monospace" font-size="8" fill="#FFF">LOCK GUARD</text>' +
+      '<rect x="246" y="158" width="38" height="14" rx="2" fill="#1E5A4C"/><text x="252" y="168" font-family="monospace" font-size="8" fill="#FFF">FS</text>' +
+    '</svg>'
+  );
+
   window.DEMO_DATA = {
     books: [
       {
@@ -10,6 +87,7 @@
         subKind: 'fiction',
         format: '.bcbook',
         cloth: '#1E3A36',
+        coverKind: 'cloth',
         curChapter: 3,
         totalChapters: 12,
         progressPct: 25,
@@ -29,6 +107,7 @@
         subKind: '',
         format: '.bcbook',
         cloth: '#6B2B2B',
+        coverKind: 'cloth',
         curChapter: 2,
         totalChapters: 8,
         progressPct: 28,
@@ -48,6 +127,8 @@
         subKind: '',
         format: '.bcbook',
         cloth: '#2C4056',
+        coverKind: 'image-portrait',
+        coverSvg: COVER_KANT_SVG,
         curChapter: 1,
         totalChapters: 10,
         progressPct: 12,
@@ -67,6 +148,8 @@
         subKind: '',
         format: 'EPUB',
         cloth: '#4A5839',
+        coverKind: 'image-portrait',
+        coverSvg: COVER_MICRO_SVG,
         curChapter: 4,
         totalChapters: 9,
         progressPct: 44,
@@ -86,6 +169,8 @@
         subKind: '',
         format: '扫描 PDF',
         cloth: '#A87A3E',
+        coverKind: 'image-portrait',
+        coverSvg: COVER_EUCLID_SVG,
         curChapter: 14,
         totalChapters: 280,
         progressPct: 5,
@@ -106,6 +191,8 @@
         subKind: '',
         format: '文字 PDF',
         cloth: '#3F4E5A',
+        coverKind: 'image-wide',
+        coverSvg: COVER_OSTEP_SVG,
         curChapter: 42,
         totalChapters: 320,
         progressPct: 13,
