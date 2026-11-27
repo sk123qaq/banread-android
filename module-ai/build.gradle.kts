@@ -23,6 +23,8 @@ android {
 
     testOptions {
         unitTests.isIncludeAndroidResources = true
+        // AiLog uses android.util.Log; JVM tests only need it to be a no-op.
+        unitTests.isReturnDefaultValues = true
     }
 }
 

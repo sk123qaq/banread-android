@@ -320,6 +320,14 @@ data class LlmPromptRequest(
     val expectJson: Boolean = false,
     val maxOutputTokens: Int? = null,
     val thinkingLevel: ThinkingLevel = ThinkingLevel.OFF,
+    /**
+     * Stable id of the conversation this prompt belongs to.
+     *
+     * Adapters that need per-conversation routing (OpenCode Go's `x-opencode-session`)
+     * derive their transport header from it. Callers should reuse the same id for every
+     * turn of a thread; `null` falls back to a provider-level id.
+     */
+    val conversationId: String? = null,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -330,7 +338,8 @@ data class LlmPromptRequest(
             imagePngBytes.contentEquals(other.imagePngBytes) &&
             expectJson == other.expectJson &&
             maxOutputTokens == other.maxOutputTokens &&
-            thinkingLevel == other.thinkingLevel
+            thinkingLevel == other.thinkingLevel &&
+            conversationId == other.conversationId
     }
 
     override fun hashCode(): Int {
@@ -341,6 +350,7 @@ data class LlmPromptRequest(
         result = 31 * result + expectJson.hashCode()
         result = 31 * result + (maxOutputTokens ?: 0)
         result = 31 * result + thinkingLevel.hashCode()
+        result = 31 * result + (conversationId?.hashCode() ?: 0)
         return result
     }
 }

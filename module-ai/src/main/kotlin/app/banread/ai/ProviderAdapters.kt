@@ -1,6 +1,9 @@
 package app.banread.ai
 
+import app.banread.ai.internal.AiLog
 import app.banread.ai.internal.HttpStreamingSupport
+import app.banread.ai.internal.OpenCodeSession
+import app.banread.ai.internal.ProviderErrorText
 import app.banread.ai.internal.Redactor
 import app.banread.ai.internal.resolveEffectiveModel
 import app.banread.model.AppFailure
@@ -89,16 +92,7 @@ class OpenAiCompatAdapter(
             buildRequest = {
                 val model = resolveEffectiveModel(defaultModelId)
                 val bodyJson = buildPayloadJson(model, payload)
-                Request.Builder()
-                    .url(url)
-                    .apply {
-                        if (apiKey.isNotBlank()) {
-                            header("Authorization", "Bearer $apiKey")
-                        }
-                    }
-                    .header("Accept", "text/event-stream")
-                    .post(HttpStreamingSupport.jsonBody(bodyJson.toString()))
-                    .build()
+                buildHttpRequest(url, apiKey, payload, model, bodyJson)
             },
             onSseEvent = { _, data, fullContent, emit, markCompleted ->
                 val trimmed = data.trim()
@@ -109,14 +103,22 @@ class OpenAiCompatAdapter(
                 if (trimmed.isEmpty()) return@streamSseWithRetry
                 val root = HttpStreamingSupport.jsonParser.parseToJsonElement(trimmed).jsonObject
                 val errorObj = root["error"]
-                if (errorObj != null && errorObj is JsonObject) {
-                    val msg = errorObj["message"]?.jsonPrimitive?.contentOrNull ?: errorObj.toString()
+                if (errorObj is JsonObject) {
+                    val rawError = errorObj.toString()
+                    val parsed = ProviderErrorText.parse(rawError)
+                    AiLog.failure(
+                        providerId = payload.providerId ?: "openai_compat",
+                        httpCode = null,
+                        url = url,
+                        type = parsed.type,
+                        redactedBody = Redactor.redact(rawError, apiKey),
+                    )
                     emit(
                         LlmStreamEvent.Failed(
                             AppFailure.ProviderAuthOrQuota(
                                 providerId = payload.providerId ?: "openai_compat",
                                 httpCode = null,
-                                message = Redactor.redact(msg, apiKey),
+                                message = Redactor.redact(ProviderErrorText.readable(null, rawError), apiKey),
                             ),
                         ),
                     )
@@ -142,6 +144,40 @@ class OpenAiCompatAdapter(
                 }
             },
         )
+    }
+
+    /**
+     * Builds the inference request. Kept internal so unit tests can assert the exact URL and
+     * headers without hitting the network: OpenCode Go rejects requests that miss its
+     * conversation header with HTTP 400 `MissingSessionID`.
+     */
+    internal fun buildHttpRequest(
+        url: String,
+        apiKey: String,
+        payload: LlmPromptRequest,
+        model: String,
+        bodyJson: JsonObject,
+    ): Request {
+        val isOpenCode = OpenCodeSession.isOpenCodeHost(url)
+        val builder = Request.Builder().url(url)
+        if (apiKey.isNotBlank()) {
+            builder.header("Authorization", "Bearer $apiKey")
+        }
+        builder.header("Accept", "text/event-stream")
+        if (isOpenCode) {
+            builder.header(
+                OpenCodeSession.HEADER,
+                OpenCodeSession.headerValue(payload.conversationId ?: payload.providerId ?: defaultModelId),
+            )
+            builder.header("User-Agent", OpenCodeSession.USER_AGENT)
+        }
+        AiLog.request(
+            providerId = payload.providerId ?: "openai_compat",
+            model = model,
+            url = url,
+            hasOpenCodeSession = isOpenCode,
+        )
+        return builder.post(HttpStreamingSupport.jsonBody(bodyJson.toString())).build()
     }
 
     private fun resolveEndpoint(endpoint: String): String {

@@ -176,6 +176,7 @@ internal class RoomCompanionEngine(
             systemPrompt = builtPrompt.systemPrompt,
             userPrompt = builtPrompt.userPrompt,
             expectJson = builtPrompt.expectJson,
+            conversationId = "companion:${request.workId.raw}",
         )
 
         var completedText: String? = null
@@ -302,6 +303,7 @@ internal class RoomCompanionEngine(
                 systemPrompt = basePrompt.systemPrompt,
                 userPrompt = fullUserPrompt,
                 expectJson = false,
+                conversationId = effectiveThreadId,
             ),
         ).collect { event ->
             when (event) {
@@ -392,6 +394,7 @@ internal class RoomCompanionEngine(
             userPrompt = "《${outline.title}》扫描页第 ${pageIndex + 1} 页框选区域提问：\n$question",
             imagePngBytes = pngBytes,
             expectJson = false,
+            conversationId = "scanned:${workId.raw}:$pageIndex",
         )
 
         var completedText: String? = null

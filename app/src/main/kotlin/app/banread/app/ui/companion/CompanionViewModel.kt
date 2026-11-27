@@ -513,7 +513,7 @@ class CompanionViewModel(
 
     private fun formatFailureMessage(failure: AppFailure): String = when (failure) {
         is AppFailure.DesktopConnectionRequired -> "需连接桌面伴读网关（${failure.featureName}）"
-        is AppFailure.ProviderAuthOrQuota -> "模型调用受限：${failure.message}"
+        is AppFailure.ProviderAuthOrQuota -> failure.message
         is AppFailure.CapacityPreflightBlocked -> "当前范围受防剧透或上下文限制：${failure.reason}"
         is AppFailure.UnsupportedDrmOrFormat -> failure.reason
         is AppFailure.ScannedPdfNeedsOcr -> "扫描版 PDF 需先 OCR 后才能生成全章文本伴读"

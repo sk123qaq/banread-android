@@ -354,7 +354,8 @@ class AiRuntimeContractTest {
         val failed = failEvents.filterIsInstance<LlmStreamEvent.Failed>().single().failure as AppFailure.ProviderAuthOrQuota
         assertEquals(401, failed.httpCode)
         assertFalse("Secret leaked in error message: ${failed.message}", failed.message.contains(secretKey))
-        assertTrue(failed.message.contains("[REDACTED]"))
+        assertTrue("Expected readable auth hint: ${failed.message}", failed.message.contains("鉴权"))
+        assertTrue("Expected API Key hint: ${failed.message}", failed.message.contains("API Key"))
     }
 
     @Test
