@@ -316,6 +316,7 @@ private fun BanReadAppRoot(
                     companionVm.setDetent(CompanionDetent.CLOSED)
                     popBack()
                 },
+                onReaderChapterChanged = companionVm::onReaderChapterChanged,
                 onOpenCompanion = { ordinal, selAnchor, selText, toolId ->
                     companionVm.openSheet(
                         workId = route.workId,

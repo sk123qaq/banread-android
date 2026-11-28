@@ -14,7 +14,7 @@ internal data class BuiltPrompt(
 )
 
 internal object PromptCatalog {
-    const val PROMPT_VERSION: Int = 1
+    const val PROMPT_VERSION: Int = 2
 
     val UNIVERSAL_ACTIONS: Set<String> = setOf("diagram", "explain", "translate", "critique", "ask")
 
