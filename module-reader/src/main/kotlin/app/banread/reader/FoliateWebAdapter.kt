@@ -62,12 +62,6 @@ class FoliateWebAdapter(
     @Volatile
     private var attachedWebView: WebView? = null
 
-    /**
-     * 当前 attached WebView 是否已 detach/destroy。置位后：
-     * - 已 post 到主线程的 evaluateJavascript 闭包直接丢弃，不碰已 destroy 的 WebView；
-     * - JS bridge 回调不再生效（旧 WebView 的 onBridgeReady 不会把脚本 flush 到新 WebView）。
-     * attachWebView() 会重置该标志（adapter 是单例，阅读器可反复进出）。
-     */
     @Volatile
     private var destroyed = false
 
@@ -135,7 +129,6 @@ class FoliateWebAdapter(
     }
 
     fun detachWebView() {
-        // 先置 destroyed：此后所有已 post/在飞的 evaluateJavascript 闭包都会自行丢弃。
         val webView: WebView?
         synchronized(scriptLock) {
             destroyed = true
@@ -214,7 +207,6 @@ class FoliateWebAdapter(
         val webViewToRun: WebView? = synchronized(scriptLock) {
             val webView = attachedWebView
             if (webView == null || !bridgeReady) {
-                // 没有可执行的 WebView：入队，等 attach + onBridgeReady 后统一 flush（首开/重进阅读器都走这里）。
                 pendingScripts.add(script)
                 null
             } else {
@@ -245,7 +237,6 @@ class FoliateWebAdapter(
         }
     }
 
-    /** destroyed 与 attachedWebView 必须同时满足，才允许对该 WebView 求值/回调。 */
     private fun isLive(webView: WebView): Boolean = !destroyed && attachedWebView === webView
 
     private fun runOnMain(block: () -> Unit) {

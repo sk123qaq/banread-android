@@ -12,9 +12,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import java.util.concurrent.CopyOnWriteArrayList
 
-/**
- * Deterministic in-memory [LlmProviderPort] for UI previews, contract tests, and offline verification.
- */
 class ScriptedLlmFakeAdapter(
     override val capabilities: ProviderCapabilities = ProviderCapabilities(
         supportsJsonSchema = true,

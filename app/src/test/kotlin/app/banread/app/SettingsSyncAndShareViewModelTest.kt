@@ -143,13 +143,11 @@ class SettingsSyncAndShareViewModelTest {
             libraryVault = fakeVaultWithFile,
         )
 
-        // 1. Pair desktop + health check
         vm.updatePairUriInput("bc-pair://v1?base=http://127.0.0.1:8780&token=tok-vm")
         vm.pairDesktop()
         assertTrue(vm.uiState.value.syncStatus?.desktop?.isPaired == true)
         assertTrue(vm.uiState.value.syncStatus?.desktop?.isReachable == true)
 
-        // 2. Catalog & Outbox pull with ACK
         vm.openDesktopCatalogDialog()
         assertEquals(1, vm.uiState.value.desktopSync.catalogBooks.size)
         vm.dismissDesktopCatalogDialog()
@@ -157,7 +155,6 @@ class SettingsSyncAndShareViewModelTest {
         vm.pullDesktopOutbox()
         assertEquals(listOf("tkt-vm-1"), desktopGw.ackedTicketIds.toList())
 
-        // 3. Configure WebDAV cloud shard sync & sync bookshelf
         vm.openCloudConfigDialog()
         vm.updateCloudConfigFields {
             it.copy(
@@ -170,10 +167,8 @@ class SettingsSyncAndShareViewModelTest {
         vm.saveCloudShardConfig()
         assertEquals(CloudSyncBackend.WEBDAV, vm.uiState.value.syncStatus?.cloudBackend)
         assertEquals("dav-secret-123", secretVault.getSecret("sync:cloud:webdav_secret"))
-        // Secret input must be cleared from UI state after saving!
         assertEquals("", vm.uiState.value.desktopSync.webDavSecretInput)
 
-        // 4. 3-Channel Share: export .bcnote, then parse and import in receiver dialog
         vm.openShareSendDialog(ShareChannel.OFFLINE_PACKAGE)
         vm.exportOfflinePackageNow()
         val exportedPath = vm.uiState.value.shareSend.exportedPackagePath!!
@@ -229,7 +224,6 @@ class SettingsSyncAndShareViewModelTest {
                 Result.success(emptyList<CrossBookHit>())
         }
 
-        // Reflow reader shows banner WITHOUT force-jumping local cursor from Ch 2
         val reflowReader = FakeReaderEngine()
         val reflowVm = ReflowReaderViewModel(
             workId = workId,
@@ -246,7 +240,6 @@ class SettingsSyncAndShareViewModelTest {
         assertNull(reflowVm.uiState.value.remoteCursorBanner)
         assertEquals(ChapterOrdinal(10), reflowReader.goToCalls.last().first.ordinal)
 
-        // PDF reader shows banner and [忽略] dismisses without moving page
         val pdfReader = FakeReaderEngine()
         val pdfVm = PdfReaderViewModel(
             workId = workId,

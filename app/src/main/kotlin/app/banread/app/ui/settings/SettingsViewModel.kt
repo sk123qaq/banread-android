@@ -320,7 +320,6 @@ class SettingsViewModel(
         _uiState.value = _uiState.value.copy(snackbarMessage = null)
     }
 
-    // ==================== BYOK Editor Dialog ====================
 
     fun openAddByokDialog() {
         val preset = ProviderPresetCatalog.findById("deepseek") ?: ProviderPresetCatalog.presets.first()
@@ -578,7 +577,6 @@ class SettingsViewModel(
                 requiresApiKey = cur.requiresApiKey,
             )
 
-            // Blank apiKeyInput on Edit preserves stored Tink secret in DefaultAiRuntime
             val rawKeyToSave = cur.apiKeyInput.trim().takeIf { it.isNotEmpty() }
             runCatching {
                 aiRuntime.saveProviderConfig(config, rawApiKey = rawKeyToSave)
@@ -606,7 +604,6 @@ class SettingsViewModel(
         deleteProvider(targetId)
     }
 
-    // ==================== App Preferences ====================
 
     fun selectTheme(theme: ReaderTheme) {
         appPreferences.setTheme(theme)
@@ -636,7 +633,6 @@ class SettingsViewModel(
         }
     }
 
-    // ==================== Desktop Gateway & Cloud Shard Sync ====================
 
     fun updatePairUriInput(value: String) {
         _uiState.value = _uiState.value.copy(
@@ -963,7 +959,6 @@ class SettingsViewModel(
         }
     }
 
-    // ==================== 3-Channel SHA-256 Share (R2 E2EE / LAN / .bcnote) ====================
 
     fun openShareSendDialog(
         channel: ShareChannel = ShareChannel.R2_RELAY,
@@ -1356,9 +1351,6 @@ class SettingsViewModel(
             ProviderPresetGroup.OFFICIAL_OR_LOCAL to ProviderPresetCatalog.byGroup(ProviderPresetGroup.OFFICIAL_OR_LOCAL),
         )
 
-        /**
-         * Avoids repeating the preset name if the provider's displayName already begins with it.
-         */
         fun formatProviderCardTitle(summary: ProviderSummary): Pair<String?, String> {
             val preset = summary.providerPresetId?.let { ProviderPresetCatalog.findById(it) }
             val badgeLabel = preset?.displayName ?: when (summary.kind) {

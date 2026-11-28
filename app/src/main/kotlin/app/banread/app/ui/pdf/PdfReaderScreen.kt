@@ -168,7 +168,6 @@ fun PdfReaderScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            // Controls strip
             FlowRow(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -209,7 +208,6 @@ fun PdfReaderScreen(
                 }
             }
 
-            // Non-intrusive RemoteCursorBanner
             val remoteBanner = state.remoteCursorBanner
             if (remoteBanner != null) {
                 app.banread.app.ui.components.RemoteCursorBannerCard(
@@ -220,7 +218,6 @@ fun PdfReaderScreen(
                 )
             }
 
-            // PDF page stage with pinch-zoom OR live drag-to-crop overlay
             val rendered = state.renderedPage
             Box(
                 modifier = Modifier
@@ -316,7 +313,6 @@ fun PdfReaderScreen(
                             modifier = Modifier.fillMaxSize(),
                         )
 
-                        // Live dashed cinnabar (#A8442F) crop selection rectangle
                         val pendingRect: NormalizedRect? = state.pendingCropRect
                         if (state.cropModeEnabled && pendingRect != null) {
                             Canvas(modifier = Modifier.fillMaxSize()) {

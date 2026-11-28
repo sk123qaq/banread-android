@@ -159,7 +159,6 @@ class CompanionEngineContractTest {
         val imported = libraryVault.ingestStudyPack(bcbook.absolutePath).getOrThrow()
         val engine = createEngine()
 
-        // Recommended tools read from ingested book profile
         val toolbox = engine.recommendedTools(imported.workId)
         assertEquals(ReadProfileId("literature"), toolbox.profileId)
         assertEquals("mystery", toolbox.literatureSubKind)
@@ -259,14 +258,12 @@ class CompanionEngineContractTest {
         assertTrue("Expected Ch 14 footnote [102] in prompt", ch14Prompt.contains("SECRET_KILLER_CH14_NOTE_102"))
 
         val fullPrompt = fakeLlm.recordedRequests[2].userPrompt
-        // FullBook context includes later chapters (e.g., Ch 14 L2 digest and Ch 19 full text) without truncation
         assertTrue("Expected Ch 14 digest in FullBook prompt", fullPrompt.contains("SPOILER_CANARY_CH_14"))
         assertTrue("Expected Ch 19 body in FullBook prompt", fullPrompt.contains("SPOILER_CANARY_CH_19"))
     }
 
     @Test
     fun `ContextBuilder samples over-24k chapter, joins short lines, and caps isolated footnotes`() = runTest {
-        // 1. Real RoomLibraryVault chapter (<= 24k) verifies short-line joining & isolated footnote section
         val bcbook = buildLongChapterBcBook(tempFolder.newFile("B0099.bcbook"))
         val imported = libraryVault.ingestStudyPack(bcbook.absolutePath).getOrThrow()
         val engine = createEngine()
@@ -288,7 +285,6 @@ class CompanionEngineContractTest {
         assertTrue("Expected short-line range join like [Bxx–Byy]", Regex("""\[B\d+–B\d+]""").containsMatchIn(prompt))
         assertTrue(prompt.contains("【本章自带脚注"))
 
-        // 2. >24,000-char chapter slice verifies structured sampling (headings <=1500, head/tail <=2200, mid windows, 15% fn cap)
         val over24kBlocks = buildList {
             add(app.banread.model.BookBlock(BlockId("B01"), "# 第一章 超长文本采样"))
             add(app.banread.model.BookBlock(BlockId("B02"), "## 第一节 开头"))
@@ -359,7 +355,6 @@ class CompanionEngineContractTest {
         val engine = createEngine()
         val ch3Scope = ToolScope.Chapter(ChapterOrdinal(3))
 
-        // 1. Truncated JSON + trailing comma + markdown fence + fabricated B999 block ID
         fakeLlm.enqueueResponse(
             "```json\n" +
                 "{'blueprint':'argument_map','caption':'论证结构','reading_note':'核对前提','summary':'论证成立','data':{'nodes':[{'id':'A1','role':'premise','label':'前提一','detail':'第一行\n第二行','blocks':['B999','B02'],'source':'原文',},{'id':'A2','role':'conclusion','label':'结论','blocks':['B999'],'source':'补充'}],'edges':[{'from':'A1','to':'A2','label':'推出'}",
@@ -369,12 +364,10 @@ class CompanionEngineContractTest {
         val diag1 = res1.artifact as AuditedArtifact.StructuredDiagram
         val nodes1 = diag1.data["nodes"]!!.jsonArray
         assertEquals(2, nodes1.size)
-        // B999 stripped from node 1 leaving ["B02"]; node 2 falls back to ["B01"]
         assertEquals(listOf("B02"), nodes1[0].jsonObject["blocks"]!!.jsonArray.map { it.jsonPrimitive.content })
         assertEquals(listOf("B01"), nodes1[1].jsonObject["blocks"]!!.jsonArray.map { it.jsonPrimitive.content })
         assertTrue(diag1.auditLog.any { "B999" in it })
 
-        // 2. >16 nodes degrades cleanly to FallbackList preserving valid blocks
         val seventeenNodes = (1..17).joinToString(",") {
             """{"id":"N$it","role":"inference","label":"节点$it","detail":"细节$it","blocks":["B01"],"source":"原文"}"""
         }
@@ -388,7 +381,6 @@ class CompanionEngineContractTest {
         assertEquals(17, fb2.items.size)
         assertTrue(fb2.auditLog.any { "16" in it })
 
-        // 3. parallel_timeline sorts out-of-order sort_year chronologically (including BCE negative years)
         fakeLlm.enqueueResponse(
             """
             {
@@ -413,7 +405,6 @@ class CompanionEngineContractTest {
         val sortedYears = timeline.data["rows"]!!.jsonArray.map { it.jsonObject["sort_year"]!!.jsonPrimitive.intOrNull }
         assertEquals(listOf(-221, 317, 1911), sortedYears)
 
-        // 4. metric_chart filters guessed-score points and degrades to FallbackList when < 2 valid points
         fakeLlm.enqueueResponse(
             """
             {
@@ -442,7 +433,6 @@ class CompanionEngineContractTest {
         assertTrue(res4.artifact is AuditedArtifact.FallbackList)
         assertTrue(res4.artifact.auditLog.any { "剔除" in it || "不足 2 个" in it })
 
-        // 5. Total unparseable prose degrades cleanly to FallbackList without throwing
         fakeLlm.enqueueResponse("抱歉，今天模型无法生成结构化内容，这是一段纯文字说明。")
         val res5 = engine.runTool(CompanionRequest(imported.workId, ToolId("tension_curve"), ch3Scope, forceRefresh = true))
             .toList().last() as CompanionEvent.Done
@@ -455,7 +445,6 @@ class CompanionEngineContractTest {
         val bcbook = build20ChapterSpoilerBook(tempFolder.newFile("B0044.bcbook"), uid = "B0044")
         val imported = libraryVault.ingestStudyPack(bcbook.absolutePath).getOrThrow()
 
-        // Case A: syncCoordinator == null
         val engineNoSync = createEngine(syncCoordinator = null)
         for (toolName in listOf("compare_context", "method_audit")) {
             val events = engineNoSync.runTool(
@@ -470,7 +459,6 @@ class CompanionEngineContractTest {
         }
         assertEquals(0, fakeLlm.recordedRequests.size)
 
-        // Case B: syncCoordinator fails with DesktopConnectionRequired
         val disconnectedSync = FakeSyncCoordinator(
             crossHitsResult = Result.failure(AppFailureException(AppFailure.DesktopConnectionRequired("desktop offline"))),
         )
@@ -485,7 +473,6 @@ class CompanionEngineContractTest {
         assertTrue((eventsB.single() as CompanionEvent.Failure).error is AppFailure.DesktopConnectionRequired)
         assertEquals(0, fakeLlm.recordedRequests.size)
 
-        // Case C: connected syncCoordinator returns CrossBookHit -> calls LLM with hits
         val connectedSync = FakeSyncCoordinator(
             crossHitsResult = Result.success(
                 listOf(
@@ -523,7 +510,6 @@ class CompanionEngineContractTest {
         val imported = libraryVault.ingestStudyPack(bcbook.absolutePath).getOrThrow()
         val engine = createEngine()
 
-        // 1. FullBook -> LLM miss -> Done
         fakeLlm.enqueueResponse(
             """{"blueprint":"relation_graph","caption":"全书人物格局","reading_note":"引导","summary":"全书摘要","data":{"nodes":[{"id":"P1","role":"protagonist","label":"主角","blocks":["B01"],"source":"原文"}],"edges":[]}}""",
         )
@@ -533,7 +519,6 @@ class CompanionEngineContractTest {
         assertTrue(runFull.last() is CompanionEvent.Done)
         assertEquals(1, fakeLlm.recordedRequests.size)
 
-        // 2. Exact hit -> CachedHit(isStale = false), 0 extra LLM calls
         val hitFull = engine.runTool(
             CompanionRequest(imported.workId, ToolId("relation_graph"), ToolScope.FullBook),
         ).toList()
@@ -541,7 +526,6 @@ class CompanionEngineContractTest {
         assertFalse(cachedExact.isStale)
         assertEquals(1, fakeLlm.recordedRequests.size)
 
-        // 3. Desktop companion_cache import populates chapter_map, tension_curve, and imagery with 0 LLM calls
         val cacheDir = tempFolder.newFolder("desktop_cache_B0045")
         val ch3ToolsDir = File(cacheDir, "ch_03/chapter_tools").apply { mkdirs() }
         File(cacheDir, "ch_03/chapter_map.json").writeText(
@@ -565,7 +549,6 @@ class CompanionEngineContractTest {
         assertEquals("桌面预置张力", preTension.artifact.caption)
         assertEquals("桌面预置意象", preImagery.artifact.caption)
         assertEquals("第3章知识地图", preMap.artifact.caption)
-        // Still only 1 LLM call across the entire test!
         assertEquals(1, fakeLlm.recordedRequests.size)
     }
 
@@ -574,7 +557,6 @@ class CompanionEngineContractTest {
         val bcbook = build20ChapterSpoilerBook(tempFolder.newFile("B0046.bcbook"), uid = "B0046")
         val imported = libraryVault.ingestStudyPack(bcbook.absolutePath).getOrThrow()
 
-        // 1. Non-vision provider fails fast with 0 LLM calls
         val nonVisionEngine = createEngine(supportsVision = false)
         val noVisEvents = nonVisionEngine.askScannedRegion(
             workId = imported.workId,
@@ -585,7 +567,6 @@ class CompanionEngineContractTest {
         assertTrue((noVisEvents.single() as CompanionEvent.Failure).error is AppFailure.ProviderAuthOrQuota)
         assertEquals(0, fakeLlm.recordedRequests.size)
 
-        // 2. Vision provider sends imagePngBytes and returns MarkdownReadCard
         val visionEngine = createEngine(supportsVision = true)
         fakeLlm.enqueueResponse("图中右上角为几何三角推导 `[原文]`。")
         val png = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47)
@@ -599,7 +580,6 @@ class CompanionEngineContractTest {
         assertTrue(visDone.artifact is AuditedArtifact.MarkdownReadCard)
         assertTrue(fakeLlm.recordedRequests.single().imagePngBytes.contentEquals(png))
 
-        // 3. Multi-turn askFollowUp persists thread context
         fakeLlm.enqueueResponse("第一轮回答：封口是红蜡 `[原文]`。")
         fakeLlm.enqueueResponse("第二轮回答：红蜡说明函件加急 `[原文]`。")
         val ch3 = ToolScope.Chapter(ChapterOrdinal(3))
@@ -637,7 +617,6 @@ class CompanionEngineContractTest {
         assertTrue(fakeLlm.recordedRequests.single().userPrompt.contains("[B01]"))
         assertTrue(fakeLlm.recordedRequests.single().userPrompt.contains("[B02]"))
 
-        // sensitivity_chart fake 0-100 percentage stripping converts to regime_threshold
         fakeLlm.enqueueResponse(
             """
             {
@@ -670,13 +649,11 @@ class CompanionEngineContractTest {
         val imported = libraryVault.ingestStudyPack(bcbook.absolutePath).getOrThrow()
         val engine = createEngine(syncCoordinator = null)
 
-        // Bug 2: in-memory LibraryVault.overrideProfile immediately reflected in recommendedTools
         libraryVault.overrideProfile(imported.workId, ReadProfileId("philosophy"), null)
         val overriddenToolbox = engine.recommendedTools(imported.workId)
         assertEquals(ReadProfileId("philosophy"), overriddenToolbox.profileId)
         assertEquals(null, overriddenToolbox.literatureSubKind)
 
-        // Bug 3a: two different selectedText strings on the exact same BlockId("B02") do not collide in L3 cache
         val ch3 = ChapterOrdinal(3)
         val anchorB02 = libraryVault.resolveAnchor(imported.workId, ch3, BlockId("B02"))
         fakeLlm.enqueueResponse("第一段划词解释 `[原文]`。")
@@ -691,14 +668,11 @@ class CompanionEngineContractTest {
         assertTrue((selA.artifact as AuditedArtifact.MarkdownReadCard).markdown.contains("第一段"))
         assertTrue((selB.artifact as AuditedArtifact.MarkdownReadCard).markdown.contains("第二段"))
 
-        // Bug 3b: SWR stale-hash hit returns CachedHit(isStale = true) when content hash mismatches, and forceRefresh regenerates
         val cacheDirStale = tempFolder.newFolder("stale_hash_cache")
         val ch3StaleTools = File(cacheDirStale, "ch_03/chapter_tools").apply { mkdirs() }
         File(ch3StaleTools, "history_diagram_argument_map.json").writeText(
             """{"action":"diagram","blueprint":"argument_map","source_sha256":"deadbeef","figure":{"blueprint":"argument_map","caption":"旧哈希全章论证","reading_note":"导读","summary":"旧摘要","data":{"nodes":[{"id":"A1","role":"conclusion","label":"结论","blocks":["B01"],"source":"原文"}],"edges":[]}}}""",
         )
-        // Import with a mismatched source hash via a wrapper or direct CompanionDatabase test; here verify offline cross-search + DB migration:
-        // Bug 3c: precomputed cross-book cache hits offline (syncCoordinator == null), while forceRefresh or uncached misses fail with 0 LLM calls
         val offlineCacheDir = tempFolder.newFolder("offline_cross_cache")
         val ch3Tools = File(offlineCacheDir, "ch_03/chapter_tools").apply { mkdirs() }
         File(ch3Tools, "history_compare_context_compare_context.json").writeText(
@@ -723,7 +697,6 @@ class CompanionEngineContractTest {
         assertTrue(offlineUncachedFail.error is AppFailure.DesktopConnectionRequired)
         assertEquals(2, fakeLlm.recordedRequests.size)
 
-        // Bug 3d: multi-turn askFollowUp preserves all turns sequentially
         fakeLlm.enqueueResponse("第一轮阶段回答 `[原文]`。")
         fakeLlm.enqueueResponse("第二轮阶段回答 `[原文]`。")
         fakeLlm.enqueueResponse("第三轮阶段回答 `[原文]`。")
@@ -742,7 +715,6 @@ class CompanionEngineContractTest {
         assertTrue(promptAt3.contains("第二轮提问"))
         assertTrue(promptAt3.contains("第二轮阶段回答"))
 
-        // CompanionDatabase MIGRATION_1_2 safely upgrades v1 schema (with progressGateKey & gateOrdinal) without crashing
         val dbName = "test_companion_mig_v1_v2.db"
         context.deleteDatabase(dbName)
         val migConfig = SupportSQLiteOpenHelper.Configuration.builder(context)
@@ -829,7 +801,6 @@ class CompanionEngineContractTest {
         }
     }
 
-    // ---- Test Helpers ----
 
     private class ScriptedLlmFakeAdapter : LlmProviderPort {
         override val capabilities = ProviderCapabilities(supportsJsonSchema = true, supportsVision = true, contextWindow = 128_000)
@@ -870,7 +841,6 @@ class CompanionEngineContractTest {
         val chapters = mutableListOf<LogicalChapterEntry>()
         val files = linkedMapOf<String, String>()
 
-        // Ch 1 FRONT_BACK
         val ch1Text = "# 序言\n\n扉页与版权说明。"
         files["01_扉页.md"] = ch1Text
         chapters += LogicalChapterEntry(
@@ -884,7 +854,6 @@ class CompanionEngineContractTest {
             chars = ch1Text.length,
         )
 
-        // Ch 2..19 BODY
         for (ord in 2..19) {
             val fileName = "${ord.toString().padStart(2, '0')}_ch.md"
             val text = when (ord) {
@@ -906,7 +875,6 @@ class CompanionEngineContractTest {
             )
         }
 
-        // Ch 20 NOTES
         val ch20Text = "# 全书注释\n\n[^45]: 此处“红蜡封缄”沿用十九世纪港口海关的加急函件规制。\n\n[^102]: SECRET_KILLER_CH14_NOTE_102 真凶身份实为港口副督察。"
         files["20_注释.md"] = ch20Text
         chapters += LogicalChapterEntry(

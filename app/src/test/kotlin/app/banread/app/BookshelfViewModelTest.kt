@@ -28,7 +28,6 @@ class BookshelfViewModelTest {
         val registry = loadTestProfileRegistry()
         val vm = BookshelfViewModel(vault, registry)
 
-        // 7 deduplicated 6+1 profiles
         assertEquals(7, vm.uiState.value.profiles.size)
         assertEquals(7, vm.uiState.value.profiles.map { it.readType }.distinct().size)
 
@@ -39,11 +38,9 @@ class BookshelfViewModelTest {
         )
         assertEquals(3, vm.uiState.value.filteredWorks.size)
 
-        // Filter by profile
         vm.selectProfileFilter(ReadProfileId("history"))
         assertEquals(listOf("w2"), vm.uiState.value.filteredWorks.map { it.workId.raw })
 
-        // Clear filter and search by author
         vm.selectProfileFilter(null)
         vm.updateSearchQuery("康德")
         assertEquals(listOf("w3"), vm.uiState.value.filteredWorks.map { it.workId.raw })
@@ -74,7 +71,6 @@ class BookshelfViewModelTest {
         assertEquals("content://docs/123", ingestedPackUri)
         assertEquals("已导入《伴读测试书》", vm.uiState.value.statusMessage)
 
-        // DRM KFX import failure shows friendly DRM explanation
         vault.importLocalHandler = {
             Result.failure(AppFailureException(AppFailure.UnsupportedDrmOrFormat("Kindle KFX format/DRM is not supported")))
         }
@@ -86,7 +82,6 @@ class BookshelfViewModelTest {
         vm.dismissImportError()
         assertNull(vm.uiState.value.importErrorTitle)
 
-        // Delete work flow
         val target = sampleWorkSummary("w_del", "待删除图书")
         vault.worksFlow.value = listOf(target)
         vm.requestDeleteWork(target)

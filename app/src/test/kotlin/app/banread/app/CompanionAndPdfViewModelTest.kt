@@ -53,13 +53,11 @@ class CompanionAndPdfViewModelTest {
             onJumpedToReader = { jumpedSignalCount++ },
         )
 
-        // Scope choices expose only 选段 / 本章 / 全书 (zero spoiler-lock scope)
         assertEquals(
             listOf(CompanionScopeChoice.SELECTION, CompanionScopeChoice.CHAPTER, CompanionScopeChoice.FULL_BOOK),
             CompanionScopeChoice.entries,
         )
 
-        // Tool strip contains chapter_map + profile blueprints/extensions + 5 universal actions
         val toolIds = vm.uiState.value.tools.map { it.toolId.raw }
         assertTrue("chapter_map" in toolIds)
         assertTrue("diagram" in toolIds)
@@ -69,18 +67,15 @@ class CompanionAndPdfViewModelTest {
         assertTrue("ask" in toolIds)
         assertTrue("compare_context" in toolIds)
 
-        // Switching to FullBook succeeds immediately without any confirmation dialog
         vm.selectScope(CompanionScopeChoice.FULL_BOOK)
         assertEquals(CompanionScopeChoice.FULL_BOOK, vm.uiState.value.scopeChoice)
         assertEquals(ToolScope.FullBook, companion.runToolRequests.last().scope)
 
-        // Offline compare_context consumes 0 LLM tokens and sets DesktopConnectionRequired
         val tokensBefore = companion.llmTokenCalls
         vm.selectTool(ToolId("compare_context"))
         assertEquals(tokensBefore, companion.llmTokenCalls)
         assertTrue(vm.uiState.value.toolFailure is AppFailure.DesktopConnectionRequired)
 
-        // Fullscreen viz event toggles fullscreen mode (first opens, second exits)
         vizHost.hostCallback?.invoke(VizHostEvent.OpenFullscreen)
         assertTrue(vm.uiState.value.isFullscreenVizOpen)
         assertEquals(listOf(true), vizHost.fullscreenHistory)
@@ -89,7 +84,6 @@ class CompanionAndPdfViewModelTest {
         assertFalse(vm.uiState.value.isFullscreenVizOpen)
         assertEquals(listOf(true, false), vizHost.fullscreenHistory)
 
-        // Re-open fullscreen, then verify [data-jump] resolves ReadingAnchor, drops sheet to PEEK, pulses 2000ms, and closes fullscreen
         vizHost.hostCallback?.invoke(VizHostEvent.OpenFullscreen)
         assertTrue(vm.uiState.value.isFullscreenVizOpen)
 
@@ -116,12 +110,10 @@ class CompanionAndPdfViewModelTest {
 
         val vm = PdfReaderViewModel(workId, vault, reader, pdfSurface, companion, prefs)
 
-        // Scanned PDF blocks reflow switch cleanly
         vm.switchToTextReflowMode()
         assertFalse(vm.uiState.value.shouldSwitchToReflowScreen)
         assertNotNull(vm.uiState.value.statusBanner)
 
-        // Crop math maps drag coordinates to normalized [0..1] and pixel bounds cleanly
         val norm = computeNormalizedCropRect(
             startX = 100f,
             startY = 200f,
@@ -133,7 +125,6 @@ class CompanionAndPdfViewModelTest {
         assertNotNull(norm)
         assertEquals(NormalizedRect(0.25f, 0.25f, 0.75f, 0.625f), norm)
 
-        // Tiny accidental tap returns null
         assertNull(computeNormalizedCropRect(10f, 10f, 12f, 12f, 400f, 800f))
 
         val pxBounds = mapNormalizedRectToPixelBounds(norm!!, bitmapWidth = 1000, bitmapHeight = 1600)
@@ -143,7 +134,6 @@ class CompanionAndPdfViewModelTest {
         assertEquals(500, pxBounds.width)
         assertEquals(600, pxBounds.height)
 
-        // Submit cropped PNG bytes to askScannedRegion
         val fakePng = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A)
         vm.onCropRegionPngReady(fakePng)
         assertTrue(vm.uiState.value.showVlmPromptDialog)
@@ -154,7 +144,6 @@ class CompanionAndPdfViewModelTest {
         assertEquals("Thinking...", vm.uiState.value.vlmThinkingText)
         assertTrue(vm.uiState.value.vlmAnswerMarkdown.contains("解析结论"))
 
-        // Missing vision provider surfaces actionable failure
         companion.scannedRegionHandler = { _, _, _, _ ->
             flow {
                 emit(

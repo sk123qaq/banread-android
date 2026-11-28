@@ -46,21 +46,17 @@ class BookDetailAndReaderViewModelTest {
 
         val vm = BookDetailViewModel(workId, vault, reader, registry)
 
-        // frontBackChapters collapsed by default
         assertFalse(vm.uiState.value.frontBackExpanded)
         vm.toggleFrontBackExpanded()
         assertTrue(vm.uiState.value.frontBackExpanded)
 
-        // 2-digit ordinal formatting check
         assertEquals("03", ChapterOrdinal(3).twoDigit())
         assertEquals("10", ChapterOrdinal(10).twoDigit())
 
-        // Override perspective with literature subKind
         vm.selectPerspective(ReadProfileId("literature"), "drama")
         assertEquals(ReadProfileId("literature"), vm.uiState.value.activeProfile?.readType)
         assertEquals("drama", vm.uiState.value.outline?.literatureSubKind)
 
-        // Clicking any TOC chapter (e.g. ch 10) jumps directly with zero confirmation prompt
         val ch10 = ChapterOutlineItem(ChapterOrdinal(10), "第 10 章", ChapterRole.BODY, 15)
         vm.onChapterClicked(ch10)
         assertEquals(ChapterOrdinal(10), reader.activeState.value.currentCursor?.ordinal)
@@ -95,13 +91,11 @@ class BookDetailAndReaderViewModelTest {
 
         val vm = ReflowReaderViewModel(workId, vault, reader, surface, null, prefs)
 
-        // Theme & typography changes propagate without reopening
         vm.applyTheme(ReaderTheme.EINK_HIGH_CONTRAST)
         assertEquals(ReaderTheme.EINK_HIGH_CONTRAST, reader.appliedThemes.last())
         vm.updateTypography(vm.uiState.value.typography.copy(fontSizeSp = 22f, squeezeChinesePunctuation = true))
         assertEquals(22f, reader.appliedTypographies.last().fontSizeSp, 0.01f)
 
-        // Selection highlight saves annotation
         val selAnchor = ReadingAnchor.ReflowCfi(
             ordinal = ChapterOrdinal(2),
             href = "OEBPS/ch_02.xhtml",
@@ -117,7 +111,6 @@ class BookDetailAndReaderViewModelTest {
         assertNull(vm.uiState.value.activeSelection)
         assertEquals("YELLOW", reader.savedAnnotations.last().third.first)
 
-        // Footnote click -> in-place popover -> jump to full note -> return to original reading position
         surface.emitFootnote(FootnoteClickEvent(ChapterOrdinal(2), "#fn-45"))
         assertNotNull(vm.uiState.value.activeFootnote)
         vm.jumpToFullFootnoteNote()
@@ -147,15 +140,12 @@ class BookDetailAndReaderViewModelTest {
         val prefs = InMemoryAppPreferencesStore()
         val vm = ReflowReaderViewModel(workId, vault, reader, surface, null, prefs)
 
-        // Must NOT re-open and reset currentCursor
         assertEquals(1, reader.openCalls)
         assertEquals(ChapterOrdinal(10), vm.uiState.value.sessionState.currentCursor?.ordinal)
 
-        // Explicit reopenSurface() (e.g. after switching from PDF) DOES invoke open()
         vm.reopenSurface()
         assertEquals(2, reader.openCalls)
 
-        // syncPreferencesAndOutline() refreshes preferences/styles without re-opening the session
         prefs.setTheme(ReaderTheme.SLATE_NIGHT)
         vm.syncPreferencesAndOutline()
         assertEquals(2, reader.openCalls)

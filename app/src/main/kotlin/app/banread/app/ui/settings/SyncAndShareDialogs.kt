@@ -374,7 +374,6 @@ internal fun ShareSendDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                // 3-channel segmented switcher matching Demo v5
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -398,7 +397,6 @@ internal fun ShareSendDialog(
                 if (selectedBook == null) {
                     Text("书架暂无可分享书籍，请先导入或从桌面拉取图书。", color = palette.ink2, fontSize = 12.5.sp)
                 } else {
-                    // Book picker with short SHA-256
                     Box(modifier = Modifier.fillMaxWidth()) {
                         val shortSha = selectedBook.bookSourceSha256?.take(8) ?: "00000000"
                         Surface(
@@ -441,7 +439,6 @@ internal fun ShareSendDialog(
                         }
                     }
 
-                    // Companion asset checkboxes
                     ShareCheckRow(
                         checked = state.includeMaps,
                         label = "章节导图与结构蓝图（${manifest?.mapCount ?: 0} 份）",

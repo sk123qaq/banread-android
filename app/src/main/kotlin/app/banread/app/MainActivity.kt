@@ -186,7 +186,6 @@ private fun BanReadAppRoot(
         }
     }
 
-    // Ensure volume-key paging is deactivated on non-reader screens
     DisposableEffect(currentRoute, volumeTurnEnabled) {
         if (currentRoute !is BanReadRoute.ReflowReader && currentRoute !is BanReadRoute.PdfReader) {
             onBindReaderVolumePager(false, volumeTurnEnabled, null, null)

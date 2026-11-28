@@ -11,7 +11,7 @@ internal object XhtmlBookCompiler {
         val author: String,
         val chapters: List<RoleAndSplit.FinalizedChapter>,
         val inlineTargets: Map<RefLookupKey, ResolvedRefTarget>,
-        val images: Map<String, ByteArray>, // relative under images/, e.g. "images/fig1.png" -> bytes
+        val images: Map<String, ByteArray>,
     )
 
     fun compile(compiledRoot: File, input: CompileInput) {

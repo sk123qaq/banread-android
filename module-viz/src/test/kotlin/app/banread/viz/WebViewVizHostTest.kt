@@ -83,36 +83,30 @@ class WebViewVizHostTest {
             ),
         )
 
-        // Queued before host_ready: 0 scripts dispatched yet
         host.renderArtifact(firstArtifact, ReaderTheme.PAPER_LIGHT)
         host.renderArtifact(latestArtifact, ReaderTheme.SEPIA_WARM)
         assertTrue(scripts.isEmpty())
 
-        // host_ready flushes ONLY the latest queued artifact
         host.handleBridgeSignalForTest("""{"type":"host_ready"}""")
         assertEquals(1, scripts.size)
         assertTrue(scripts.single().contains("window.BanReadVizHost.renderArtifact("))
         assertTrue(scripts.single().contains("最新降级清单"))
         assertFalse(scripts.single().contains("旧卡片"))
 
-        // Theme-only update on the SAME artifact uses applyTheme without full re-render
         scripts.clear()
         host.renderArtifact(latestArtifact, ReaderTheme.EINK_HIGH_CONTRAST)
         assertEquals(1, scripts.size)
         assertTrue(scripts.single().contains("window.BanReadVizHost.applyTheme("))
         assertTrue(scripts.single().contains("eink"))
 
-        // Same artifact + same theme is a no-op
         scripts.clear()
         host.renderArtifact(latestArtifact, ReaderTheme.EINK_HIGH_CONTRAST)
         assertTrue(scripts.isEmpty())
 
-        // Fullscreen mode toggle dispatches setViewportMode
         host.setFullscreenMode(true)
         assertEquals(1, scripts.size)
         assertTrue(scripts.single().contains("setViewportMode(\"fullscreen\")"))
 
-        // Bridge events dispatch cleanly to hostCallback
         val webView = recordingPool.currentWebViewOrNull()!!
         val legacyBridge = Shadows.shadowOf(webView).getJavascriptInterface(VizWebViewPool.LEGACY_BRIDGE_NAME)
         val postMsg = legacyBridge.javaClass.getDeclaredMethod("postMessage", String::class.java)
@@ -150,7 +144,6 @@ class WebViewVizHostTest {
 
         assertEquals(VizWebViewPool.HOST_PAGE_URL, Shadows.shadowOf(wv1).lastLoadedUrl)
 
-        // Verify offline WebViewClient serves assets/viz/* and returns 403 for external URLs
         val client = Shadows.shadowOf(wv1).webViewClient
         val allowedReq = fakeRequest("https://appassets.androidplatform.net/viz/mobile_viz_host.html")
         val allowedResp = client.shouldInterceptRequest(wv1, allowedReq)
@@ -167,7 +160,6 @@ class WebViewVizHostTest {
         val fileSchemeResp = client.shouldInterceptRequest(wv1, fakeRequest("file:///etc/passwd"))
         assertEquals(403, fileSchemeResp?.statusCode)
 
-        // Pooling reuses same WebView across attach/detach
         val container = FrameLayout(context)
         container.addView(wv1)
         assertEquals(1, container.childCount)

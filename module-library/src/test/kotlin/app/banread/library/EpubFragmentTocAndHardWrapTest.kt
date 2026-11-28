@@ -97,11 +97,9 @@ class EpubFragmentTocAndHardWrapTest {
         )
         assertEquals(listOf("全书注释"), noteTitles)
 
-        // Never duplicate book-title virtual splits
         val allTitles = (outline.frontBackChapters + outline.bodyChapters + outline.notesChapters).map { it.title }
         assertTrue("Should not emit book-title fallback slice: $allTitles", allTitles.none { it.startsWith("合成长卷样本") })
 
-        // Verify cross-spine continuation from index_split_000 into index_split_001 before #p111
         val bookSlice = v.loadBookInputs(imported.workId)
         val sec2 = bookSlice.chapters.first { it.title == "第二节 转型时期" }
         val sec2Joined = sec2.blocks.joinToString("\n") { it.text }
@@ -110,7 +108,6 @@ class EpubFragmentTocAndHardWrapTest {
             sec2Joined.contains("跨文件延续的下半句也应当完整接回上一节末尾。"),
         )
 
-        // Verify chapter starting on an <a id="p111"/><img .../> retains both image and content
         val ch2 = bookSlice.chapters.first { it.title == "第二章 跨文件章节" }
         val ch2Html = File(filesRoot, "compiled/${imported.workId.raw}/OEBPS/ch_${ch2.ordinal.twoDigit()}.xhtml").readText()
         assertTrue("Expected image preserved in ch2: $ch2Html", ch2Html.contains("images/chart1.png"))
@@ -151,7 +148,6 @@ class EpubFragmentTocAndHardWrapTest {
         val ch1 = slice.chapters.first { it.title == "第一章 物品与生活" }
         val texts = ch1.blocks.map { it.text }
 
-        // 1. Mid-sentence wraps and inline 【...】 note wraps stitch into fluent paragraphs
         assertTrue(
             "Expected stitched sentence around pocket/socks: $texts",
             texts.any {
@@ -165,13 +161,11 @@ class EpubFragmentTocAndHardWrapTest {
             },
         )
 
-        // 2. Short subheading, epigraph attribution, signature, and date remain separate blocks
         assertTrue("Short subheading should stay separate: $texts", "如何整理日常旧物" in texts)
         assertTrue("Epigraph attribution should stay separate: $texts", "——林致远《手艺笔记》" in texts)
         assertTrue("Author signature should stay separate: $texts", "陈默然" in texts)
         assertTrue("Date line should stay separate: $texts", "2024年3月18日于杭州" in texts)
 
-        // 3. Caption and source lines stay separate from body paragraphs
         assertTrue("Caption should stay separate: $texts", "图1-1 改造样本分布" in texts)
         assertTrue("Source line should stay separate: $texts", "资料来源：生活实验研究所" in texts)
     }
@@ -184,7 +178,6 @@ class EpubFragmentTocAndHardWrapTest {
 
         val slice = v.loadBookInputs(imported.workId)
         val ch1 = slice.chapters.single { it.role == ChapterRole.BODY }
-        // Heading + 4 distinct paragraphs (even one short note without period) must remain separate
         assertEquals(
             listOf(
                 "第一章 竞争优势的来源",
@@ -212,7 +205,6 @@ class EpubFragmentTocAndHardWrapTest {
         val compiledDir = File(filesRoot, "compiled/$workId/OEBPS").apply { mkdirs() }
         File(compiledDir, "ch_01.xhtml").writeText("<html><body><p>旧版未切分正文</p></body></html>")
 
-        // Create a v2 SQLite DB (pre-parserVersion) with a stale EPUB entry and a USER_OVERRIDE profile
         val config = SupportSQLiteOpenHelper.Configuration.builder(context)
             .name(dbName)
             .callback(
@@ -298,24 +290,20 @@ class EpubFragmentTocAndHardWrapTest {
             .build()
         FrameworkSQLiteOpenHelperFactory().create(config).writableDatabase.close()
 
-        // Open persistent RoomLibraryVault (triggers MIGRATION_2_3 setting parserVersion=1)
         val upgradedVault = createVault(allowInMemory = false)
         try {
             val wid = WorkId(workId)
             val outline = upgradedVault.getWorkOutline(wid)
-            // Automatically recompiled into real TOC chapters while preserving workId and USER_OVERRIDE profile
             assertEquals("philosophy", outline.readProfileId?.raw)
             assertTrue(outline.bodyChapters.any { it.title == "第一章 物品与生活" })
             assertTrue(outline.bodyChapters.any { it.title == "第二章 日常秩序" })
             assertTrue(outline.frontBackChapters.any { it.title == "版权信息" })
 
-            // Compiled XHTML on disk was refreshed too
             val firstBody = outline.bodyChapters.first()
             val compiledHtml = File(filesRoot, "compiled/$workId/OEBPS/ch_${firstBody.ordinal.twoDigit()}.xhtml").readText()
             assertFalse(compiledHtml.contains("旧版未切分正文"))
             assertTrue(compiledHtml.contains("把旧布条缝在外套袖口当装饰，本身袖口的设计就更像是个点缀"))
 
-            // Re-importing the exact same EPUB keeps the same workId and upgraded state
             val reimported = upgradedVault.importLocalBook(epub.absolutePath).getOrThrow()
             assertEquals(wid, reimported.workId)
             assertEquals("philosophy", reimported.readProfileId.raw)

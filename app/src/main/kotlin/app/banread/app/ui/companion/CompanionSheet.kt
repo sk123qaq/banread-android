@@ -141,7 +141,6 @@ fun CompanionSheetOverlay(
             label = "companion_sheet_height",
         )
 
-        // Subtle dim backdrop only on Half / Full
         if (state.detent == CompanionDetent.HALF || state.detent == CompanionDetent.FULL) {
             Box(
                 modifier = Modifier
@@ -162,7 +161,6 @@ fun CompanionSheetOverlay(
             shadowElevation = if (palette.isEink) 0.dp else 10.dp,
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                // Dedicated drag handle header (panning inside VizTouchWebView NEVER drags sheet)
                 CompanionDragHandleHeader(
                     state = state,
                     onDragStart = {
@@ -190,13 +188,11 @@ fun CompanionSheetOverlay(
                 HorizontalDivider(thickness = palette.borderWidth, color = palette.line)
 
                 if (state.detent != CompanionDetent.PEEK) {
-                    // Scope selector (选段 / 本章 / 全书)
                     CompanionScopeStrip(
                         state = state,
                         onSelectScope = viewModel::selectScope,
                     )
 
-                    // Tool strip populated from recommendedTools + 5 universal + chapter_map
                     CompanionToolStrip(
                         tools = state.tools,
                         activeToolId = state.activeToolId,
@@ -205,7 +201,6 @@ fun CompanionSheetOverlay(
 
                     HorizontalDivider(thickness = palette.borderWidth, color = palette.line)
 
-                    // Scrollable body
                     Column(
                         modifier = Modifier
                             .weight(1f)
@@ -222,7 +217,6 @@ fun CompanionSheetOverlay(
                             onRetryTool = { viewModel.selectTool(state.activeToolId, forceRefresh = true) },
                         )
 
-                        // Multi-turn Q&A thread
                         state.qaMessages.forEach { msg ->
                             QaTurnCard(
                                 message = msg,
@@ -231,12 +225,10 @@ fun CompanionSheetOverlay(
                         }
                     }
 
-                    // Sticky bottom multi-turn Q&A input bar
                     CompanionQaInputBar(
                         onSubmit = viewModel::askFollowUp,
                     )
                 } else {
-                    // PEEK quick status strip
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -322,7 +314,6 @@ private fun CompanionDragHandleHeader(
             }
             .padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
-        // Handle bar pill
         Box(
             modifier = Modifier
                 .align(Alignment.CenterHorizontally)
@@ -555,7 +546,6 @@ private fun CompanionStageBody(
         is AuditedArtifact.StructuredDiagram,
         is AuditedArtifact.FallbackList,
         -> {
-            // Pooled WebViewVizHost container (only attached here when NOT in fullscreen dialog)
             BanReadSurfaceCard(padding = PaddingValues(8.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),

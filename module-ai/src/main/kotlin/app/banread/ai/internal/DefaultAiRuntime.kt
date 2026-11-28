@@ -111,8 +111,6 @@ internal class DefaultAiRuntime(
             val prevCompanionId = defaultCompanionId
             val prevVisionId = defaultVisionId
 
-            // Persist or validate secret vault change BEFORE committing config metadata to disk,
-            // so a vault failure never leaves a metadata record on disk without its secret.
             val alias = secretAlias(config.id)
             val prevSecret = if (existing != null) secretVault.getSecret(alias) else null
             if (!config.requiresApiKey) {
@@ -127,19 +125,16 @@ internal class DefaultAiRuntime(
                 } else if (existing == null) {
                     secretVault.deleteSecret(alias)
                 }
-                // If existing != null and rawApiKey is null/blank, preserve stored Tink secret.
             }
 
             try {
                 configs[config.id] = config
 
-                // Default companion resolution
                 when {
                     config.isDefaultCompanion -> defaultCompanionId = config.id
                     defaultCompanionId == null || defaultCompanionId !in configs -> defaultCompanionId = config.id
                 }
 
-                // Default vision resolution
                 when {
                     config.isDefaultVision -> defaultVisionId = config.id
                     existing != null && defaultVisionId == config.id && !config.capabilities.supportsVision -> {

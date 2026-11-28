@@ -226,7 +226,7 @@ class HttpDesktopGatewayAdapter(
                                 ?: throw AppFailureException(AppFailure.NetworkOrSyncConflict("Empty bundle response"))
                             var totalWritten = effectiveOffset
                             body.byteStream().use { input ->
-                                FileOutputStream(partFile, /* append = */ true).use { out ->
+                                FileOutputStream(partFile, true).use { out ->
                                     val buf = ByteArray(16 * 1024)
                                     while (true) {
                                         val read = input.read(buf)
@@ -247,7 +247,7 @@ class HttpDesktopGatewayAdapter(
                             ?: throw AppFailureException(AppFailure.NetworkOrSyncConflict("Empty bundle response"))
                         var totalWritten = 0L
                         body.byteStream().use { input ->
-                            FileOutputStream(partFile, /* append = */ false).use { out ->
+                            FileOutputStream(partFile, false).use { out ->
                                 val buf = ByteArray(16 * 1024)
                                 while (true) {
                                     val read = input.read(buf)
@@ -286,7 +286,6 @@ class HttpDesktopGatewayAdapter(
             }
         }
 
-        // Full download from byte 0
         val fullReq = Request.Builder()
             .url(url)
             .header("Authorization", "Bearer $token")
@@ -308,7 +307,7 @@ class HttpDesktopGatewayAdapter(
                         ?: throw AppFailureException(AppFailure.NetworkOrSyncConflict("Empty bundle response"))
                     var totalWritten = 0L
                     body.byteStream().use { input ->
-                        FileOutputStream(partFile, /* append = */ false).use { out ->
+                        FileOutputStream(partFile, false).use { out ->
                             val buf = ByteArray(16 * 1024)
                             while (true) {
                                 val read = input.read(buf)

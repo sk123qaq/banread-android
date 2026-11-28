@@ -90,7 +90,6 @@ class SettingsViewModelTest {
             ),
         )
 
-        // Pre-populate 2 providers (second supports vision)
         runtime.saveProviderConfig(
             ProviderConfig(
                 id = "p1",
@@ -109,12 +108,10 @@ class SettingsViewModelTest {
         val vm = SettingsViewModel(runtime, null, InMemoryAppPreferencesStore())
         assertEquals(1, vm.uiState.value.providers.size)
 
-        // Check non-duplicated title formatting
         val (badge, title) = SettingsViewModel.formatProviderCardTitle(vm.uiState.value.providers.first())
-        assertEquals(null, badge) // DisplayName already starts with "DeepSeek"
+        assertEquals(null, badge)
         assertEquals("DeepSeek Reasoner", title)
 
-        // Open Add dialog -> fetch available models -> auth failure -> retry success -> select & save
         vm.openAddByokDialog()
         vm.applyPreset("openai")
         vm.updateEditorApiKey("sk-openai-9999")
@@ -134,7 +131,6 @@ class SettingsViewModelTest {
 
         assertEquals(2, vm.uiState.value.providers.size)
 
-        // Edit p1 leaving API key blank -> Tink/InMemory secret must be preserved!
         val p1 = vm.uiState.value.providers.first { it.id == "p1" }
         vm.openEditByokDialog(p1)
         assertEquals("", vm.uiState.value.editor.apiKeyInput)
@@ -146,7 +142,6 @@ class SettingsViewModelTest {
         assertEquals("sk-s••••1234", updatedP1.maskedApiKey)
         assertEquals(ThinkingLevel.LOW, updatedP1.thinkingLevel)
 
-        // Right-swipe delete p1 -> auto-promotes remaining provider to defaultCompanion -> Undo restores p1
         vm.deleteProvider("p1")
         assertEquals(1, vm.uiState.value.providers.size)
         assertTrue(vm.uiState.value.providers.first().isDefaultCompanion)

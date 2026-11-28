@@ -373,7 +373,6 @@ internal class FakeCompanionEngine(
     override fun runTool(request: CompanionRequest): Flow<CompanionEvent> = flow {
         runToolRequests += request
         if (profileRegistry.isCrossSearchTool(request.tool)) {
-            // Strict 0 LLM tokens consumed when desktop gateway is offline
             emit(CompanionEvent.Failure(AppFailure.DesktopConnectionRequired(request.tool.raw)))
             return@flow
         }

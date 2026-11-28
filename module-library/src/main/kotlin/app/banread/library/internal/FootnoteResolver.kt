@@ -24,7 +24,6 @@ internal data class ResolvedRefTarget(
 
 internal data class FootnoteResolutionResult(
     val entities: List<FootnoteEntity>,
-    // Key: (sourceChapterOrdinal, sourceBlockId, markerKey, occurrenceIdxInBlock) -> resolved target
     val inlineTargetByRefKey: Map<RefLookupKey, ResolvedRefTarget>,
 )
 
@@ -220,20 +219,16 @@ internal object FootnoteResolver {
         val targetFile = ref.targetFile.lowercase()
         val fragment = ref.targetFragment
 
-        // 1) Explicit target file + HTML fragment id
         if (targetFile.isNotEmpty() && fragment.isNotEmpty()) {
             defsByFileAndFragment[targetFile to fragment]?.let { return it }
         }
-        // 2) Same-chapter HTML fragment id
         if (targetFile.isEmpty() && fragment.isNotEmpty()) {
             for (fname in sourceFileNames) {
                 defsByFileAndFragment[fname to fragment]?.let { return it }
             }
         }
-        // 3) Intra-chapter definition by marker key
         defsByChapterAndKey[sourceOrdinal to ref.markerKey]?.firstOrNull()?.let { return it }
 
-        // 4) Explicit target file + marker key
         if (targetFile.isNotEmpty()) {
             val candidates = defsByFileAndKey[targetFile to ref.markerKey]
             if (!candidates.isNullOrEmpty()) {
@@ -241,13 +236,11 @@ internal object FootnoteResolver {
             }
         }
 
-        // 5) Cross-chapter NOTES chapter definition by marker key
         val notesCandidates = notesChapterDefsByKey[ref.markerKey]
         if (!notesCandidates.isNullOrEmpty()) {
             return pickBestCandidate(notesCandidates, sourceTitle)
         }
 
-        // 6) Fallback: any other chapter's footnote block with matching marker key (excluding source if empty)
         val anyCandidates = allDefsByKey[ref.markerKey]
         if (!anyCandidates.isNullOrEmpty()) {
             return pickBestCandidate(anyCandidates, sourceTitle)

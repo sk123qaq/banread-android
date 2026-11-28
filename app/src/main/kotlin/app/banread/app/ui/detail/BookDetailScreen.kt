@@ -136,7 +136,6 @@ fun BookDetailScreen(
                 contentPadding = PaddingValues(12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                // Header card with 2:3 cover + metadata + 6+1 perspective badge
                 item(key = "hero") {
                     BanReadSurfaceCard(padding = PaddingValues(12.dp)) {
                         Row(
@@ -209,7 +208,6 @@ fun BookDetailScreen(
                     }
                 }
 
-                // Body chapters
                 items(outline.bodyChapters, key = { "body_${it.ordinal.value}" }) { chapter ->
                     ChapterOutlineRow(
                         item = chapter,
@@ -218,7 +216,6 @@ fun BookDetailScreen(
                     )
                 }
 
-                // Notes chapters section if present
                 if (outline.notesChapters.isNotEmpty()) {
                     item(key = "notes_header") {
                         Text(
@@ -239,7 +236,6 @@ fun BookDetailScreen(
                     }
                 }
 
-                // Collapsed frontBackChapters capsule
                 if (outline.frontBackChapters.isNotEmpty()) {
                     item(key = "front_back_capsule") {
                         FrontBackCollapsibleSection(

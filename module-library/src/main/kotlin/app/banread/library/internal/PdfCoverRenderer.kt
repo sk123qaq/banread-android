@@ -9,9 +9,6 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import kotlin.math.roundToInt
 
-/**
- * Internal PDF page-0 cover renderer seam inside `:module-library` (zero `:module-reader` dependency).
- */
 internal fun interface PdfCoverRenderer {
     suspend fun renderPageZeroPng(pdfFile: File, maxWidthPx: Int): ByteArray?
 }

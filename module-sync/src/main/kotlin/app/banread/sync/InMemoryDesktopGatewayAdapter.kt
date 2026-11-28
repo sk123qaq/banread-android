@@ -15,9 +15,6 @@ import java.io.FileOutputStream
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 
-/**
- * In-memory deterministic [DesktopBridgePort] adapter for contract tests and multi-device sync simulations.
- */
 class InMemoryDesktopGatewayAdapter(
     var expectedToken: String = "test-desktop-token",
     var isOnline: Boolean = true,

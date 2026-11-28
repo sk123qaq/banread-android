@@ -14,7 +14,7 @@ import java.net.URI
  * - Rejects `.bcbook`, EPUB, PDF, media, companion caches, path traversal, and payloads > 2 MiB.
  */
 internal object ShardRedLineGuard {
-    const val MAX_SHARD_BYTES: Int = 2 * 1024 * 1024 // 2 MiB
+    const val MAX_SHARD_BYTES: Int = 2 * 1024 * 1024
 
     private val UID_REGEX = Regex("^[A-Za-z0-9_-]{1,128}$")
     private val DEVICE_ID_REGEX = Regex("^[A-Za-z0-9_.-]{1,128}$")

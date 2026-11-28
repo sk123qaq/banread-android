@@ -157,7 +157,6 @@ internal class RoomLibraryVault private constructor(
                 ),
             )
 
-            // Inherit companion_cache/ if present
             val unpackedCacheDir = File(unpackDir, "companion_cache")
             if (unpackedCacheDir.isDirectory) {
                 val destCacheDir = File(filesRoot, "study_packs/${manifest.uid.raw}/companion_cache")
@@ -242,7 +241,6 @@ internal class RoomLibraryVault private constructor(
             copySourceToFile(sourceUri, tempFile)
             val sourceHash = BookSourceHash(TextSanitizer.sha256Hex(tempFile))
 
-            // Deduplicate by BookSourceHash, upgrading stale EPUB compilations in place
             dao.findWorkBySourceHash(sourceHash.sha256Hex)?.let { existing ->
                 val upgraded = ensureEpubUpToDate(existing, fallbackSourceFile = tempFile)
                 return@withContext Result.success(upgraded.toImportedWork())
@@ -424,7 +422,6 @@ internal class RoomLibraryVault private constructor(
         if (work.isScannedPdf) {
             throw AppFailureException(AppFailure.ScannedPdfNeedsOcr(workId))
         }
-        // Full PDFium text + image reflow arrives in Slice 8; emit deterministic completion status.
         emit(
             ReflowPrepProgress(
                 workId = workId,
@@ -552,7 +549,6 @@ internal class RoomLibraryVault private constructor(
         val (_, normalizedKey) = MarkdownBlockParser.normalizeMarker(cleanedMarkerInput)
 
         val matched: FootnoteEntity = when {
-            // 1) Target href with BlockId fragment (e.g. "ch_20.xhtml#B45" or "#B45")
             fragmentPart.matches(Regex("""^B\d+$""")) -> {
                 val targetOrd = targetChapterFromHref ?: currentOrdinal.value
                 allFootnotes.firstOrNull {
@@ -563,7 +559,6 @@ internal class RoomLibraryVault private constructor(
                     it.targetChapterOrdinal == targetOrd && it.targetBlockId == fragmentPart
                 }
             }
-            // 2) Original HTML fragment lookup (e.g. "notes.xhtml#fn_after_merge") with marker fallback
             fragmentPart.isNotEmpty() -> {
                 findByOriginalHtmlFragment(
                     workId = workId.raw,
@@ -574,7 +569,6 @@ internal class RoomLibraryVault private constructor(
                     allFootnotes = allFootnotes,
                 ) ?: findByNormalizedMarker(currentOrdinal.value, normalizedKey, allFootnotes)
             }
-            // 3) Marker lookup preferring sourceChapterOrdinal == currentOrdinal
             normalizedKey.isNotEmpty() -> {
                 findByNormalizedMarker(currentOrdinal.value, normalizedKey, allFootnotes)
             }

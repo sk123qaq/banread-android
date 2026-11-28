@@ -43,13 +43,6 @@ import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
-/**
- * Deep-module coordinator for `:module-sync`:
- * - Desktop `--mobile-bind` gateway pairing, catalog, outbox pull (resumable + verified ACK), and cross-book search.
- * - Single-writer per-device shard sync (`progress/<uid>/<deviceId>.json`, `notes/<uid>/<deviceId>.jsonl`).
- * - Tombstone-preserving note merge, non-intrusive [RemoteCursorBanner],
- *   and WorkManager offline retry queue.
- */
 class DefaultSyncCoordinator internal constructor(
     private val filesRoot: File,
     private val libraryVault: LibraryVault,
@@ -197,19 +190,16 @@ class DefaultSyncCoordinator internal constructor(
 
                 val imported = libraryVault.ingestStudyPack(finalFile.absolutePath).getOrThrow()
 
-                // Inherit desktop companion_cache if present in study pack unpack output
                 val cacheDir = File(filesRoot, "study_packs/${imported.workId.raw}/companion_cache")
                 val comp = companionEngineProvider()
                 if (cacheDir.isDirectory && comp != null) {
                     comp.importDesktopPrecomputedCache(imported.workId, cacheDir.absolutePath)
                 }
 
-                // Preserve cursor and annotations if a local EPUB/MOBI was superseded
                 imported.supersededWorkId?.let { oldWorkId ->
                     readerEngine.migrateWorkState(oldWorkId, imported.workId)
                 }
 
-                // ACK ONLY after verified local ingestion succeeds
                 if (matchingTickets.isNotEmpty()) {
                     desktopBridge.ackOutbox(token, baseUrl, matchingTickets.map { it.ticketId })
                 }
@@ -237,7 +227,6 @@ class DefaultSyncCoordinator internal constructor(
             val localProgress = readerEngine.snapshotProgress(workId)
             val localNotes = readerEngine.listNoteLogEntries(workId, includeDeleted = true)
 
-            // If no remote transport is configured at all, return clean local snapshot
             if (cloudPort == null && pairedDesktop == null) {
                 return@runCatching SyncMergeOutcome(
                     workId = workId,
@@ -246,7 +235,6 @@ class DefaultSyncCoordinator internal constructor(
                 )
             }
 
-            // 1. Push ONLY this device's shards (single-writer ownership)
             if (cloudPort != null) {
                 if (localProgress != null) {
                     val shardPath = "progress/${workId.raw}/${localDevice.raw}.json"
@@ -268,13 +256,11 @@ class DefaultSyncCoordinator internal constructor(
                     desktopBridge.pushProgressShard(pairedDesktop.second, pairedDesktop.first, localProgress)
                 }.onFailure { err ->
                     if (cloudPort == null) throw err
-                    // Desktop might be asleep while cloud shard succeeded; queue desktop retry silently
                     pendingQueue.enqueueReconcile(workId)
                     workScheduler.schedulePendingFlush()
                 }
             }
 
-            // 2. Pull all device progress shards
             val allRemoteProgress = mutableListOf<DeviceProgressShard>()
             if (cloudPort != null) {
                 val keys = cloudPort.listShards("progress/${workId.raw}/")
@@ -295,7 +281,6 @@ class DefaultSyncCoordinator internal constructor(
                 }
             }
 
-            // 3. Pull & merge NoteLogEntry union by noteId (latest updatedAt wins, preserving deletedAt tombstones)
             val pulledNotes = mutableListOf<NoteLogEntry>()
             if (cloudPort != null) {
                 val noteKeys = cloudPort.listShards("notes/${workId.raw}/")
@@ -313,7 +298,6 @@ class DefaultSyncCoordinator internal constructor(
             }
             val mergedNoteCount = readerEngine.mergeRemoteAnnotations(workId, pulledNotes)
 
-            // 5. Non-intrusive RemoteCursorBanner ONLY when another device has a strictly newer cursor at a different location
             val newestOther = allRemoteProgress
                 .filter { it.deviceId != localDevice }
                 .maxByOrNull { it.updatedAtEpochMs }
@@ -423,10 +407,6 @@ class DefaultSyncCoordinator internal constructor(
         workScheduler.schedulePendingFlush()
     }
 
-    /**
-     * Drains the persistent offline queue sequentially. Returns `true` if all queued operations
-     * succeeded (or queue is empty), `false` if any item failed and remains queued for retry.
-     */
     suspend fun flushPendingQueue(): Boolean {
         val snapshot = pendingQueue.list()
         if (snapshot.isEmpty()) return true

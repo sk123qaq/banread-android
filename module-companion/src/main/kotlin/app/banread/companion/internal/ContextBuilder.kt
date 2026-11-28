@@ -19,7 +19,7 @@ internal data class BuiltCompanionContext(
     val workTitle: String,
     val chapterTitle: String,
     val chapterContentSha256: String,
-    val scopeKind: String, // "selection" | "chapter" | "full_book"
+    val scopeKind: String,
     val selectedText: String,
     val contextText: String,
     val blockIds: List<BlockId>,
@@ -360,7 +360,6 @@ internal class ContextBuilder(
 
         if (bodyChars <= budget) {
             val lines = mutableListOf<String>()
-            // Collapse consecutive short lines (avg_len < 25) while preserving [Bxx-Byy] ranges
             var pos = 0
             while (pos < bodySemantic.size) {
                 val cur = bodySemantic[pos]
@@ -394,7 +393,6 @@ internal class ContextBuilder(
         val parts = mutableListOf<String>()
         var usedChars = 0
 
-        // Headings outline <= 1500 chars
         val headings = bodySemantic.filter { it.isHeading }
         if (headings.isNotEmpty()) {
             parts += "【全章小标题脉络】"
@@ -414,7 +412,6 @@ internal class ContextBuilder(
         fun windowChars(indices: Set<Int>): Int =
             indices.sumOf { minOf(4000, bodySemantic[it].text.length) + 8 }
 
-        // 1) Head window (at least 3 blocks, max 2200 chars)
         var openChars = 0
         var openEnd = 0
         for (idx in 0 until minOf(totalLen, openMax)) {
@@ -425,7 +422,6 @@ internal class ContextBuilder(
             openEnd = idx + 1
         }
 
-        // 2) Tail window (at least 3 blocks, max 2200 chars)
         val closeIndices = mutableListOf<Int>()
         var closeChars = 0
         var idx = totalLen - 1
@@ -439,7 +435,6 @@ internal class ContextBuilder(
         pickedIdx.addAll(closeIndices)
         val closeStart = closeIndices.minOrNull() ?: totalLen
 
-        // 3) Mid windows (up to 10)
         val reservedChars = usedChars + windowChars(pickedIdx) + if (footnotes.isNotEmpty()) fnBudget else 0
         val midBudget = maxOf(4000, budget - reservedChars)
         if (closeStart > openEnd) {

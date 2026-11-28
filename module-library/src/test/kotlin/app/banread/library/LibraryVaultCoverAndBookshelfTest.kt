@@ -113,8 +113,8 @@ class LibraryVaultCoverAndBookshelfTest {
 
         assertNull(ImageHeaderInspector.inspect(byteArrayOf()))
         assertNull(ImageHeaderInspector.inspect("not an image".toByteArray()))
-        assertNull(ImageHeaderInspector.inspect(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47))) // truncated PNG
-        assertNull(ImageHeaderInspector.inspect(byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xD9.toByte()))) // empty JPEG
+        assertNull(ImageHeaderInspector.inspect(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47)))
+        assertNull(ImageHeaderInspector.inspect(byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xD9.toByte())))
     }
 
     @Test
@@ -232,7 +232,6 @@ class LibraryVaultCoverAndBookshelfTest {
         assertNotNull(coverFile)
         assertTrue(coverFile!!.readBytes().contentEquals(coverPng))
 
-        // Percent-encoded root escape (../../../outside_secret.png) from OEBPS/Text must still fail safely
         val escapeEpub = buildNestedOpfEpub(
             dest = tempFolder.newFile("nested_escape_cover.epub"),
             opfZipPath = "OEBPS/Text/content.opf",
@@ -353,7 +352,6 @@ class LibraryVaultCoverAndBookshelfTest {
     fun `LibraryDatabase MIGRATION_1_2 upgrades existing v1 database without crashing`() {
         val dbName = "test_mig_v1_v2.db"
         context.deleteDatabase(dbName)
-        // Create a real v1 schema SQLite file directly
         val config = SupportSQLiteOpenHelper.Configuration.builder(context)
             .name(dbName)
             .callback(

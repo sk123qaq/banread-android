@@ -4,10 +4,6 @@ import app.banread.model.StateSyncPort
 import app.banread.sync.internal.ShardRedLineGuard
 import java.util.concurrent.ConcurrentHashMap
 
-/**
- * In-memory deterministic [StateSyncPort] adapter enforcing the exact [ShardRedLineGuard]
- * allowlist (`progress/`, `notes/`) and 2 MiB size ceiling for multi-device sync tests.
- */
 class InMemoryStateSyncAdapter : StateSyncPort {
 
     private val objects = ConcurrentHashMap<String, ByteArray>()

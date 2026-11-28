@@ -266,7 +266,7 @@ internal object RoleAndSplit {
         val chars: Int,
         val blocks: List<ParsedBlock>,
         val virtualSplitParentOrdinal: Int?,
-        val oldToNewBlockMap: Map<String, Pair<Int, String>>, // oldBlockId -> (newOrdinal, newBlockId)
+        val oldToNewBlockMap: Map<String, Pair<Int, String>>,
     )
 
     fun applyVirtualSplits(inputs: List<LogicalChapterInput>): List<FinalizedChapter> {
@@ -387,7 +387,6 @@ internal object RoleAndSplit {
             slices += cur
         }
 
-        // Rebalance trailing slice so all virtual slices stay within 8,000–18,000 chars when possible.
         if (slices.size >= 2) {
             val last = slices.last()
             val prev = slices[slices.size - 2]
@@ -436,7 +435,7 @@ internal object RoleAndSplit {
         var charCursor = 0
         return blocks.mapIndexed { idx, blk ->
             val newId = "B${(idx + 1).toString().padStart(2, '0')}"
-            BlockId(newId) // validate invariant
+            BlockId(newId)
             onRename?.invoke(blk.id, newId)
             val len = blk.cleanText.length
             val start = charCursor

@@ -28,14 +28,14 @@ internal data class WorkEntity(
     val subjectsJson: String,
     val readProfileId: String,
     val literatureSubKind: String?,
-    val profileSource: String, // AUTO | DESKTOP | USER_OVERRIDE
+    val profileSource: String,
     val clothColor: String,
     val coverRel: String?,
     val coverWidth: Int? = null,
     val coverHeight: Int? = null,
     val originalFilePath: String,
     val compiledRootPath: String,
-    val format: String, // EPUB | MOBI | AZW3 | PDF | BCBOOK
+    val format: String,
     val supportedModesJson: String,
     val isScannedPdf: Boolean,
     val blockVersion: Int,
@@ -53,7 +53,7 @@ internal data class ChapterEntity(
     val ordinal: Int,
     val n: String,
     val title: String,
-    val chapterRole: String, // BODY | NOTES | FRONT_BACK
+    val chapterRole: String,
     val merged: Boolean,
     val sourceFilesJson: String,
     val chapterContentSha256: String,

@@ -16,9 +16,6 @@ import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 
-/**
- * Thread-safe in-memory secret vault for JVM and Robolectric tests.
- */
 class InMemorySecretVaultAdapter : SecretVaultPort {
     private val secrets = ConcurrentHashMap<String, String>()
 

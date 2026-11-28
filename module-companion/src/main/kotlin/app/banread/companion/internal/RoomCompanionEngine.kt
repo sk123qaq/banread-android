@@ -74,7 +74,6 @@ internal class RoomCompanionEngine(
         val (profileId, subKind) = resolveWorkProfile(request.workId)
         val effectiveToolId = resolveEffectiveToolId(request.tool, profileId)
 
-        // 1. Build context via LibraryVault
         val ctx = when (val outcome = contextBuilder.build(request.workId, request.scope)) {
             is ContextBuildOutcome.Unavailable -> {
                 emit(CompanionEvent.Failure(AppFailure.CapacityPreflightBlocked(0L, outcome.reason)))
@@ -85,7 +84,6 @@ internal class RoomCompanionEngine(
 
         val scopeKey = scopeKeyFor(request.scope)
 
-        // 2. Room L3 Cache Lookup & SWR (allows offline hits for precomputed cross-book results)
         if (!request.forceRefresh) {
             val exact = dao.getExactResult(
                 workId = request.workId.raw,
@@ -108,7 +106,6 @@ internal class RoomCompanionEngine(
             }
         }
 
-        // 3. Strict 0-Token Cross-Book Guard when cache misses or forceRefresh = true
         val crossBookHits: List<CrossBookHit> = if (profileRegistry.isCrossSearchTool(request.tool)) {
             val coord = syncCoordinator
             if (coord == null) {
@@ -137,7 +134,6 @@ internal class RoomCompanionEngine(
             emptyList()
         }
 
-        // 4. Build prompt and stream from AiRuntime
         val builtPrompt = PromptCatalog.buildPrompt(
             toolId = ToolId(effectiveToolId),
             readProfileId = profileId,
