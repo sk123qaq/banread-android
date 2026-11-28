@@ -101,10 +101,15 @@ fun ReflowReaderScreen(
         selectedText: String,
         toolId: ToolId?,
     ) -> Unit,
+    onReaderChapterChanged: (app.banread.model.ChapterOrdinal) -> Unit = {},
     companionOverlay: @Composable () -> Unit,
 ) {
     val state by viewModel.uiState.collectAsState()
     val palette = BanReadTheme.palette
+    val activeOrdinal = state.sessionState.currentCursor?.ordinal
+    LaunchedEffect(activeOrdinal) {
+        if (activeOrdinal != null) onReaderChapterChanged(activeOrdinal)
+    }
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
 

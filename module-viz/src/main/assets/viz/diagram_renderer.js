@@ -5261,6 +5261,71 @@
     );
   }
 
+  const CHAPTER_MAP_KIND_LABELS = {
+    claim: '主张',
+    evidence: '证据',
+    case: '案例',
+    concept: '概念',
+    event: '事件',
+    person: '人物',
+    institution: '制度',
+    consequence: '后果',
+  };
+
+  function renderChapterMapNodeHtml(node) {
+    if (!node || typeof node !== 'object') return '';
+    const kind = CHAPTER_MAP_KIND_LABELS[String(node.kind || '').toLowerCase()] || '要点';
+    const badge = node.importance === 'core' ? '核心 · ' + kind : kind;
+    return (
+      '<div class="ext-item">' +
+      '<div class="ext-item-head"><div class="ext-item-title-wrap">' +
+      '<span class="ext-role-badge">' + esc(badge) + '</span>' +
+      '</div>' + renderSrcTag(node.source) + '</div>' +
+      (node.summary ? '<div class="ext-sub">' + esc(node.summary) + '</div>' : '') +
+      '<div class="ext-item-foot">' + renderAnchorPills(node.blocks, 3) + '</div>' +
+      '</div>'
+    );
+  }
+
+  function renderChapterMapHtml(payload) {
+    const data = (payload && payload.data) || payload || {};
+    const sections = Array.isArray(data.sections) ? data.sections : [];
+    const terms = Array.isArray(data.terms) ? data.terms : [];
+    const sectionHtml = sections
+      .map((sec) => {
+        const nodes = Array.isArray(sec && sec.nodes) ? sec.nodes : [];
+        return (
+          '<div class="ext-section" data-section-id="' + esc((sec && sec.id) || '') + '">' +
+          (sec && sec.title ? '<h5 class="ext-sec-title">' + esc(sec.title) + '</h5>' : '') +
+          (sec && sec.summary ? '<div class="ext-sub">' + esc(sec.summary) + '</div>' : '') +
+          '<div class="ext-list">' + nodes.map(renderChapterMapNodeHtml).join('') + '</div>' +
+          '</div>'
+        );
+      })
+      .join('');
+    const termHtml = terms.length
+      ? '<div class="ext-section" data-section-id="terms">' +
+        '<h5 class="ext-sec-title">关键概念</h5>' +
+        '<div class="ext-list">' +
+        terms
+          .map((term) =>
+            renderExtensionItemHtml(
+              {
+                name: term && term.term,
+                body: term && term.definition,
+                blocks: term && term.blocks,
+                source: term && term.source,
+              },
+              3
+            )
+          )
+          .join('') +
+        '</div></div>'
+      : '';
+    if (!sectionHtml && !termHtml) return '';
+    return '<div class="ext-sections">' + sectionHtml + termHtml + '</div>';
+  }
+
   function renderBlueprintBody(payload, options) {
     if (!payload || typeof payload !== 'object') return '';
     const bp = payload.blueprint || 'flow_swimlane';
@@ -5283,6 +5348,7 @@
       return renderSpatialMapHtml(payload, options);
     }
     if (bp === 'extension_glossary') return renderConceptGlossaryHtml(payload, options);
+    if (bp === 'chapter_map') return renderChapterMapHtml(payload, options);
     if (payload.variant === 'actor_incentives') return renderActorCardsHtml(payload, options);
     if (bp === 'extension_dossier' || bp === 'extension_checklist' || bp === 'fallback_list') {
       const hasActorFields = (payload.items || []).some((it) => it && (it.incentive || it.constraint || it.strategy));

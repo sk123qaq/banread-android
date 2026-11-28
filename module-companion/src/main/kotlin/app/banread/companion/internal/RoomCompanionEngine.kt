@@ -28,6 +28,8 @@ import app.banread.model.registry.ProfileRegistry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import java.io.Closeable
@@ -46,6 +48,7 @@ internal class RoomCompanionEngine(
 ) : CompanionEngine, Closeable {
 
     private val dao = db.companionDao()
+    private val qaAppendMutex = Mutex()
     private val contextBuilder = ContextBuilder(libraryVault, dao)
     private val cacheImporter = DesktopCacheImporter(libraryVault, dao)
     private val json = Json {
@@ -188,7 +191,7 @@ internal class RoomCompanionEngine(
             )
         } else {
             AuditedArtifact.MarkdownReadCard(
-                caption = "${ctx.chapterTitle} · ${builtPrompt.effectiveAction}",
+                caption = "${ctx.chapterTitle} · ${toolLabel(profileId, builtPrompt.effectiveAction)}",
                 readingNote = "可对照原文段落核验",
                 summary = rawResponse.lineSequence().firstOrNull { it.isNotBlank() }.orEmpty().take(140),
                 auditLog = listOf("Markdown伴读回答生成完成。"),
@@ -284,31 +287,33 @@ internal class RoomCompanionEngine(
         }
 
         val answer = completedText.orEmpty()
-        val nextTurn = (allTurns.maxOfOrNull { it.turnIndex } ?: -1) + 1
         val scopeKey = scopeKeyFor(scope)
         val now = System.currentTimeMillis()
-        dao.insertQaTurn(
-            QaThreadEntity(
-                threadId = effectiveThreadId,
-                workId = workId.raw,
-                scopeKey = scopeKey,
-                turnIndex = nextTurn,
-                role = "user",
-                content = question,
-                createdAtMs = now,
-            ),
-        )
-        dao.insertQaTurn(
-            QaThreadEntity(
-                threadId = effectiveThreadId,
-                workId = workId.raw,
-                scopeKey = scopeKey,
-                turnIndex = nextTurn + 1,
-                role = "assistant",
-                content = answer,
-                createdAtMs = now + 1L,
-            ),
-        )
+        qaAppendMutex.withLock {
+            val nextTurn = (dao.getQaTurns(workId.raw, effectiveThreadId).maxOfOrNull { it.turnIndex } ?: -1) + 1
+            dao.insertQaTurn(
+                QaThreadEntity(
+                    threadId = effectiveThreadId,
+                    workId = workId.raw,
+                    scopeKey = scopeKey,
+                    turnIndex = nextTurn,
+                    role = "user",
+                    content = question,
+                    createdAtMs = now,
+                ),
+            )
+            dao.insertQaTurn(
+                QaThreadEntity(
+                    threadId = effectiveThreadId,
+                    workId = workId.raw,
+                    scopeKey = scopeKey,
+                    turnIndex = nextTurn + 1,
+                    role = "assistant",
+                    content = answer,
+                    createdAtMs = now + 1L,
+                ),
+            )
+        }
 
         emit(
             CompanionEvent.Done(
@@ -532,6 +537,21 @@ internal class RoomCompanionEngine(
     private suspend fun resolveWorkProfile(workId: WorkId): Pair<ReadProfileId, String?> {
         val outline = libraryVault.getWorkOutline(workId)
         return (outline.readProfileId ?: profileRegistry.defaultReadType) to outline.literatureSubKind
+    }
+
+    private fun toolLabel(profileId: ReadProfileId, action: String): String {
+        val profile = profileRegistry.profileById(profileId)
+        profile.blueprints.firstOrNull { it.blueprint == action }?.let { return it.label }
+        profile.extensions.firstOrNull { it.action == action }?.let { return it.label }
+        return when (action) {
+            "chapter_map" -> "章节导图"
+            "diagram" -> "一键图解"
+            "explain" -> "白话解释"
+            "translate" -> "对读翻译"
+            "critique" -> "细读审视"
+            "ask" -> "自由问答"
+            else -> action
+        }
     }
 
     private fun resolveEffectiveToolId(tool: ToolId, profileId: ReadProfileId): String {

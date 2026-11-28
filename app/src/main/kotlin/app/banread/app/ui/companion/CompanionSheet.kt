@@ -448,6 +448,15 @@ private fun CompanionStageBody(
     onRetryTool: () -> Unit,
 ) {
     val palette = BanReadTheme.palette
+    val vizDensity = LocalDensity.current
+    val vizViewportHeight = remember(state.vizContentHeightPx) {
+        val reported = state.vizContentHeightPx
+        if (reported <= 0) {
+            280.dp
+        } else {
+            with(vizDensity) { reported.toDp() }.coerceAtLeast(200.dp)
+        }
+    }
 
     if (state.streamingThinking.isNotBlank()) {
         ThinkingCollapsibleCard(thinkingText = state.streamingThinking)
@@ -584,7 +593,7 @@ private fun CompanionStageBody(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(260.dp)
+                            .height(vizViewportHeight)
                             .clip(RoundedCornerShape(8.dp))
                             .border(1.dp, palette.line, RoundedCornerShape(8.dp)),
                     ) {

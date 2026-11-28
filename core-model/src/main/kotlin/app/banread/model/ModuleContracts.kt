@@ -372,6 +372,7 @@ interface VizHost {
 sealed interface VizHostEvent {
     data class JumpToBlock(val blockId: BlockId) : VizHostEvent
     data object OpenFullscreen : VizHostEvent
+    data class Rendered(val widthPx: Int, val heightPx: Int) : VizHostEvent
     data class Error(val message: String) : VizHostEvent
 }
 

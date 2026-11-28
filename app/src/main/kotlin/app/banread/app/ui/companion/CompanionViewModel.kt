@@ -22,7 +22,6 @@ import app.banread.model.VizHostEvent
 import app.banread.model.WorkId
 import app.banread.model.registry.ProfileRegistry
 import app.banread.model.registry.ReadProfile
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -72,6 +71,7 @@ data class CompanionUiState(
     val tools: List<CompanionToolItem> = emptyList(),
     val activeToolId: ToolId = ToolId("chapter_map"),
     val isRunningTool: Boolean = false,
+    val vizContentHeightPx: Int = 0,
     val activeArtifact: AuditedArtifact? = null,
     val streamingThinking: String = "",
     val streamingMarkdown: String = "",
@@ -92,10 +92,11 @@ class CompanionViewModel(
 
     private val deduplicatedProfiles = profileRegistry.profiles.distinctBy { it.readType }
     private var activeTheme: ReaderTheme = ReaderTheme.SEPIA_WARM
-    private var toolJob: Job? = null
-    private var qaJob: Job? = null
+    private val tasks = CompanionTaskRegistry()
     private var currentThreadId: String = UUID.randomUUID().toString()
     private var onJumpCallback: ((ReadingAnchor) -> Unit)? = null
+    private var renderedArtifact: AuditedArtifact? = null
+    private var vizRenderGeneration: Int = 0
 
     private val _uiState = MutableStateFlow(
         CompanionUiState(
@@ -110,6 +111,11 @@ class CompanionViewModel(
             when (event) {
                 is VizHostEvent.JumpToBlock -> jumpToBlock(event.blockId)
                 VizHostEvent.OpenFullscreen -> setFullscreenVizOpen(!_uiState.value.isFullscreenVizOpen)
+                is VizHostEvent.Rendered -> {
+                    if (!_uiState.value.isFullscreenVizOpen && event.heightPx > 0) {
+                        _uiState.value = _uiState.value.copy(vizContentHeightPx = event.heightPx)
+                    }
+                }
                 is VizHostEvent.Error -> {
                     _uiState.value = _uiState.value.copy(
                         toastMessage = "图解渲染提示：${event.message}",
@@ -145,15 +151,17 @@ class CompanionViewModel(
             val profile = profileRegistry.profileById(toolbox.profileId)
 
             val tools = buildToolStrip(profile)
-            val pickedTool = initialToolId
-                ?: if (isNewWork) (tools.firstOrNull { it.toolId.raw != "chapter_map" }?.toolId ?: ToolId("chapter_map")) else _uiState.value.activeToolId
+            val requestedTool = initialToolId ?: if (isNewWork) null else _uiState.value.activeToolId
+            val pickedTool = tools.firstOrNull { it.toolId == requestedTool }?.toolId
+                ?: tools.firstOrNull { it.toolId.raw != "chapter_map" }?.toolId
+                ?: ToolId("chapter_map")
 
-            val initialScope = if (selectionAnchor != null && selectedText.isNotBlank()) {
-                CompanionScopeChoice.SELECTION
-            } else if (isNewWork) {
-                CompanionScopeChoice.CHAPTER
-            } else {
-                _uiState.value.scopeChoice
+            val hasSelection = selectionAnchor != null && selectedText.isNotBlank()
+            val initialScope = when {
+                hasSelection -> CompanionScopeChoice.SELECTION
+                isNewWork -> CompanionScopeChoice.CHAPTER
+                _uiState.value.scopeChoice == CompanionScopeChoice.SELECTION -> CompanionScopeChoice.CHAPTER
+                else -> _uiState.value.scopeChoice
             }
 
             _uiState.value = _uiState.value.copy(
@@ -163,8 +171,8 @@ class CompanionViewModel(
                 literatureSubKind = toolbox.literatureSubKind,
                 scopeChoice = initialScope,
                 currentChapterOrdinal = currentOrdinal,
-                selectionAnchor = selectionAnchor ?: _uiState.value.selectionAnchor,
-                selectedText = selectedText.ifBlank { _uiState.value.selectedText },
+                selectionAnchor = selectionAnchor.takeIf { hasSelection },
+                selectedText = if (hasSelection) selectedText else "",
                 tools = tools,
                 activeToolId = pickedTool,
                 qaMessages = if (isNewWork) emptyList() else _uiState.value.qaMessages,
@@ -174,12 +182,22 @@ class CompanionViewModel(
         }
     }
 
-    fun updateReaderContext(currentOrdinal: ChapterOrdinal, selectionAnchor: ReadingAnchor?, selectedText: String) {
-        _uiState.value = _uiState.value.copy(
-            currentChapterOrdinal = currentOrdinal,
-            selectionAnchor = selectionAnchor ?: _uiState.value.selectionAnchor,
-            selectedText = selectedText.ifBlank { _uiState.value.selectedText },
+    fun onReaderChapterChanged(ordinal: ChapterOrdinal) {
+        val state = _uiState.value
+        if (state.workId == null || state.currentChapterOrdinal == ordinal) return
+        val hadSelection = state.selectionAnchor != null || state.selectedText.isNotBlank()
+        val nextScope = if (state.scopeChoice == CompanionScopeChoice.SELECTION) {
+            CompanionScopeChoice.CHAPTER
+        } else {
+            state.scopeChoice
+        }
+        _uiState.value = state.copy(
+            currentChapterOrdinal = ordinal,
+            scopeChoice = nextScope,
+            selectionAnchor = if (hadSelection) null else state.selectionAnchor,
+            selectedText = if (hadSelection) "" else state.selectedText,
         )
+        publish()
     }
 
     fun setDetent(detent: CompanionDetent) {
@@ -229,58 +247,38 @@ class CompanionViewModel(
     private fun runToolInternal(toolId: ToolId, forceRefresh: Boolean) {
         val state = _uiState.value
         val wId = state.workId ?: return
-        toolJob?.cancel()
-        toolJob = viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(
-                isRunningTool = true,
-                toolFailure = null,
-                streamingThinking = "",
-                streamingMarkdown = "",
-            )
-            val request = CompanionRequest(
-                workId = wId,
-                tool = toolId,
-                scope = resolveToolScope(_uiState.value),
-                forceRefresh = forceRefresh,
-            )
-            val thinkingBuf = StringBuilder()
-            val mdBuf = StringBuilder()
-            companionEngine.runTool(request).collect { event ->
-                when (event) {
-                    is CompanionEvent.CachedHit -> {
-                        renderArtifactIfViz(event.artifact)
-                        _uiState.value = _uiState.value.copy(
-                            isRunningTool = false,
-                            activeArtifact = event.artifact,
-                            toolFailure = null,
-                        )
-                    }
-                    is CompanionEvent.StreamingDelta -> {
-                        if (event.isThinking) {
-                            thinkingBuf.append(event.delta)
-                        } else {
-                            mdBuf.append(event.delta)
+        val scope = resolveToolScope(state)
+        val key = CompanionTaskKey.of(wId, scope, canonicalToolId(state, toolId))
+        if (tasks.begin(key, forceRefresh) != CompanionTaskRegistry.Start.Launch) {
+            publish()
+            return
+        }
+        publish()
+        viewModelScope.launch {
+            try {
+                val request = CompanionRequest(
+                    workId = wId,
+                    tool = toolId,
+                    scope = scope,
+                    forceRefresh = forceRefresh,
+                )
+                companionEngine.runTool(request).collect { event ->
+                    when (event) {
+                        is CompanionEvent.CachedHit -> tasks.ready(key, event.artifact, event.isStale)
+                        is CompanionEvent.StreamingDelta -> {
+                            if (event.isThinking) {
+                                tasks.appendThinking(key, event.delta)
+                            } else {
+                                tasks.appendMarkdown(key, event.delta)
+                            }
                         }
-                        _uiState.value = _uiState.value.copy(
-                            streamingThinking = thinkingBuf.toString(),
-                            streamingMarkdown = mdBuf.toString(),
-                        )
+                        is CompanionEvent.Done -> tasks.ready(key, event.artifact)
+                        is CompanionEvent.Failure -> tasks.failed(key, event.error)
                     }
-                    is CompanionEvent.Done -> {
-                        renderArtifactIfViz(event.artifact)
-                        _uiState.value = _uiState.value.copy(
-                            isRunningTool = false,
-                            activeArtifact = event.artifact,
-                            toolFailure = null,
-                        )
-                    }
-                    is CompanionEvent.Failure -> {
-                        _uiState.value = _uiState.value.copy(
-                            isRunningTool = false,
-                            toolFailure = event.error,
-                        )
-                    }
+                    publish()
                 }
+            } finally {
+                tasks.finish(key)
             }
         }
     }
@@ -305,53 +303,59 @@ class CompanionViewModel(
         )
         _uiState.value = _uiState.value.copy(qaMessages = _uiState.value.qaMessages + initialMsg)
 
-        qaJob?.cancel()
-        qaJob = viewModelScope.launch {
+        val questionScope = resolveToolScope(_uiState.value)
+        viewModelScope.launch {
             val thinkingBuf = StringBuilder()
             val answerBuf = StringBuilder()
-            companionEngine.askFollowUp(
-                threadId = currentThreadId,
-                workId = wId,
-                scope = resolveToolScope(_uiState.value),
-                question = cleanQuestion,
-            ).collect { event ->
-                when (event) {
-                    is CompanionEvent.StreamingDelta -> {
-                        if (event.isThinking) thinkingBuf.append(event.delta) else answerBuf.append(event.delta)
-                        updateQaMessage(msgId) {
-                            it.copy(
-                                thinkingText = thinkingBuf.toString(),
-                                answerMarkdown = answerBuf.toString(),
-                                isStreaming = true,
-                            )
+            try {
+                companionEngine.askFollowUp(
+                    threadId = currentThreadId,
+                    workId = wId,
+                    scope = questionScope,
+                    question = cleanQuestion,
+                ).collect { event ->
+                    when (event) {
+                        is CompanionEvent.StreamingDelta -> {
+                            if (event.isThinking) thinkingBuf.append(event.delta) else answerBuf.append(event.delta)
+                            updateQaMessage(msgId) {
+                                it.copy(
+                                    thinkingText = thinkingBuf.toString(),
+                                    answerMarkdown = answerBuf.toString(),
+                                    isStreaming = true,
+                                )
+                            }
+                        }
+                        is CompanionEvent.Done -> {
+                            val md = (event.artifact as? AuditedArtifact.MarkdownReadCard)?.markdown
+                                ?: answerBuf.toString()
+                            updateQaMessage(msgId) {
+                                it.copy(
+                                    thinkingText = thinkingBuf.toString(),
+                                    answerMarkdown = md,
+                                    isStreaming = false,
+                                )
+                            }
+                        }
+                        is CompanionEvent.CachedHit -> {
+                            val md = (event.artifact as? AuditedArtifact.MarkdownReadCard)?.markdown
+                                ?: event.artifact.summary
+                            updateQaMessage(msgId) {
+                                it.copy(answerMarkdown = md, isStreaming = false)
+                            }
+                        }
+                        is CompanionEvent.Failure -> {
+                            updateQaMessage(msgId) {
+                                it.copy(
+                                    isStreaming = false,
+                                    errorText = formatFailureMessage(event.error),
+                                )
+                            }
                         }
                     }
-                    is CompanionEvent.Done -> {
-                        val md = (event.artifact as? AuditedArtifact.MarkdownReadCard)?.markdown
-                            ?: answerBuf.toString()
-                        updateQaMessage(msgId) {
-                            it.copy(
-                                thinkingText = thinkingBuf.toString(),
-                                answerMarkdown = md,
-                                isStreaming = false,
-                            )
-                        }
-                    }
-                    is CompanionEvent.CachedHit -> {
-                        val md = (event.artifact as? AuditedArtifact.MarkdownReadCard)?.markdown
-                            ?: event.artifact.summary
-                        updateQaMessage(msgId) {
-                            it.copy(answerMarkdown = md, isStreaming = false)
-                        }
-                    }
-                    is CompanionEvent.Failure -> {
-                        updateQaMessage(msgId) {
-                            it.copy(
-                                isStreaming = false,
-                                errorText = formatFailureMessage(event.error),
-                            )
-                        }
-                    }
+                }
+            } finally {
+                updateQaMessage(msgId) {
+                    if (it.isStreaming) it.copy(isStreaming = false) else it
                 }
             }
         }
@@ -408,9 +412,73 @@ class CompanionViewModel(
         _uiState.value = _uiState.value.copy(toastMessage = null)
     }
 
-    private suspend fun renderArtifactIfViz(artifact: AuditedArtifact) {
-        if (artifact is AuditedArtifact.StructuredDiagram || artifact is AuditedArtifact.FallbackList) {
-            vizHostController.renderArtifact(artifact, activeTheme)
+    private fun publish() {
+        val key = displayedKey(_uiState.value)
+        val slot = key?.let { tasks.slot(it) }
+        val base = _uiState.value
+        val next = when (slot) {
+            null -> base.copy(
+                isRunningTool = false,
+                activeArtifact = null,
+                streamingThinking = "",
+                streamingMarkdown = "",
+                toolFailure = null,
+            )
+            is CompanionToolSlot.Running -> base.copy(
+                isRunningTool = true,
+                activeArtifact = null,
+                streamingThinking = slot.thinking,
+                streamingMarkdown = slot.markdown,
+                toolFailure = null,
+            )
+            is CompanionToolSlot.Ready -> base.copy(
+                isRunningTool = false,
+                activeArtifact = slot.artifact,
+                streamingThinking = "",
+                streamingMarkdown = "",
+                toolFailure = null,
+            )
+            is CompanionToolSlot.Failed -> base.copy(
+                isRunningTool = false,
+                activeArtifact = null,
+                streamingThinking = "",
+                streamingMarkdown = "",
+                toolFailure = slot.failure,
+            )
+        }
+        _uiState.value = next
+        syncVizToDisplayedArtifact(next)
+    }
+
+    private fun displayedKey(state: CompanionUiState): CompanionTaskKey? {
+        val wId = state.workId ?: return null
+        return CompanionTaskKey.of(wId, resolveToolScope(state), canonicalToolId(state, state.activeToolId))
+    }
+
+    private fun canonicalToolId(state: CompanionUiState, toolId: ToolId): ToolId =
+        if (toolId.raw == "diagram") {
+            state.activeProfile?.blueprints?.firstOrNull()?.toolId ?: toolId
+        } else {
+            toolId
+        }
+
+    private fun syncVizToDisplayedArtifact(state: CompanionUiState) {
+        val artifact = state.activeArtifact
+        if (artifact == null) {
+            renderedArtifact = null
+            return
+        }
+        if (artifact == renderedArtifact) return
+        if (artifact !is AuditedArtifact.StructuredDiagram && artifact !is AuditedArtifact.FallbackList) {
+            renderedArtifact = null
+            return
+        }
+        renderedArtifact = artifact
+        val generation = ++vizRenderGeneration
+        viewModelScope.launch {
+            if (generation == vizRenderGeneration) {
+                vizHostController.renderArtifact(artifact, activeTheme)
+            }
         }
     }
 

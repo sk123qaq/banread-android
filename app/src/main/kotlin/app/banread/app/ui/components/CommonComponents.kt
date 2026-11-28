@@ -446,6 +446,13 @@ fun PerspectivePickerDialog(
 }
 
 private val BLOCK_CHIP_REGEX = Regex("""`?\[(B\d+)\]`?""")
+private val HEADING_PREFIX = Regex("^#{1,6} ")
+private val DIVIDER_LINE = Regex("^(?:-{3,}|\\*{3,}|_{3,})$")
+
+internal fun markdownHeadingText(line: String): String? =
+    if (HEADING_PREFIX.containsMatchIn(line)) HEADING_PREFIX.replace(line, "") else null
+
+internal fun isMarkdownDivider(line: String): Boolean = DIVIDER_LINE.matches(line)
 
 /**
  * Renders prose with `[原文]` / `[补充]` provenance coloring and clickable `[Bxx]` block chips.
@@ -468,11 +475,20 @@ fun ClickableBlockMarkdownText(
             val line = rawLine.trim()
             if (line.isEmpty()) return@forEach
 
-            val isHeading = line.startsWith("#")
+            if (isMarkdownDivider(line)) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(palette.line)
+                )
+                return@forEach
+            }
+
+            val headingText = markdownHeadingText(line)
+            val isHeading = headingText != null
             val cleanLine = when {
-                line.startsWith("### ") -> line.removePrefix("### ")
-                line.startsWith("## ") -> line.removePrefix("## ")
-                line.startsWith("# ") -> line.removePrefix("# ")
+                headingText != null -> headingText
                 line.startsWith("- ") -> "• " + line.removePrefix("- ")
                 line.startsWith("* ") -> "• " + line.removePrefix("* ")
                 else -> line
