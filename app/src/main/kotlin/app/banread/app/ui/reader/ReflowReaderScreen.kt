@@ -687,7 +687,7 @@ private fun TypographySheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("CJK 标点挤压 (palt)", color = palette.ink, fontSize = 12.5.sp)
+                Text("CJK 标点挤压", color = palette.ink, fontSize = 12.5.sp)
                 Switch(
                     checked = typo.squeezeChinesePunctuation,
                     onCheckedChange = { onUpdateTypography(typo.copy(squeezeChinesePunctuation = it)) },

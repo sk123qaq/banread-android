@@ -81,11 +81,22 @@ internal object ReaderCssGenerator {
         )
 
         if (typography.squeezeChinesePunctuation) {
+            // Avoid combining "palt" and "halt": on Android/Samsung CJK system fonts, HarfBuzz
+            // applies both GPOS advance reductions cumulatively and collapses punctuation width to 0.
             sb.appendLine(
                 """
                 body, p, li, blockquote, dd, h1, h2, h3, h4, h5, h6 {
-                    text-spacing-trim: auto;
-                    font-feature-settings: "palt" 1, "halt" 1;
+                    text-spacing-trim: trim-start;
+                    font-feature-settings: "chws" 1;
+                }
+                """.trimIndent(),
+            )
+        } else {
+            sb.appendLine(
+                """
+                body, p, li, blockquote, dd, h1, h2, h3, h4, h5, h6 {
+                    text-spacing-trim: normal;
+                    font-feature-settings: normal;
                 }
                 """.trimIndent(),
             )

@@ -138,6 +138,26 @@ class ReflowReaderViewModel(
         }
     }
 
+    fun syncPreferencesAndOutline() {
+        viewModelScope.launch {
+            val outline = runCatching { libraryVault.getWorkOutline(workId) }.getOrNull()
+            if (outline != null) {
+                cachedOutline = outline
+            }
+            val fonts = runCatching { fontManager?.listFonts().orEmpty() }.getOrDefault(emptyList())
+            val prefs = appPreferences.state.value
+            readerEngine.applyTheme(prefs.theme)
+            readerEngine.applyTypography(prefs.typography)
+            surfaceController.setPaginationMode(prefs.paginationMode)
+            val chTitle = resolveChapterTitle(readerEngine.activeState.value.currentCursor?.ordinal)
+            _uiState.value = _uiState.value.copy(
+                bookTitle = (outline ?: cachedOutline)?.title.orEmpty(),
+                currentChapterTitle = chTitle,
+                registeredFonts = fonts,
+            )
+        }
+    }
+
     private suspend fun openOrSyncSession(callOpen: Boolean) {
         val outline = runCatching { libraryVault.getWorkOutline(workId) }.getOrNull()
         cachedOutline = outline

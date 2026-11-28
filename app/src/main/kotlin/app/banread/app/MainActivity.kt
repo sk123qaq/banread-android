@@ -200,6 +200,9 @@ private fun BanReadAppRoot(
                     profileRegistry = container.profileRegistry,
                 ),
             )
+            LaunchedEffect(route.workId) {
+                detailVm.refresh()
+            }
             BookDetailScreen(
                 viewModel = detailVm,
                 onBack = { popBack() },
@@ -226,13 +229,15 @@ private fun BanReadAppRoot(
                 ),
             )
 
-            LaunchedEffect(route.forceReopen) {
+            LaunchedEffect(route.workId, route.forceReopen) {
                 if (route.forceReopen) {
                     readerVm.reopenSurface()
                     val idx = backStack.lastIndex
                     if (idx >= 0 && backStack[idx] == route) {
                         backStack[idx] = route.copy(forceReopen = false)
                     }
+                } else {
+                    readerVm.syncPreferencesAndOutline()
                 }
             }
 
