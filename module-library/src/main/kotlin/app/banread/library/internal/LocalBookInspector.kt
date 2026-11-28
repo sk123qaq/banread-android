@@ -282,7 +282,7 @@ internal object LocalBookInspector {
                         val preambleInputs = allInputs.subList(0, firstAnchorIdx)
                         val prev = pendingChapters.lastOrNull()
                         val firstPreambleBlk = preambleInputs.first().block
-                        val preambleStartsWithHeading = firstPreambleBlk.kind == "heading" || firstPreambleBlk.isBoldOnly
+                        val preambleStartsWithHeading = firstPreambleBlk.kind == MarkdownBlockKind.HEADING || firstPreambleBlk.isBoldOnly
                         val prevIsContinuationCandidate = prev != null &&
                             prev.cameFromTocSplit &&
                             prev.blocks.isNotEmpty() &&
@@ -300,7 +300,7 @@ internal object LocalBookInspector {
                             prev.rawBytes = null
                         } else {
                             val preambleHeading = preambleInputs.firstOrNull {
-                                (it.block.kind == "heading" || it.block.isBoldOnly) && it.block.cleanText.isNotBlank()
+                                (it.block.kind == MarkdownBlockKind.HEADING || it.block.isBoldOnly) && it.block.cleanText.isNotBlank()
                             }?.block?.cleanText
                             val preambleChars = preambleInputs.sumOf { TextSanitizer.nonSpaceCount(it.block.cleanText) }
                             val isOpeningFrontMatter = pendingChapters.all { it.blocks.isEmpty() } && preambleChars <= 120
@@ -435,7 +435,7 @@ internal object LocalBookInspector {
             val bytes = readBoundedBytes(zip.getInputStream(entry), ImageHeaderInspector.MAX_COVER_BYTES) ?: continue
             val inspected = ImageHeaderInspector.inspect(bytes) ?: continue
             return ExtractedEpubCover(
-                formatExt = inspected.format,
+                formatExt = inspected.format.extension,
                 bytes = bytes,
                 width = inspected.width,
                 height = inspected.height,
@@ -692,17 +692,17 @@ internal object LocalBookInspector {
                 if (clean.isNotEmpty() || blockRefs.isNotEmpty()) {
                     val idx = blocks.size
                     val kind = when {
-                        blockIsFootnote -> "footnote"
-                        tag in setOf("h1", "h2", "h3", "h4", "h5", "h6") -> "heading"
-                        tag == "blockquote" -> "quote"
-                        tag == "pre" -> "code"
-                        else -> "paragraph"
+                        blockIsFootnote -> MarkdownBlockKind.FOOTNOTE
+                        tag in setOf("h1", "h2", "h3", "h4", "h5", "h6") -> MarkdownBlockKind.HEADING
+                        tag == "blockquote" -> MarkdownBlockKind.QUOTE
+                        tag == "pre" -> MarkdownBlockKind.CODE
+                        else -> MarkdownBlockKind.PARAGRAPH
                     }
-                    if (kind == "heading") {
+                    if (kind == MarkdownBlockKind.HEADING) {
                         hasBodyHeading = true
                         if (bodyHeadingTitle.isBlank()) bodyHeadingTitle = clean
                     }
-                    val (fnDisp, fnKey) = if (kind == "footnote") {
+                    val (fnDisp, fnKey) = if (kind == MarkdownBlockKind.FOOTNOTE) {
                         val firstId = currentBlockHtmlIds.firstOrNull().orEmpty()
                         val m = Regex("""^\[?(\d{1,4}|[^\]\s]{1,12})\]?(?:[.。、:：]|\s)+(.*)$""").matchEntire(clean)
                         if (m != null) {
@@ -713,12 +713,12 @@ internal object LocalBookInspector {
                     } else {
                         "" to ""
                     }
-                    val finalClean = if (kind == "footnote") {
+                    val finalClean = if (kind == MarkdownBlockKind.FOOTNOTE) {
                         clean.replaceFirst(Regex("""^\[?(\d{1,4})\]?(?:[.。、:：]|\s)+"""), "").ifBlank { clean }
                     } else {
                         clean
                     }
-                    val isBoldOnly = kind == "paragraph" && hasBoldText && !hasNonBoldText && finalClean.isNotEmpty()
+                    val isBoldOnly = kind == MarkdownBlockKind.PARAGRAPH && hasBoldText && !hasNonBoldText && finalClean.isNotEmpty()
                     blocks += ParsedBlock(
                         id = "B${(idx + 1).toString().padStart(2, '0')}",
                         blockIndex = idx,
@@ -753,7 +753,7 @@ internal object LocalBookInspector {
                             blocks += ParsedBlock(
                                 id = "B${(idx + 1).toString().padStart(2, '0')}",
                                 blockIndex = idx,
-                                kind = "list",
+                                kind = MarkdownBlockKind.LIST,
                                 headingPath = "",
                                 cleanText = listItems.joinToString("\n"),
                                 charStart = 0,
@@ -825,7 +825,7 @@ internal object LocalBookInspector {
                                         blocks += ParsedBlock(
                                             id = "B${(idx + 1).toString().padStart(2, '0')}",
                                             blockIndex = idx,
-                                            kind = "image",
+                                            kind = MarkdownBlockKind.IMAGE,
                                             headingPath = "",
                                             cleanText = alt,
                                             charStart = 0,
@@ -875,7 +875,7 @@ internal object LocalBookInspector {
                                         blocks += ParsedBlock(
                                             id = "B${(idx + 1).toString().padStart(2, '0')}",
                                             blockIndex = idx,
-                                            kind = "image",
+                                            kind = MarkdownBlockKind.IMAGE,
                                             headingPath = "",
                                             cleanText = alt,
                                             charStart = 0,
@@ -999,7 +999,7 @@ internal object LocalBookInspector {
                 blocks += ParsedBlock(
                     id = "B01",
                     blockIndex = 0,
-                    kind = "paragraph",
+                    kind = MarkdownBlockKind.PARAGRAPH,
                     headingPath = "",
                     cleanText = stripped,
                     charStart = 0,
@@ -1132,7 +1132,7 @@ internal object LocalBookInspector {
                 ParsedBlock(
                     id = "B01",
                     blockIndex = 0,
-                    kind = "paragraph",
+                    kind = MarkdownBlockKind.PARAGRAPH,
                     headingPath = title,
                     cleanText = title,
                     charStart = 0,

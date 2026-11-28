@@ -74,7 +74,25 @@ class ByokAndCoverModelsTest {
             capabilities = ProviderCapabilities(true, true, 128_000),
             requiresApiKey = true,
         )
-        assertEquals("未配置 Key", cloudMissingKeySummary.maskedApiKey)
+        assertEquals("未配置 Key", cloudMissingKeySummary.maskedApiKey.display)
+    }
+
+    @Test
+    fun `MaskedSecret factories mask plaintext and ApiKeyDraft redacts logs`() {
+        val plaintext = "sk-live-1234567890"
+        val masked = MaskedSecret.fromRaw(plaintext)
+        assertEquals("sk-l••••7890", masked.display)
+        assertTrue(masked.isConfigured)
+        assertFalse(masked.toString().contains(plaintext))
+        assertFalse(masked.display.contains("1234567890"))
+        assertEquals(MaskedSecret.NOT_CONFIGURED, MaskedSecret.fromRaw("   ").display)
+        assertEquals(MaskedSecret.LOCAL_NOT_REQUIRED, MaskedSecret.fromRaw(plaintext, requiresApiKey = false).display)
+
+        val draft = ApiKeyDraft.of(plaintext)
+        assertEquals(plaintext, draft.raw)
+        assertEquals(plaintext, draft.trimmedOrNull())
+        assertFalse(draft.toString().contains(plaintext))
+        assertTrue(ApiKeyDraft.Empty.isBlank)
     }
 
     @Test

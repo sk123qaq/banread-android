@@ -7,6 +7,8 @@ import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
 import app.banread.library.internal.LibraryDatabase
+import app.banread.library.internal.WorkFormat
+import app.banread.library.internal.WorkProfileSource
 import app.banread.model.BlockId
 import app.banread.model.ChapterOrdinal
 import app.banread.model.ChapterRole
@@ -401,6 +403,15 @@ class EpubFragmentTocAndHardWrapTest {
             assertEquals("竞争战略", works.single().title)
             assertEquals(1, works.single().parserVersion)
             assertEquals(400, works.single().coverWidth)
+            assertEquals(WorkFormat.EPUB, works.single().format)
+            assertEquals(WorkProfileSource.AUTO, works.single().profileSource)
+            migrated.openHelper.readableDatabase
+                .query("SELECT format, profileSource FROM works")
+                .use { cursor ->
+                    cursor.moveToFirst()
+                    assertEquals("EPUB", cursor.getString(0))
+                    assertEquals("AUTO", cursor.getString(1))
+                }
             assertNotEquals(0, works.single().addedAtMs)
         } finally {
             migrated.close()

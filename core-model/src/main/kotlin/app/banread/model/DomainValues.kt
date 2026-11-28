@@ -49,7 +49,13 @@ value class ChapterOrdinal(val value: Int) : Comparable<ChapterOrdinal> {
 @JvmInline
 value class BlockId(val value: String) {
     init {
-        require(BLOCK_ID_REGEX.matches(value)) { "Invalid BlockId: $value" }
+        require(isValid(value)) { "Invalid BlockId: $value" }
+    }
+
+    companion object {
+        fun isValid(raw: String): Boolean = BLOCK_ID_REGEX.matches(raw)
+
+        fun validate(raw: String): BlockId = BlockId(raw)
     }
 }
 

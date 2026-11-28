@@ -151,16 +151,16 @@ internal object XhtmlBookCompiler {
         for (blk in chapter.blocks) {
             val idAttr = """id="${xmlEscape(blk.id)}" data-block-id="${xmlEscape(blk.id)}" data-block-index="${blk.blockIndex}""""
             when (blk.kind) {
-                "heading" -> {
+                MarkdownBlockKind.HEADING -> {
                     val lvl = (blk.level ?: 2).coerceIn(1, 6)
                     val inner = renderTextWithNoterefs(chapter.ordinal, blk.id, blk.cleanText, blk.fnRefs, inlineTargets)
                     appendLine("""  <h$lvl $idAttr>$inner</h$lvl>""")
                 }
-                "quote" -> {
+                MarkdownBlockKind.QUOTE -> {
                     val inner = renderTextWithNoterefs(chapter.ordinal, blk.id, blk.cleanText, blk.fnRefs, inlineTargets)
                     appendLine("""  <blockquote $idAttr><p>$inner</p></blockquote>""")
                 }
-                "list" -> {
+                MarkdownBlockKind.LIST -> {
                     appendLine("""  <ul $idAttr>""")
                     val items = blk.listItems.ifEmpty { blk.cleanText.split('\n') }
                     items.forEachIndexed { idx, itemText ->
@@ -177,7 +177,7 @@ internal object XhtmlBookCompiler {
                     }
                     appendLine("""  </ul>""")
                 }
-                "table" -> {
+                MarkdownBlockKind.TABLE -> {
                     appendLine("""  <table $idAttr>""")
                     if (blk.tableHead.isNotEmpty()) {
                         append("""    <thead><tr>""")
@@ -197,17 +197,17 @@ internal object XhtmlBookCompiler {
                     appendLine("""    </tbody>""")
                     appendLine("""  </table>""")
                 }
-                "code" -> {
+                MarkdownBlockKind.CODE -> {
                     val langAttr = if (blk.lang.isNotBlank()) """ class="language-${xmlEscape(blk.lang)}"""" else ""
                     appendLine("""  <pre $idAttr><code$langAttr>${xmlEscape(blk.cleanText)}</code></pre>""")
                 }
-                "image" -> {
+                MarkdownBlockKind.IMAGE -> {
                     val src = blk.imageRel.trimStart('/').let {
                         if (it.startsWith("images/") || it.startsWith("../")) it else "images/$it"
                     }
                     appendLine("""  <figure $idAttr><img src="${xmlEscape(src)}" alt="${xmlEscape(blk.imageAlt)}"/></figure>""")
                 }
-                "footnote" -> {
+                MarkdownBlockKind.FOOTNOTE -> {
                     val marker = blk.fnMarkerDisplay.ifEmpty { blk.fnMarkerKey }
                     val inner = renderTextWithNoterefs(chapter.ordinal, blk.id, blk.cleanText, blk.fnRefs, inlineTargets)
                     appendLine(

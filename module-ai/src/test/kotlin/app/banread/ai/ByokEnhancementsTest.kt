@@ -341,7 +341,7 @@ class ByokEnhancementsTest {
         val dsSummary = runtime.getProviderSummary("deepseek")!!
         assertTrue(dsSummary.isDefaultCompanion)
         assertFalse(dsSummary.isDefaultVision)
-        assertEquals("sk-d••••9876", dsSummary.maskedApiKey)
+        assertEquals("sk-d••••9876", dsSummary.maskedApiKey.display)
         assertFalse(profiles.toString().contains(deepseekKey))
         assertFalse(profiles.toString().contains(geminiKey))
         val diskText = cfgDir.resolve("providers_meta.json").readText()
@@ -349,7 +349,7 @@ class ByokEnhancementsTest {
         assertFalse(diskText.contains(geminiKey))
 
         val olSummary = runtime.getProviderSummary("ollama")!!
-        assertEquals("本地免 Key", olSummary.maskedApiKey)
+        assertEquals("本地免 Key", olSummary.maskedApiKey.display)
         assertFalse(olSummary.hasApiKey)
 
         val rejectNonVision = runCatching { runtime.setDefaultVision("deepseek") }

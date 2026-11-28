@@ -140,9 +140,9 @@ fun ByokEditorDialog(
                 )
 
                 OutlinedTextField(
-                    value = editor.apiKeyInput,
+                    value = editor.apiKeyInput.raw,
                     onValueChange = onApiKeyChange,
-                    enabled = editor.requiresApiKey || editor.apiKeyInput.isNotEmpty(),
+                    enabled = editor.requiresApiKey || !editor.apiKeyInput.isBlank,
                     label = {
                         Text(
                             when {

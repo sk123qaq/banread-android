@@ -41,7 +41,7 @@ internal object HardWrapStitcher {
         val midWidths = mutableListOf<Double>()
 
         for (blk in blocks) {
-            if (blk.kind != "paragraph" || blk.isBoldOnly) continue
+            if (blk.kind != MarkdownBlockKind.PARAGRAPH || blk.isBoldOnly) continue
             val text = blk.cleanText.trim()
             if (TextSanitizer.nonSpaceCount(text) < 16) continue
             val width = visualWidth(text)
@@ -113,9 +113,9 @@ internal object HardWrapStitcher {
         var i = 0
         while (i < inputs.size) {
             val cur = inputs[i]
-            if (i + 1 < inputs.size && cur.block.kind == "paragraph" && cur.block.isBoldOnly) {
+            if (i + 1 < inputs.size && cur.block.kind == MarkdownBlockKind.PARAGRAPH && cur.block.isBoldOnly) {
                 val nxt = inputs[i + 1]
-                if (nxt.block.kind == "paragraph" && nxt.block.isBoldOnly) {
+                if (nxt.block.kind == MarkdownBlockKind.PARAGRAPH && nxt.block.isBoldOnly) {
                     val curText = cur.block.cleanText.trim()
                     val nxtText = nxt.block.cleanText.trim()
                     val combinedNorm = normalizeForComparison(curText + nxtText)
@@ -141,7 +141,7 @@ internal object HardWrapStitcher {
         next: ParsedBlock,
         profile: HardWrapProfile,
     ): Boolean {
-        if (prevTail.kind != "paragraph" || next.kind != "paragraph") return false
+        if (prevTail.kind != MarkdownBlockKind.PARAGRAPH || next.kind != MarkdownBlockKind.PARAGRAPH) return false
         if (prevTail.isBoldOnly || next.isBoldOnly) return false
 
         val prevText = prevTail.cleanText.trim()

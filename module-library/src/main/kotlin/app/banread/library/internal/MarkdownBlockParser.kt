@@ -14,7 +14,7 @@ internal data class InlineFnRef(
 internal data class ParsedBlock(
     val id: String,
     val blockIndex: Int,
-    val kind: String,
+    val kind: MarkdownBlockKind,
     val headingPath: String,
     val cleanText: String,
     val charStart: Int,
@@ -167,7 +167,7 @@ internal object MarkdownBlockParser {
                 is Segment.Code -> {
                     rawBlocks += makeBlock(
                         index = rawBlocks.size,
-                        kind = "code",
+                        kind = MarkdownBlockKind.CODE,
                         cleanText = seg.code,
                         lang = seg.lang,
                     )
@@ -275,7 +275,7 @@ internal object MarkdownBlockParser {
             val (cleanHeading, refs) = extractInlineFootnotes(heading.groupValues[2].replace("**", ""))
             out += makeBlock(
                 index = out.size,
-                kind = "heading",
+                kind = MarkdownBlockKind.HEADING,
                 cleanText = cleanHeading,
                 level = level,
                 fnRefs = refs,
@@ -293,7 +293,7 @@ internal object MarkdownBlockParser {
             val (cleanBody, refs) = extractInlineFootnotes(rawBody)
             out += makeBlock(
                 index = out.size,
-                kind = "footnote",
+                kind = MarkdownBlockKind.FOOTNOTE,
                 cleanText = cleanBody,
                 fnRefs = refs,
                 fnMarkerDisplay = display,
@@ -308,7 +308,7 @@ internal object MarkdownBlockParser {
             val (cleanBody, refs) = extractInlineFootnotes(explicitDef.body)
             out += makeBlock(
                 index = out.size,
-                kind = "footnote",
+                kind = MarkdownBlockKind.FOOTNOTE,
                 cleanText = cleanBody,
                 fnRefs = refs,
                 fnMarkerDisplay = explicitDef.display,
@@ -327,14 +327,14 @@ internal object MarkdownBlockParser {
             ) {
                 out += makeBlock(
                     index = out.size,
-                    kind = "code",
+                    kind = MarkdownBlockKind.CODE,
                     cleanText = quoteText.substring(1, quoteText.length - 1).trim(),
                 )
             } else {
                 val (cleanQuote, refs) = extractInlineFootnotes(quoteText)
                 out += makeBlock(
                     index = out.size,
-                    kind = "quote",
+                    kind = MarkdownBlockKind.QUOTE,
                     cleanText = cleanQuote,
                     fnRefs = refs,
                 )
@@ -353,7 +353,7 @@ internal object MarkdownBlockParser {
             }
             out += makeBlock(
                 index = out.size,
-                kind = "list",
+                kind = MarkdownBlockKind.LIST,
                 cleanText = items.joinToString("\n"),
                 listItems = items,
                 listItemRefs = itemRefs,
@@ -390,7 +390,7 @@ internal object MarkdownBlockParser {
             }
             out += makeBlock(
                 index = out.size,
-                kind = "table",
+                kind = MarkdownBlockKind.TABLE,
                 cleanText = linearized,
                 tableHead = head,
                 tableRows = bodyRows,
@@ -405,7 +405,7 @@ internal object MarkdownBlockParser {
             if (!isFootnoteIcon(rel)) {
                 out += makeBlock(
                     index = out.size,
-                    kind = "image",
+                    kind = MarkdownBlockKind.IMAGE,
                     cleanText = TextSanitizer.cleanInline(alt),
                     imageRel = rel,
                     imageAlt = TextSanitizer.cleanInline(alt),
@@ -427,12 +427,12 @@ internal object MarkdownBlockParser {
             if (before.isNotBlank()) {
                 val (clean, refs) = extractInlineFootnotes(before)
                 if (clean.isNotEmpty() || refs.isNotEmpty()) {
-                    out += makeBlock(index = out.size, kind = "paragraph", cleanText = clean, fnRefs = refs)
+                    out += makeBlock(index = out.size, kind = MarkdownBlockKind.PARAGRAPH, cleanText = clean, fnRefs = refs)
                 }
             }
             out += makeBlock(
                 index = out.size,
-                kind = "image",
+                kind = MarkdownBlockKind.IMAGE,
                 cleanText = TextSanitizer.cleanInline(alt),
                 imageRel = rel,
                 imageAlt = TextSanitizer.cleanInline(alt),
@@ -443,7 +443,7 @@ internal object MarkdownBlockParser {
         if (tail.isNotBlank()) {
             val (clean, refs) = extractInlineFootnotes(tail)
             if (clean.isNotEmpty() || refs.isNotEmpty()) {
-                out += makeBlock(index = out.size, kind = "paragraph", cleanText = clean, fnRefs = refs)
+                out += makeBlock(index = out.size, kind = MarkdownBlockKind.PARAGRAPH, cleanText = clean, fnRefs = refs)
             }
         }
     }
@@ -607,13 +607,13 @@ internal object MarkdownBlockParser {
         val isNotesChapter = chapterRoleHint == ChapterRole.NOTES
         var inNoteSection = isNotesChapter
         return blocks.map { blk ->
-            if (blk.kind == "heading") {
+            if (blk.kind == MarkdownBlockKind.HEADING) {
                 if (NOTE_HEADING_RE.matches(blk.cleanText)) {
                     inNoteSection = true
                 }
                 return@map blk
             }
-            if (blk.kind == "paragraph" && (inNoteSection || hasInlineRefToKey(blocks, blk))) {
+            if (blk.kind == MarkdownBlockKind.PARAGRAPH && (inNoteSection || hasInlineRefToKey(blocks, blk))) {
                 val promoted = tryPromoteParagraphNote(blk, allowDot = inNoteSection)
                 if (promoted != null) return@map promoted
             }
@@ -639,7 +639,7 @@ internal object MarkdownBlockParser {
                 if (newPos >= 0) ref.copy(charOffsetInBlock = newPos) else null
             }
             return blk.copy(
-                kind = "footnote",
+                kind = MarkdownBlockKind.FOOTNOTE,
                 cleanText = stripped,
                 fnMarkerDisplay = display,
                 fnMarkerKey = key,
@@ -653,7 +653,7 @@ internal object MarkdownBlockParser {
                 val stripped = mDot.groupValues.last().trim()
                 if (key.isNotEmpty() && stripped.isNotEmpty()) {
                     return blk.copy(
-                        kind = "footnote",
+                        kind = MarkdownBlockKind.FOOTNOTE,
                         cleanText = stripped,
                         fnMarkerDisplay = display,
                         fnMarkerKey = key,
@@ -672,7 +672,7 @@ internal object MarkdownBlockParser {
             stack += 1 to cleanTitle
         }
         return blocks.map { blk ->
-            if (blk.kind == "heading") {
+            if (blk.kind == MarkdownBlockKind.HEADING) {
                 val lvl = blk.level ?: 2
                 val headingText = blk.cleanText.trim()
                 while (stack.isNotEmpty() && stack.last().first >= lvl) {
@@ -689,7 +689,7 @@ internal object MarkdownBlockParser {
 
     private fun makeBlock(
         index: Int,
-        kind: String,
+        kind: MarkdownBlockKind,
         cleanText: String,
         level: Int? = null,
         lang: String = "",
