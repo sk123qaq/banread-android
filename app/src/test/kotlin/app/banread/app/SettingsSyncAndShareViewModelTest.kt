@@ -217,7 +217,6 @@ class SettingsSyncAndShareViewModelTest {
             override suspend fun reconcileWork(workId: WorkId) = Result.success(
                 SyncMergeOutcome(
                     workId = workId,
-                    mergedWatermark = ChapterOrdinal(10),
                     mergedNoteCount = 1,
                     remoteCursorBanner = RemoteCursorBanner(
                         sourceDeviceId = DeviceId("desktop-linux"),

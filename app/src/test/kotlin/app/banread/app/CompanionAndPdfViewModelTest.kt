@@ -13,6 +13,7 @@ import app.banread.model.ChapterOrdinal
 import app.banread.model.CompanionEvent
 import app.banread.model.NormalizedRect
 import app.banread.model.ToolId
+import app.banread.model.ToolScope
 import app.banread.model.VizHostEvent
 import app.banread.model.WorkId
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -33,7 +34,7 @@ class CompanionAndPdfViewModelTest {
     val mainRule = MainDispatcherRule()
 
     @Test
-    fun `CompanionViewModel enforces offline zero-token guard, FullBook confirmation, and data-jump roundtrip`() = runTest {
+    fun `CompanionViewModel enforces offline zero-token guard, direct FullBook scope switch, and data-jump roundtrip`() = runTest {
         val workId = WorkId("w_comp")
         val vault = FakeLibraryVault().apply {
             worksFlow.value = listOf(sampleWorkSummary("w_comp", "史记选读", profileId = "history"))
@@ -52,6 +53,12 @@ class CompanionAndPdfViewModelTest {
             onJumpedToReader = { jumpedSignalCount++ },
         )
 
+        // Scope choices expose only 选段 / 本章 / 全书 (zero spoiler-lock scope)
+        assertEquals(
+            listOf(CompanionScopeChoice.SELECTION, CompanionScopeChoice.CHAPTER, CompanionScopeChoice.FULL_BOOK),
+            CompanionScopeChoice.entries,
+        )
+
         // Tool strip contains chapter_map + profile blueprints/extensions + 5 universal actions
         val toolIds = vm.uiState.value.tools.map { it.toolId.raw }
         assertTrue("chapter_map" in toolIds)
@@ -62,13 +69,10 @@ class CompanionAndPdfViewModelTest {
         assertTrue("ask" in toolIds)
         assertTrue("compare_context" in toolIds)
 
-        // Switching to FullBook prompts confirmation dialog first
+        // Switching to FullBook succeeds immediately without any confirmation dialog
         vm.selectScope(CompanionScopeChoice.FULL_BOOK)
-        assertTrue(vm.uiState.value.showSpoilerUnlockDialog)
-        assertFalse(vm.uiState.value.fullBookUnlocked)
-        vm.confirmFullBookUnlock()
-        assertTrue(vm.uiState.value.fullBookUnlocked)
         assertEquals(CompanionScopeChoice.FULL_BOOK, vm.uiState.value.scopeChoice)
+        assertEquals(ToolScope.FullBook, companion.runToolRequests.last().scope)
 
         // Offline compare_context consumes 0 LLM tokens and sets DesktopConnectionRequired
         val tokensBefore = companion.llmTokenCalls

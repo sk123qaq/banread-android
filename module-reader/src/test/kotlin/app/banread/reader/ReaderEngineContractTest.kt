@@ -7,8 +7,13 @@ import android.os.Looper
 import android.view.KeyEvent
 import android.webkit.ValueCallback
 import android.webkit.WebView
+import androidx.room.Room
+import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.sqlite.db.SupportSQLiteOpenHelper
+import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
 import app.banread.library.LibraryVaultFactory
+import app.banread.reader.internal.ReaderDatabase
 import app.banread.model.AppFailure
 import app.banread.model.AppFailureException
 import app.banread.model.BcBookManifest
@@ -28,7 +33,6 @@ import app.banread.model.ReaderEngine
 import app.banread.model.ReaderTheme
 import app.banread.model.ReadingAnchor
 import app.banread.model.ReadingSurfaceMode
-import app.banread.model.SpoilerGate
 import app.banread.model.TextQuote
 import app.banread.model.TypographyProfile
 import app.banread.model.WorkId
@@ -116,7 +120,7 @@ class ReaderEngineContractTest {
     }
 
     @Test
-    fun `1_open ingested bcbook and epub initializes ReaderSessionHandle and SpoilerGate`() = runTest {
+    fun `1_open ingested bcbook and epub initializes ReaderSessionHandle and cursor`() = runTest {
         val bcBook = buildMultiChapterBcBook(tempFolder.newFile("B0100.bcbook"), chapterCount = 12)
         val imported = vault.ingestStudyPack(bcBook.absolutePath).getOrThrow()
 
@@ -124,7 +128,6 @@ class ReaderEngineContractTest {
         assertEquals(WorkId("B0100"), handle.workId)
         assertEquals(ReadingSurfaceMode.REFLOWABLE, handle.mode)
         assertEquals(ChapterOrdinal(2), handle.initialAnchor.ordinal) // ch 1 is FRONT_BACK, ch 2 is first BODY
-        assertEquals(SpoilerGate.UpTo(ChapterOrdinal(2)), handle.spoilerGate)
         assertEquals("https://appassets.androidplatform.net/books/B0100/", fakeRenderer.loadedAssetRoot)
 
         // Also verify EPUB open
@@ -133,90 +136,101 @@ class ReaderEngineContractTest {
         val epubHandle = readerEngine.open(importedEpub.workId, ReadingSurfaceMode.REFLOWABLE)
         assertEquals(ReadingSurfaceMode.REFLOWABLE, epubHandle.mode)
         assertEquals(ChapterOrdinal(1), epubHandle.initialAnchor.ordinal)
-        assertEquals(SpoilerGate.UpTo(ChapterOrdinal(1)), epubHandle.spoilerGate)
     }
 
     @Test
-    fun `2_backward flip updates currentCursor without lowering spoilerWatermark`() = runTest {
+    fun `2_backward and forward cursor navigation updates currentCursor directly and persists`() = runTest {
         val bcBook = buildMultiChapterBcBook(tempFolder.newFile("B0101.bcbook"), chapterCount = 12)
         val imported = vault.ingestStudyPack(bcBook.absolutePath).getOrThrow()
         readerEngine.open(imported.workId, ReadingSurfaceMode.REFLOWABLE)
 
-        // Advance sequentially from ch 2 -> ch 3 -> ch 4 -> ch 5
+        // Advance sequentially from ch 2 -> ch 5
         for (ord in 3..5) {
             val anchor = vault.resolveAnchor(imported.workId, ChapterOrdinal(ord), BlockId("B01"))
             fakeRenderer.emitLocation(anchor)
         }
-        assertEquals(ChapterOrdinal(5), readerEngine.activeState.value.spoilerWatermark)
-        assertEquals(SpoilerGate.UpTo(ChapterOrdinal(5)), readerEngine.currentSpoilerGate(imported.workId))
+        assertEquals(ChapterOrdinal(5), readerEngine.activeState.value.currentCursor?.ordinal)
 
         // Flip backward to chapter 2
         val ch2Anchor = vault.resolveAnchor(imported.workId, ChapterOrdinal(2), BlockId("B01"))
         fakeRenderer.emitLocation(ch2Anchor)
+        assertEquals(ChapterOrdinal(2), readerEngine.activeState.value.currentCursor?.ordinal)
 
-        val state = readerEngine.activeState.value
-        assertEquals(ChapterOrdinal(2), state.currentCursor?.ordinal)
-        assertEquals(ChapterOrdinal(5), state.spoilerWatermark)
-        assertNull(state.pendingWatermarkJump)
-        assertEquals(SpoilerGate.UpTo(ChapterOrdinal(5)), readerEngine.currentSpoilerGate(imported.workId))
-    }
-
-    @Test
-    fun `3_forward TOC jump sets pendingWatermarkJump and keeps SpoilerGate locked until confirmed`() = runTest {
-        val bcBook = buildMultiChapterBcBook(tempFolder.newFile("B0102.bcbook"), chapterCount = 12)
-        val imported = vault.ingestStudyPack(bcBook.absolutePath).getOrThrow()
-        readerEngine.open(imported.workId, ReadingSurfaceMode.REFLOWABLE)
-
-        for (ord in 3..5) {
-            fakeRenderer.emitLocation(vault.resolveAnchor(imported.workId, ChapterOrdinal(ord), BlockId("B01")))
-        }
-        assertEquals(ChapterOrdinal(5), readerEngine.activeState.value.spoilerWatermark)
-
-        // TOC jump to ch 10 (> watermark 5 + 1)
+        // Direct forward TOC jump to ch 10 updates currentCursor immediately without any confirmation gate
         val ch10Anchor = vault.resolveAnchor(imported.workId, ChapterOrdinal(10), BlockId("B01"))
         readerEngine.goTo(ch10Anchor, highlightPulseMs = 500L)
-
-        val jumpState = readerEngine.activeState.value
-        assertEquals(ChapterOrdinal(10), jumpState.currentCursor?.ordinal)
-        assertEquals(ChapterOrdinal(5), jumpState.spoilerWatermark)
-        assertEquals(ChapterOrdinal(10), jumpState.pendingWatermarkJump)
-        assertEquals(SpoilerGate.UpTo(ChapterOrdinal(5)), readerEngine.currentSpoilerGate(imported.workId))
-
-        // Explicit user confirmation promotes watermark and clears pending jump
-        readerEngine.confirmWatermarkAdvance(imported.workId, ChapterOrdinal(10))
-
-        val confirmedState = readerEngine.activeState.value
-        assertEquals(ChapterOrdinal(10), confirmedState.spoilerWatermark)
-        assertNull(confirmedState.pendingWatermarkJump)
-        assertEquals(SpoilerGate.UpTo(ChapterOrdinal(10)), readerEngine.currentSpoilerGate(imported.workId))
+        assertEquals(ChapterOrdinal(10), readerEngine.activeState.value.currentCursor?.ordinal)
     }
 
     @Test
-    fun `4_raiseWatermarkFromRemote raises watermark monotonically without clobbering currentCursor`() = runTest {
-        val bcBook = buildMultiChapterBcBook(tempFolder.newFile("B0103.bcbook"), chapterCount = 12)
-        val imported = vault.ingestStudyPack(bcBook.absolutePath).getOrThrow()
-        readerEngine.open(imported.workId, ReadingSurfaceMode.REFLOWABLE)
+    fun `3_ReaderDatabase MIGRATION_1_2 upgrades existing v1 database without crashing`() = runTest {
+        val dbName = "test_reader_mig_v1_v2.db"
+        context.deleteDatabase(dbName)
+        val config = SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name(dbName)
+            .callback(
+                object : SupportSQLiteOpenHelper.Callback(1) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL(
+                            """
+                            CREATE TABLE IF NOT EXISTS `reading_progress` (
+                                `workId` TEXT NOT NULL,
+                                `surfaceMode` TEXT NOT NULL,
+                                `cursorJson` TEXT NOT NULL,
+                                `spoilerWatermarkOrdinal` INTEGER NOT NULL,
+                                `updatedAtMs` INTEGER NOT NULL,
+                                PRIMARY KEY(`workId`)
+                            )
+                            """.trimIndent(),
+                        )
+                        db.execSQL(
+                            """
+                            CREATE TABLE IF NOT EXISTS `annotations` (
+                                `noteId` TEXT NOT NULL, `workId` TEXT NOT NULL, `deviceId` TEXT NOT NULL,
+                                `anchorJson` TEXT NOT NULL, `colorToken` TEXT NOT NULL, `comment` TEXT NOT NULL,
+                                `updatedAtMs` INTEGER NOT NULL, `deletedAtMs` INTEGER,
+                                PRIMARY KEY(`noteId`)
+                            )
+                            """.trimIndent(),
+                        )
+                        db.execSQL("CREATE INDEX IF NOT EXISTS `index_annotations_workId_updatedAtMs` ON `annotations` (`workId`, `updatedAtMs`)")
+                        db.execSQL(
+                            """
+                            CREATE TABLE IF NOT EXISTS `fonts` (
+                                `fontId` TEXT NOT NULL, `displayName` TEXT NOT NULL,
+                                `filePath` TEXT NOT NULL, `addedAtMs` INTEGER NOT NULL,
+                                PRIMARY KEY(`fontId`)
+                            )
+                            """.trimIndent(),
+                        )
+                        db.execSQL(
+                            """
+                            INSERT INTO `reading_progress` VALUES (
+                                'B0001', 'REFLOWABLE', '{"type":"block_offset","ordinal":5,"blockId":"B01","charStart":0,"charEnd":0,"snippet":""}', 7, 1000
+                            )
+                            """.trimIndent(),
+                        )
+                    }
 
-        // Advance sequentially to ch 4, then jump to ch 9 (pending jump = 9)
-        fakeRenderer.emitLocation(vault.resolveAnchor(imported.workId, ChapterOrdinal(3), BlockId("B01")))
-        fakeRenderer.emitLocation(vault.resolveAnchor(imported.workId, ChapterOrdinal(4), BlockId("B01")))
-        val ch9Anchor = vault.resolveAnchor(imported.workId, ChapterOrdinal(9), BlockId("B01"))
-        readerEngine.goTo(ch9Anchor)
-        assertEquals(ChapterOrdinal(9), readerEngine.activeState.value.pendingWatermarkJump)
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                },
+            )
+            .build()
+        FrameworkSQLiteOpenHelperFactory().create(config).writableDatabase.close()
 
-        // Remote watermark is lower (ch 3) -> no-op
-        readerEngine.raiseWatermarkFromRemote(imported.workId, ChapterOrdinal(3))
-        assertEquals(ChapterOrdinal(4), readerEngine.activeState.value.spoilerWatermark)
-        assertEquals(ChapterOrdinal(9), readerEngine.activeState.value.currentCursor?.ordinal)
-        assertEquals(ChapterOrdinal(9), readerEngine.activeState.value.pendingWatermarkJump)
-
-        // Remote watermark is higher (ch 11) -> raises to 11, keeps cursor at ch 9, clears stale pending jump <= 11
-        readerEngine.raiseWatermarkFromRemote(imported.workId, ChapterOrdinal(11))
-        val raisedState = readerEngine.activeState.value
-        assertEquals(ChapterOrdinal(11), raisedState.spoilerWatermark)
-        assertEquals(ChapterOrdinal(9), raisedState.currentCursor?.ordinal)
-        assertNull(raisedState.pendingWatermarkJump)
-        assertEquals(SpoilerGate.UpTo(ChapterOrdinal(11)), readerEngine.currentSpoilerGate(imported.workId))
+        val migratedDb = Room.databaseBuilder(context, ReaderDatabase::class.java, dbName)
+            .addMigrations(ReaderDatabase.MIGRATION_1_2)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val saved = migratedDb.readerDao().findProgress("B0001")
+            assertNotNull(saved)
+            assertEquals("REFLOWABLE", saved!!.surfaceMode)
+            assertTrue(saved.cursorJson.contains("\"ordinal\":5"))
+        } finally {
+            migratedDb.close()
+            context.deleteDatabase(dbName)
+        }
     }
 
     @Test

@@ -157,25 +157,6 @@ sealed interface ReadingAnchor {
     ) : ReadingAnchor
 }
 
-@Serializable
-sealed interface SpoilerGate {
-    val cacheKey: String
-
-    @Serializable
-    @SerialName("up_to")
-    data class UpTo(val unlockedMaxOrdinal: ChapterOrdinal) : SpoilerGate {
-        override val cacheKey: String
-            get() = "gate:ch${unlockedMaxOrdinal.twoDigit()}"
-    }
-
-    @Serializable
-    @SerialName("full")
-    data object FullBookUnlocked : SpoilerGate {
-        override val cacheKey: String
-            get() = "gate:full"
-    }
-}
-
 sealed interface AppFailure {
     data class UnsupportedDrmOrFormat(val reason: String) : AppFailure
     data class DesktopConnectionRequired(val featureName: String) : AppFailure

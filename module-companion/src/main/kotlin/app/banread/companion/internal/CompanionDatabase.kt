@@ -12,10 +12,12 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Entity(
     tableName = "companion_results",
-    primaryKeys = ["workId", "scopeKey", "progressGateKey", "toolId", "promptVersion"],
+    primaryKeys = ["workId", "scopeKey", "toolId", "promptVersion"],
     indices = [
         Index(value = ["workId", "toolId", "scopeKey"]),
         Index(value = ["isPinned", "lastAccessedAtMs"]),
@@ -24,7 +26,6 @@ import androidx.room.Transaction
 internal data class CompanionResultEntity(
     val workId: String,
     val scopeKey: String,
-    val progressGateKey: String,
     val toolId: String,
     val promptVersion: Int,
     val chapterContentSha256: String,
@@ -60,7 +61,6 @@ internal data class QaThreadEntity(
     val threadId: String,
     val workId: String,
     val scopeKey: String,
-    val gateOrdinal: Int?,
     val turnIndex: Int,
     val role: String,
     val content: String,
@@ -71,40 +71,27 @@ internal data class QaThreadEntity(
 internal interface CompanionDao {
     @Query(
         "SELECT * FROM companion_results " +
-            "WHERE workId = :workId AND scopeKey = :scopeKey AND progressGateKey = :progressGateKey " +
+            "WHERE workId = :workId AND scopeKey = :scopeKey " +
             "AND toolId = :toolId AND promptVersion = :promptVersion LIMIT 1",
     )
     suspend fun getExactResult(
         workId: String,
         scopeKey: String,
-        progressGateKey: String,
         toolId: String,
         promptVersion: Int,
     ): CompanionResultEntity?
-
-    @Query(
-        "SELECT * FROM companion_results " +
-            "WHERE workId = :workId AND scopeKey = :scopeKey AND toolId = :toolId AND promptVersion = :promptVersion",
-    )
-    suspend fun getAllGateVariants(
-        workId: String,
-        scopeKey: String,
-        toolId: String,
-        promptVersion: Int,
-    ): List<CompanionResultEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertResult(entity: CompanionResultEntity)
 
     @Query(
         "UPDATE companion_results SET lastAccessedAtMs = :nowMs " +
-            "WHERE workId = :workId AND scopeKey = :scopeKey AND progressGateKey = :progressGateKey " +
+            "WHERE workId = :workId AND scopeKey = :scopeKey " +
             "AND toolId = :toolId AND promptVersion = :promptVersion",
     )
     suspend fun touchResult(
         workId: String,
         scopeKey: String,
-        progressGateKey: String,
         toolId: String,
         promptVersion: Int,
         nowMs: Long,
@@ -118,13 +105,12 @@ internal interface CompanionDao {
 
     @Query(
         "DELETE FROM companion_results " +
-            "WHERE workId = :workId AND scopeKey = :scopeKey AND progressGateKey = :progressGateKey " +
+            "WHERE workId = :workId AND scopeKey = :scopeKey " +
             "AND toolId = :toolId AND promptVersion = :promptVersion",
     )
     suspend fun deleteResult(
         workId: String,
         scopeKey: String,
-        progressGateKey: String,
         toolId: String,
         promptVersion: Int,
     )
@@ -138,7 +124,7 @@ internal interface CompanionDao {
             if (victims.isEmpty()) break
             for (v in victims) {
                 if (total <= maxBytes) break
-                deleteResult(v.workId, v.scopeKey, v.progressGateKey, v.toolId, v.promptVersion)
+                deleteResult(v.workId, v.scopeKey, v.toolId, v.promptVersion)
                 total -= v.byteSize
             }
         }
@@ -176,13 +162,77 @@ internal interface CompanionDao {
         ChapterDigestEntity::class,
         QaThreadEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 internal abstract class CompanionDatabase : RoomDatabase() {
     abstract fun companionDao(): CompanionDao
 
     companion object {
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `companion_results_new` (
+                        `workId` TEXT NOT NULL,
+                        `scopeKey` TEXT NOT NULL,
+                        `toolId` TEXT NOT NULL,
+                        `promptVersion` INTEGER NOT NULL,
+                        `chapterContentSha256` TEXT NOT NULL,
+                        `artifactJson` TEXT NOT NULL,
+                        `tokenCost` INTEGER NOT NULL,
+                        `byteSize` INTEGER NOT NULL,
+                        `isPinned` INTEGER NOT NULL,
+                        `createdAtMs` INTEGER NOT NULL,
+                        `lastAccessedAtMs` INTEGER NOT NULL,
+                        PRIMARY KEY(`workId`, `scopeKey`, `toolId`, `promptVersion`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    INSERT OR REPLACE INTO `companion_results_new` (
+                        `workId`, `scopeKey`, `toolId`, `promptVersion`, `chapterContentSha256`,
+                        `artifactJson`, `tokenCost`, `byteSize`, `isPinned`, `createdAtMs`, `lastAccessedAtMs`
+                    )
+                    SELECT `workId`, `scopeKey`, `toolId`, `promptVersion`, `chapterContentSha256`,
+                           `artifactJson`, `tokenCost`, `byteSize`, `isPinned`, `createdAtMs`, `lastAccessedAtMs`
+                    FROM `companion_results`
+                    ORDER BY `lastAccessedAtMs` ASC
+                    """.trimIndent(),
+                )
+                db.execSQL("DROP TABLE `companion_results`")
+                db.execSQL("ALTER TABLE `companion_results_new` RENAME TO `companion_results`")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_companion_results_workId_toolId_scopeKey` ON `companion_results` (`workId`, `toolId`, `scopeKey`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_companion_results_isPinned_lastAccessedAtMs` ON `companion_results` (`isPinned`, `lastAccessedAtMs`)")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `qa_threads_new` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `threadId` TEXT NOT NULL,
+                        `workId` TEXT NOT NULL,
+                        `scopeKey` TEXT NOT NULL,
+                        `turnIndex` INTEGER NOT NULL,
+                        `role` TEXT NOT NULL,
+                        `content` TEXT NOT NULL,
+                        `createdAtMs` INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO `qa_threads_new` (`id`, `threadId`, `workId`, `scopeKey`, `turnIndex`, `role`, `content`, `createdAtMs`)
+                    SELECT `id`, `threadId`, `workId`, `scopeKey`, `turnIndex`, `role`, `content`, `createdAtMs`
+                    FROM `qa_threads`
+                    """.trimIndent(),
+                )
+                db.execSQL("DROP TABLE `qa_threads`")
+                db.execSQL("ALTER TABLE `qa_threads_new` RENAME TO `qa_threads`")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_qa_threads_workId_threadId_turnIndex` ON `qa_threads` (`workId`, `threadId`, `turnIndex`)")
+            }
+        }
+
         @Volatile
         private var persistentInstance: CompanionDatabase? = null
 
@@ -198,6 +248,7 @@ internal abstract class CompanionDatabase : RoomDatabase() {
                     CompanionDatabase::class.java,
                     "banread_companion_v1.db",
                 )
+                    .addMigrations(MIGRATION_1_2)
                     .fallbackToDestructiveMigration()
                     .build()
                     .also { persistentInstance = it }

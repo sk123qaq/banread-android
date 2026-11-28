@@ -4,7 +4,6 @@ import app.banread.model.AuditedArtifact
 import app.banread.model.BlockId
 import app.banread.model.ChapterOrdinal
 import app.banread.model.LibraryVault
-import app.banread.model.SpoilerGate
 import app.banread.model.WorkId
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -29,10 +28,10 @@ internal class DesktopCacheImporter(
         val root = File(bundleCacheDir)
         if (!root.isDirectory) return
 
-        val gatedSlice = runCatching {
-            libraryVault.loadGatedChapterInputs(workId, SpoilerGate.FullBookUnlocked)
+        val bookSlice = runCatching {
+            libraryVault.loadBookInputs(workId)
         }.getOrNull()
-        val chaptersByOrd = gatedSlice?.chapters?.associateBy { it.ordinal.value }.orEmpty()
+        val chaptersByOrd = bookSlice?.chapters?.associateBy { it.ordinal.value }.orEmpty()
 
         val chDirs = root.listFiles()
             ?.filter { it.isDirectory && it.name.startsWith("ch_") }
@@ -97,7 +96,6 @@ internal class DesktopCacheImporter(
         saveCacheRow(
             workId = workId,
             scopeKey = scopeKey,
-            progressGateKey = CHAPTER_SELF_GATE_KEY,
             toolId = "chapter_map",
             chapterSha = effectiveSha,
             artifact = artifact,
@@ -133,7 +131,6 @@ internal class DesktopCacheImporter(
         saveCacheRow(
             workId = workId,
             scopeKey = scopeKey,
-            progressGateKey = CHAPTER_SELF_GATE_KEY,
             toolId = parsedToolId,
             chapterSha = effectiveSha,
             artifact = artifact,
@@ -184,7 +181,6 @@ internal class DesktopCacheImporter(
             saveCacheRow(
                 workId = workId,
                 scopeKey = "note:${ordinal.twoDigit()}:$noteId",
-                progressGateKey = CHAPTER_SELF_GATE_KEY,
                 toolId = action,
                 chapterSha = effectiveSha,
                 artifact = artifact,
@@ -197,7 +193,6 @@ internal class DesktopCacheImporter(
     private suspend fun saveCacheRow(
         workId: WorkId,
         scopeKey: String,
-        progressGateKey: String,
         toolId: String,
         chapterSha: String,
         artifact: AuditedArtifact,
@@ -210,7 +205,6 @@ internal class DesktopCacheImporter(
             CompanionResultEntity(
                 workId = workId.raw,
                 scopeKey = scopeKey,
-                progressGateKey = progressGateKey,
                 toolId = toolId,
                 promptVersion = PromptCatalog.PROMPT_VERSION,
                 chapterContentSha256 = chapterSha,
@@ -257,7 +251,6 @@ internal class DesktopCacheImporter(
         (this[key] as? JsonPrimitive)?.contentOrNull.orEmpty()
 
     companion object {
-        const val CHAPTER_SELF_GATE_KEY = "chapter:self"
         private val KNOWN_READ_TYPES = listOf(
             "practical", "literature", "history", "science", "philosophy", "social", "visual",
         )

@@ -470,7 +470,6 @@ class HttpDesktopGatewayAdapter(
             ordinal = cursor.ordinal.value,
             blockId = blk,
             charOffset = offset,
-            highWaterMarkOrdinal = watermark.value,
             updatedAtMs = updatedAtEpochMs.coerceAtLeast(0L),
         )
     }
@@ -486,7 +485,6 @@ class HttpDesktopGatewayAdapter(
                 charEnd = charOffset,
                 snippet = "",
             ),
-            watermark = ChapterOrdinal(highWaterMarkOrdinal),
             updatedAtEpochMs = updatedAtMs,
         )
     }.getOrNull()

@@ -157,12 +157,12 @@ class HttpDesktopGatewayAdapterTest {
                     val body = req.bodyBytes.toString(Charsets.UTF_8)
                     val devId = Regex(""""device_id"\s*:\s*"([^"]+)"""").find(body)?.groupValues?.get(1) ?: "unknown"
                     storedDesktopShards[devId] = body
-                    jsonResp(200, """{"ok":true,"merged_high_water_mark_ordinal":4}""")
+                    jsonResp(200, """{"ok":true}""")
                 }
                 method == "GET" && path.startsWith("/api/mobile/v1/progress/") -> {
                     val uid = path.substringAfterLast('/')
                     val shardsArray = storedDesktopShards.values.joinToString(",")
-                    jsonResp(200, """{"uid":"$uid","merged_high_water_mark_ordinal":4,"shards":[$shardsArray]}""")
+                    jsonResp(200, """{"uid":"$uid","shards":[$shardsArray]}""")
                 }
                 method == "POST" && path == "/api/mobile/v1/cross-search" -> {
                     val body = req.bodyBytes.toString(Charsets.UTF_8)
@@ -256,14 +256,13 @@ class HttpDesktopGatewayAdapterTest {
                 textQuote = TextQuote("", "高祖", ""),
                 blockId = BlockId("B01"),
             ),
-            watermark = ChapterOrdinal(1),
             updatedAtEpochMs = 1764230400000L,
         )
         adapter.pushProgressShard(expectedToken, baseUrl, shard)
         val pulledShards = adapter.fetchProgressShards(expectedToken, baseUrl, WorkId("B0001"))
         assertEquals(1, pulledShards.size)
         assertEquals(DeviceId("pixel-9"), pulledShards.single().deviceId)
-        assertEquals(ChapterOrdinal(1), pulledShards.single().watermark)
+        assertEquals(ChapterOrdinal(1), pulledShards.single().cursor.ordinal)
 
         val hits = coordinator.queryCrossBookHits(WorkId("B0001"), "楚汉制度", "秦二世元年").getOrThrow()
         assertEquals(1, hits.size)

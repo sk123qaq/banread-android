@@ -28,7 +28,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -52,12 +51,10 @@ import app.banread.app.ui.bookshelf.AdaptiveBookCover
 import app.banread.app.ui.components.BanReadSurfaceCard
 import app.banread.app.ui.components.BanReadTopBar
 import app.banread.app.ui.components.CompactActionButton
-import app.banread.app.ui.components.ForwardJumpDialog
 import app.banread.app.ui.components.PerspectivePickerDialog
 import app.banread.app.ui.components.SingleLinePill
 import app.banread.app.ui.components.formatProfileBadge
 import app.banread.app.ui.theme.BanReadTheme
-import app.banread.model.ChapterOrdinal
 import app.banread.model.ChapterOutlineItem
 import app.banread.model.ReadingSurfaceMode
 
@@ -131,13 +128,6 @@ fun BookDetailScreen(
                 )
             }
         } else {
-            val unlockedBody = outline.bodyChapters.filter {
-                state.fullBookUnlocked || it.ordinal <= state.currentWatermark
-            }
-            val lockedBody = outline.bodyChapters.filter {
-                !state.fullBookUnlocked && it.ordinal > state.currentWatermark
-            }
-
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
@@ -204,7 +194,7 @@ fun BookDetailScreen(
                                     )
                                 }
                                 Text(
-                                    text = "正文 ${outline.bodyChapters.size} 章 · 防剧透锁至第 ${state.currentWatermark.value} 章",
+                                    text = "正文 ${outline.bodyChapters.size} 章",
                                     color = palette.ink3,
                                     fontSize = 11.5.sp,
                                 )
@@ -219,29 +209,13 @@ fun BookDetailScreen(
                     }
                 }
 
-                // Unlocked body chapters
-                items(unlockedBody, key = { "body_${it.ordinal.value}" }) { chapter ->
+                // Body chapters
+                items(outline.bodyChapters, key = { "body_${it.ordinal.value}" }) { chapter ->
                     ChapterOutlineRow(
                         item = chapter,
-                        isCurrent = chapter.ordinal == state.currentWatermark,
-                        isLocked = false,
+                        isCurrent = chapter.ordinal == state.currentOrdinal,
                         onClick = { viewModel.onChapterClicked(chapter) },
                     )
-                }
-
-                // Watermark divider when there are chapters beyond watermark
-                if (lockedBody.isNotEmpty()) {
-                    item(key = "watermark_divider") {
-                        WatermarkDividerRow(watermark = state.currentWatermark)
-                    }
-                    items(lockedBody, key = { "locked_${it.ordinal.value}" }) { chapter ->
-                        ChapterOutlineRow(
-                            item = chapter,
-                            isCurrent = false,
-                            isLocked = true,
-                            onClick = { viewModel.onChapterClicked(chapter) },
-                        )
-                    }
                 }
 
                 // Notes chapters section if present
@@ -259,7 +233,6 @@ fun BookDetailScreen(
                         ChapterOutlineRow(
                             item = noteCh,
                             isCurrent = false,
-                            isLocked = false,
                             badgeOverride = "注释",
                             onClick = { viewModel.onChapterClicked(noteCh) },
                         )
@@ -293,25 +266,12 @@ fun BookDetailScreen(
             onDismiss = viewModel::closePerspectivePicker,
         )
     }
-
-    val pendingJump = state.pendingForwardJump
-    if (pendingJump != null) {
-        ForwardJumpDialog(
-            targetOrdinal = pendingJump.ordinal,
-            targetTitle = pendingJump.title,
-            currentWatermark = state.currentWatermark,
-            onAdvanceAndJump = viewModel::confirmForwardJumpAdvance,
-            onPreviewOnly = viewModel::confirmForwardJumpPreviewOnly,
-            onDismiss = viewModel::dismissForwardJumpDialog,
-        )
-    }
 }
 
 @Composable
 private fun ChapterOutlineRow(
     item: ChapterOutlineItem,
     isCurrent: Boolean,
-    isLocked: Boolean,
     badgeOverride: String? = null,
     onClick: () -> Unit,
 ) {
@@ -349,7 +309,7 @@ private fun ChapterOutlineRow(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = item.title,
-                    color = if (isLocked) palette.ink2 else palette.ink,
+                    color = palette.ink,
                     fontSize = 13.5.sp,
                     fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
                     maxLines = 2,
@@ -383,51 +343,8 @@ private fun ChapterOutlineRow(
                     contentColor = Color.White,
                     borderColor = palette.cinnabar,
                 )
-                isLocked -> SingleLinePill(
-                    text = "🔒 未读",
-                    containerColor = palette.surfaceSubtle,
-                    contentColor = palette.ink3,
-                    borderColor = palette.line,
-                )
             }
         }
-    }
-}
-
-@Composable
-private fun WatermarkDividerRow(watermark: ChapterOrdinal) {
-    val palette = BanReadTheme.palette
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        HorizontalDivider(modifier = Modifier.weight(1f), color = palette.cinnabar.copy(alpha = 0.4f))
-        Row(
-            modifier = Modifier
-                .background(palette.amberSoft, RoundedCornerShape(999.dp))
-                .padding(horizontal = 10.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Lock,
-                contentDescription = null,
-                tint = palette.amber,
-                modifier = Modifier.size(12.dp),
-            )
-            Text(
-                text = "防剧透水位线 · 以上锁至第 ${watermark.value} 章",
-                color = palette.amber,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                softWrap = false,
-            )
-        }
-        HorizontalDivider(modifier = Modifier.weight(1f), color = palette.cinnabar.copy(alpha = 0.4f))
     }
 }
 
@@ -484,7 +401,6 @@ private fun FrontBackCollapsibleSection(
                     ChapterOutlineRow(
                         item = fb,
                         isCurrent = false,
-                        isLocked = false,
                         badgeOverride = "水章",
                         onClick = { onItemClick(fb) },
                     )

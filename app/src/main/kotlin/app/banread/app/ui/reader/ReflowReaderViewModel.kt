@@ -381,14 +381,6 @@ class ReflowReaderViewModel(
         _uiState.value = _uiState.value.copy(showReturnToCompanionPill = false)
     }
 
-    fun confirmCurrentPendingWatermark() {
-        val pending = _uiState.value.sessionState.pendingWatermarkJump ?: return
-        viewModelScope.launch {
-            readerEngine.confirmWatermarkAdvance(workId, pending)
-            _uiState.value = _uiState.value.copy(statusBanner = "已推进防剧透水位线至第 ${pending.value} 章")
-        }
-    }
-
     fun clearStatusBanner() {
         _uiState.value = _uiState.value.copy(statusBanner = null)
     }

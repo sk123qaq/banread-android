@@ -28,7 +28,6 @@ import app.banread.model.ReadingSurfaceMode
 import app.banread.model.SharedCompanionArtifact
 import app.banread.model.SharedCompanionPayload
 import app.banread.model.SharedQaTurn
-import app.banread.model.SpoilerGate
 import app.banread.model.WorkId
 import app.banread.model.registry.ProfileRegistry
 import app.banread.reader.ReaderEngineFactory
@@ -115,7 +114,7 @@ class ThreeChannelShareTest {
 
         sender.reader.open(WorkId("B0042"), ReadingSurfaceMode.REFLOWABLE)
         val anchor = sender.vault.resolveAnchor(WorkId("B0042"), ChapterOrdinal(3), BlockId("B01"))
-        sender.reader.confirmWatermarkAdvance(WorkId("B0042"), ChapterOrdinal(4))
+        sender.reader.goTo(anchor)
         sender.reader.saveAnnotation(WorkId("B0042"), anchor, "YELLOW", "好友分享的高亮批注")
         sender.companion.importShareCompanionData(
             WorkId("B0042"),
@@ -123,7 +122,6 @@ class ThreeChannelShareTest {
                 artifacts = listOf(
                     SharedCompanionArtifact(
                         scopeKey = "chapter:03",
-                        progressGateKey = "chapter:self",
                         toolId = "chapter_map",
                         promptVersion = 1,
                         artifact = AuditedArtifact.MarkdownReadCard(
@@ -133,8 +131,8 @@ class ThreeChannelShareTest {
                     ),
                 ),
                 qaTurns = listOf(
-                    SharedQaTurn("t1", "chapter:03", 3, 0, "user", "谁封缄了信封？"),
-                    SharedQaTurn("t1", "chapter:03", 3, 1, "assistant", "海关官员 [B01]"),
+                    SharedQaTurn("t1", "chapter:03", 0, "user", "谁封缄了信封？"),
+                    SharedQaTurn("t1", "chapter:03", 1, "assistant", "海关官员 [B01]"),
                 ),
             ),
         )
@@ -181,7 +179,6 @@ class ThreeChannelShareTest {
         assertEquals(2, sameImport.importedQaTurns)
         assertEquals(1, sameShaReceiver.vault.listWorks().size)
         assertEquals(2, sameShaReceiver.reader.listNoteLogEntries(WorkId("B0042"), includeDeleted = false).size)
-        assertEquals(SpoilerGate.UpTo(ChapterOrdinal(4)), sameShaReceiver.reader.currentSpoilerGate(WorkId("B0042")))
         assertTrue("Same-SHA receiver must NOT fetch /book", relayRequests.none { it == "GET /s/br_r2test01/book" })
 
         relayRequests.clear()

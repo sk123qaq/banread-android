@@ -2,7 +2,6 @@ package app.banread.companion.internal
 
 import app.banread.model.CrossBookHit
 import app.banread.model.ReadProfileId
-import app.banread.model.SpoilerGate
 import app.banread.model.ToolId
 import app.banread.model.registry.ProfileRegistry
 
@@ -301,31 +300,12 @@ internal object PromptCatalog {
         return profile.blueprints.any { it.blueprint == raw } || profile.extensions.any { it.action == raw }
     }
 
-    fun antiSpoilerInstruction(gate: SpoilerGate, readType: String): String {
-        return when (gate) {
-            is SpoilerGate.UpTo -> {
-                val ord = gate.unlockedMaxOrdinal.value
-                "【严禁剧透硬规则（已解锁进度门控：gateOrdinal=$ord，仅限第 1–$ord 章）】" +
-                    "严禁调用训练记忆剧透第 $ord 章之后尚未揭晓的真凶、血缘秘密、人物结局或隐藏反转；" +
-                    "所有分析严格限定在第 1–$ord 章已呈现的文本事实内。"
-            }
-            SpoilerGate.FullBookUnlocked -> {
-                if (readType == "literature") {
-                    "【严禁剧透硬规则】严禁调用训练记忆剧透当前范围之外尚未揭晓的真凶、血缘秘密、人物结局或隐藏反转；所有分析严格限定在已呈现的文本事实内。"
-                } else {
-                    ""
-                }
-            }
-        }
-    }
-
     fun buildPrompt(
         toolId: ToolId,
         readProfileId: ReadProfileId,
         literatureSubKind: String?,
         profileRegistry: ProfileRegistry,
         ctx: BuiltCompanionContext,
-        gate: SpoilerGate,
         question: String = "",
         crossBookHits: List<CrossBookHit> = emptyList(),
     ): BuiltPrompt {
@@ -362,7 +342,6 @@ internal object PromptCatalog {
             }
         }
 
-        val antiSpoiler = antiSpoilerInstruction(gate, readType)
         val crossHitsBlock = if (crossBookHits.isNotEmpty()) {
             buildString {
                 append("\n\n【书库跨书检索参考片段（属 [补充] 参照，严禁冒充本书原文）】\n")
@@ -377,7 +356,6 @@ internal object PromptCatalog {
         if (effectiveAction == "chapter_map") {
             val system = buildString {
                 append("你是阅读伴读专家，负责提炼全章知识地图（节拍分节、核心单元与术语表）。\n")
-                if (antiSpoiler.isNotBlank()) append(antiSpoiler).append('\n')
                 append(
                     "只输出一个严格 JSON 对象（不要 markdown 围栏）：" +
                         "{\"blueprint\":\"chapter_map\",\"caption\":\"≤18字知识地图题\",\"reading_note\":\"≤40字导读\",\"summary\":\"2句全章主旨\"," +
@@ -395,11 +373,10 @@ internal object PromptCatalog {
             val schemaHint = if (isLitSpatial) LITERATURE_SPATIAL_SCHEMA_HINT else BLUEPRINT_SCHEMA_HINTS[effectiveBlueprint] ?: BLUEPRINT_SCHEMA_HINTS.getValue("argument_map")
             val scopeHint = when (ctx.scopeKind) {
                 "chapter" -> "当前作用范围：整章全局（涵盖 ${ctx.coveredBlocks} 个正文段落${if (ctx.sampled) "，长章已连续场景窗口抽样覆盖" else ""}）。每个节点 blocks 必须引用真实块号。"
-                "full_book" -> "当前作用范围：已解锁全书门控范围（${ctx.chapterTitle}）。严禁越过当前进度门控剧透。"
+                "full_book" -> "当前作用范围：全书全局（${ctx.chapterTitle}）。"
                 else -> "当前作用范围：读者选中的段落（${ctx.blockIds.joinToString(", ") { it.value }.ifBlank { "局部" }}）。"
             }
             val extraLines = buildList {
-                if (antiSpoiler.isNotBlank()) add(antiSpoiler)
                 if (isLitSpatial) add(LITERATURE_SPATIAL_GUIDANCE)
                 else BLUEPRINT_GUIDANCE[effectiveBlueprint]?.let { add(it) }
             }
@@ -429,13 +406,12 @@ internal object PromptCatalog {
             val subHint = literatureSubKind?.takeIf { it.isNotBlank() }?.let { "（文学子类侧重点：$it）" }.orEmpty()
             val scopeHint = when (ctx.scopeKind) {
                 "chapter" -> "作用范围：整章全局（涵盖 ${ctx.coveredBlocks} 个正文段落${if (ctx.sampled) "，已连续场景窗口覆盖" else ""}）。"
-                "full_book" -> "作用范围：已解锁全书门控范围（${ctx.chapterTitle}）。"
+                "full_book" -> "作用范围：全书全局（${ctx.chapterTitle}）。"
                 else -> "作用范围：读者选中的段落（${ctx.blockIds.joinToString(", ") { it.value }.ifBlank { "局部" }}）。"
             }
             val system = buildString {
                 append("你是阅读伴读专家，负责生成「${spec.title}」结构卡片（阅读视角：$readType）$subHint。\n")
                 append(scopeHint).append('\n')
-                if (antiSpoiler.isNotBlank()) append(antiSpoiler).append('\n')
                 if (spec.guidance.isNotBlank()) append(spec.guidance).append('\n')
                 append("严格区分 [原文] 与 [补充]（source 为 \"补充\" 时 body 开头禁止写\"补充对照：\"或\"补充：\"），严禁输出坐标或样式，只输出一个严格 JSON 对象（不要围栏）：\n")
                 append(spec.instruction)
@@ -461,12 +437,7 @@ internal object PromptCatalog {
             else ->
                 "你是随身伴读助手。紧扣读者选中的原文与上下文回答问题。引用书中事实标 `[原文]`，书外推理补充标 `[补充]`。"
         }
-        val system = buildString {
-            append(actionSystem)
-            if (antiSpoiler.isNotBlank()) {
-                append('\n').append(antiSpoiler)
-            }
-        }
+        val system = actionSystem
         val user = buildUserBlock(ctx, question = question, crossHitsBlock = crossHitsBlock)
         return BuiltPrompt(system, user, expectJson = false, effectiveAction = effectiveAction, effectiveBlueprint = "markdown_read_card")
     }
@@ -478,12 +449,12 @@ internal object PromptCatalog {
     ): String = buildString {
         val scopeDesc = when (ctx.scopeKind) {
             "chapter" -> "全章全局"
-            "full_book" -> "全书门控范围"
+            "full_book" -> "全书全局"
             else -> ctx.blockIds.joinToString(", ") { it.value }.ifBlank { "局部选段" }
         }
         append("《${ctx.workTitle}》· ${ctx.chapterTitle}（范围：$scopeDesc）\n")
         if (ctx.scopeKind == "chapter" || ctx.scopeKind == "full_book") {
-            append("\n全章/门控正文骨架（带真实块号）：\n")
+            append("\n全书/全章正文骨架（带真实块号）：\n")
             append(ctx.contextText.ifBlank { ctx.selectedText })
         } else {
             if (ctx.contextText.isNotBlank()) {

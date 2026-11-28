@@ -15,7 +15,6 @@ import app.banread.model.LogicalChapterEntry
 import app.banread.model.ReadProfileId
 import app.banread.model.ReadingAnchor
 import app.banread.model.ReadingSurfaceMode
-import app.banread.model.SpoilerGate
 import app.banread.model.WorkId
 import app.banread.model.registry.ProfileRegistry
 import kotlinx.coroutines.flow.toList
@@ -75,7 +74,7 @@ class LibraryVaultContractTest {
     }
 
     @Test
-    fun `ingestStudyPack preserves merged title ordinals, compiles XHTML, copies cache, and enforces SpoilerGate`() = runTest {
+    fun `ingestStudyPack preserves merged title ordinals, compiles XHTML, copies cache, and loads un-gated book inputs`() = runTest {
         val zipFile = buildRealisticBcBookZip(tempFolder.newFile("B0042.bcbook"))
         val imported = vault.ingestStudyPack(zipFile.absolutePath).getOrThrow()
 
@@ -86,7 +85,7 @@ class LibraryVaultContractTest {
         assertEquals(setOf(ReadingSurfaceMode.REFLOWABLE), imported.supportedModes)
         assertFalse(imported.isScannedPdf)
 
-        // 1. Outline verification: ordinal=1 merged title page, ordinal=2..4 body, ordinal=5 (actually 20 in full or 5 here — let's use ordinal 2, 3, 14, 20? Wait: let's build sequential ordinals 1..20 so SpoilerGate.UpTo(3) and Ch 14 -> Ch 20 match exact scenario!)
+        // 1. Outline verification: ordinal=1 merged title page, ordinal=2..19 body, ordinal=20 notes
         val outline = vault.getWorkOutline(imported.workId)
         assertEquals(18, outline.bodyChapters.size)
         assertEquals(1, outline.notesChapters.size)
@@ -142,16 +141,8 @@ class LibraryVaultContractTest {
         assertNotNull(fnByHref)
         assertEquals(fnByMarker.link.id, fnByHref!!.link.id)
 
-        // 5. Strict SpoilerGate isolation at Chapter 3:
-        //    - Only BODY chapters with ordinal <= 3 (Ch 2 & Ch 3; Ch 1 is FRONT_BACK, Ch 4..19 excluded, Ch 20 is NOTES)
-        //    - Only FootnoteLinks with sourceChapterOrdinal <= 3 (Ch 3 -> Ch 20 note 45 INCLUDED; Ch 14 -> Ch 20 note 102 EXCLUDED!)
-        val sliceAt3 = vault.loadGatedChapterInputs(imported.workId, SpoilerGate.UpTo(ChapterOrdinal(3)))
-        assertEquals(listOf(ChapterOrdinal(2), ChapterOrdinal(3)), sliceAt3.chapters.map { it.ordinal })
-        assertEquals(listOf("45"), sliceAt3.footnotes.map { it.marker })
-        assertEquals(ChapterOrdinal(20), sliceAt3.footnotes.single().targetChapterOrdinal)
-
-        // 6. FullBookUnlocked includes all 18 BODY chapters (excludes FRONT_BACK and NOTES) and excludes translator/bib boilerplate
-        val sliceFull = vault.loadGatedChapterInputs(imported.workId, SpoilerGate.FullBookUnlocked)
+        // 5. loadBookInputs includes all 18 BODY chapters (excludes FRONT_BACK and NOTES) and excludes translator/bib boilerplate
+        val sliceFull = vault.loadBookInputs(imported.workId)
         assertEquals(18, sliceFull.chapters.size)
         assertTrue(sliceFull.chapters.none { it.role != ChapterRole.BODY })
         assertEquals(setOf("45", "102"), sliceFull.footnotes.map { it.marker }.toSet())
@@ -375,9 +366,9 @@ class LibraryVaultContractTest {
         val outline = vault.getWorkOutline(imported.workId)
         assertTrue("Expected >= 2 virtual chapters, got ${outline.bodyChapters.size}", outline.bodyChapters.size >= 2)
 
-        val gated = vault.loadGatedChapterInputs(imported.workId, SpoilerGate.FullBookUnlocked)
-        assertEquals(outline.bodyChapters.size, gated.chapters.size)
-        for (slice in gated.chapters) {
+        val bookSlice = vault.loadBookInputs(imported.workId)
+        assertEquals(outline.bodyChapters.size, bookSlice.chapters.size)
+        for (slice in bookSlice.chapters) {
             val charCount = slice.blocks.sumOf { blk -> blk.text.count { !it.isWhitespace() } }
             assertTrue("Virtual chapter ${slice.ordinal.value} has $charCount chars (expected 8000..18000)", charCount in 8_000..18_000)
         }
@@ -397,17 +388,14 @@ class LibraryVaultContractTest {
     }
 
     @Test
-    fun `SpoilerGate UpTo filters translator and bibliography boilerplate notes`() = runTest {
-        val zipFile = buildRealisticBcBookZip(tempFolder.newFile("B0042_upto_boilerplate.bcbook"))
+    fun `loadBookInputs filters translator and bibliography boilerplate notes without truncating chapters`() = runTest {
+        val zipFile = buildRealisticBcBookZip(tempFolder.newFile("B0042_boilerplate.bcbook"))
         val imported = vault.ingestStudyPack(zipFile.absolutePath).getOrThrow()
 
-        val sliceAt5 = vault.loadGatedChapterInputs(imported.workId, SpoilerGate.UpTo(ChapterOrdinal(5)))
-        assertEquals(
-            listOf(ChapterOrdinal(2), ChapterOrdinal(3), ChapterOrdinal(4), ChapterOrdinal(5)),
-            sliceAt5.chapters.map { it.ordinal },
-        )
-        assertEquals(listOf("45"), sliceAt5.footnotes.map { it.marker })
-        assertTrue(sliceAt5.footnotes.none { it.marker == "999" })
+        val slice = vault.loadBookInputs(imported.workId)
+        assertEquals(18, slice.chapters.size)
+        assertEquals(setOf("45", "102"), slice.footnotes.map { it.marker }.toSet())
+        assertTrue(slice.footnotes.none { it.marker == "999" })
     }
 
     @Test
@@ -445,8 +433,8 @@ class LibraryVaultContractTest {
         assertTrue(fn1.fullNoteText.contains("史记"))
         assertTrue(fn2.fullNoteText.contains("汉书"))
 
-        val gated = vault.loadGatedChapterInputs(imported.workId, SpoilerGate.FullBookUnlocked)
-        assertEquals(setOf("1", "2"), gated.footnotes.map { it.marker }.toSet())
+        val slice = vault.loadBookInputs(imported.workId)
+        assertEquals(setOf("1", "2"), slice.footnotes.map { it.marker }.toSet())
 
         val ch01Html = File(filesRoot, "compiled/B7001/OEBPS/ch_01.xhtml").readText()
         assertTrue(ch01Html.contains("<ul "))

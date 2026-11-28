@@ -91,7 +91,6 @@ data class ShareManifest(
     val mapCount: Int = 0,
     val noteCount: Int = 0,
     val qaCount: Int = 0,
-    val watermarkOrdinal: Int? = null,
     val senderDeviceId: DeviceId,
     val createdAtEpochMs: Long,
 )
@@ -122,7 +121,6 @@ data class ShareReceiveResult(
     val importedArtifacts: Int,
     val importedNotes: Int,
     val importedQaTurns: Int,
-    val raisedWatermarkOrdinal: Int?,
 )
 
 data class LanShareSession(

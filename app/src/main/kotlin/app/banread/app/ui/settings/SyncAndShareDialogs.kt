@@ -459,7 +459,7 @@ internal fun ShareSendDialog(
                     )
                     ShareCheckRow(
                         checked = state.includeProgress,
-                        label = "当前阅读进度与防剧透水位（默认不覆盖对方进度）",
+                        label = "当前阅读进度快照（默认不覆盖对方进度）",
                         onCheckedChange = { v -> onUpdateOptions { it.copy(includeProgress = v) } },
                     )
 

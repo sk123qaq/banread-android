@@ -81,7 +81,6 @@ import app.banread.app.ui.components.ClickableBlockMarkdownText
 import app.banread.app.ui.components.CompactActionButton
 import app.banread.app.ui.components.PerspectivePickerDialog
 import app.banread.app.ui.components.SingleLinePill
-import app.banread.app.ui.components.SpoilerUnlockDialog
 import app.banread.app.ui.components.formatProfileBadge
 import app.banread.app.ui.theme.BanReadTheme
 import app.banread.model.AppFailure
@@ -191,17 +190,10 @@ fun CompanionSheetOverlay(
                 HorizontalDivider(thickness = palette.borderWidth, color = palette.line)
 
                 if (state.detent != CompanionDetent.PEEK) {
-                    // Scope selector + watermark chip
+                    // Scope selector (选段 / 本章 / 全书)
                     CompanionScopeStrip(
                         state = state,
                         onSelectScope = viewModel::selectScope,
-                        onLockChipClick = {
-                            if (state.fullBookUnlocked) {
-                                viewModel.relockToWatermark()
-                            } else {
-                                viewModel.selectScope(CompanionScopeChoice.FULL_BOOK)
-                            }
-                        },
                     )
 
                     // Tool strip populated from recommendedTools + 5 universal + chapter_map
@@ -273,14 +265,6 @@ fun CompanionSheetOverlay(
                 }
             }
         }
-    }
-
-    if (state.showSpoilerUnlockDialog) {
-        SpoilerUnlockDialog(
-            currentWatermark = state.currentWatermark,
-            onConfirmUnlock = viewModel::confirmFullBookUnlock,
-            onDismiss = viewModel::dismissSpoilerUnlockDialog,
-        )
     }
 
     if (state.showPerspectivePicker && state.activeProfile != null) {
@@ -404,7 +388,6 @@ private fun CompanionDragHandleHeader(
 private fun CompanionScopeStrip(
     state: CompanionUiState,
     onSelectScope: (CompanionScopeChoice) -> Unit,
-    onLockChipClick: () -> Unit,
 ) {
     val palette = BanReadTheme.palette
     FlowRow(
@@ -417,25 +400,14 @@ private fun CompanionScopeStrip(
     ) {
         CompanionScopeChoice.entries.forEach { choice ->
             val selected = state.scopeChoice == choice
-            val label = when (choice) {
-                CompanionScopeChoice.UP_TO_WATERMARK -> "截至第 ${state.currentWatermark.value} 章"
-                else -> choice.labelZh
-            }
             SingleLinePill(
-                text = label,
+                text = choice.labelZh,
                 containerColor = if (selected) palette.cinnabar else palette.surface,
                 contentColor = if (selected) Color.White else palette.ink,
                 borderColor = if (selected) palette.cinnabar else palette.lineStrong,
                 onClick = { onSelectScope(choice) },
             )
         }
-        SingleLinePill(
-            text = if (state.fullBookUnlocked) "🔓 全书已解锁" else "🔒 锁至第 ${state.currentWatermark.value} 章",
-            containerColor = if (state.fullBookUnlocked) palette.pineSoft else palette.amberSoft,
-            contentColor = if (state.fullBookUnlocked) palette.pine else palette.amber,
-            borderColor = if (state.fullBookUnlocked) palette.pine else palette.amber,
-            onClick = onLockChipClick,
-        )
     }
 }
 
@@ -950,7 +922,7 @@ private fun CompanionQaInputBar(
                     ) {
                         if (inputText.isEmpty()) {
                             Text(
-                                text = "基于当前视角与水位线继续追问…",
+                                text = "基于当前视角继续追问…",
                                 color = palette.ink3,
                                 fontSize = 12.5.sp,
                                 maxLines = 1,

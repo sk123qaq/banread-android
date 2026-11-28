@@ -1,14 +1,13 @@
 package app.banread.companion.internal
 
 import app.banread.model.BlockId
+import app.banread.model.BookBlock
+import app.banread.model.BookSlice
 import app.banread.model.ChapterOrdinal
+import app.banread.model.ChapterSlice
 import app.banread.model.FootnoteLink
-import app.banread.model.GatedBlock
-import app.banread.model.GatedBookSlice
-import app.banread.model.GatedChapterSlice
 import app.banread.model.LibraryVault
 import app.banread.model.ReadingAnchor
-import app.banread.model.SpoilerGate
 import app.banread.model.ToolScope
 import app.banread.model.WorkId
 import kotlinx.serialization.builtins.ListSerializer
@@ -32,7 +31,7 @@ internal data class BuiltCompanionContext(
 
 internal sealed interface ContextBuildOutcome {
     data class Ready(val context: BuiltCompanionContext) : ContextBuildOutcome
-    data class GateLocked(val reason: String) : ContextBuildOutcome
+    data class Unavailable(val reason: String) : ContextBuildOutcome
 }
 
 internal class ContextBuilder(
@@ -44,33 +43,25 @@ internal class ContextBuilder(
     suspend fun build(
         workId: WorkId,
         scope: ToolScope,
-        gate: SpoilerGate,
     ): ContextBuildOutcome {
         val outline = libraryVault.getWorkOutline(workId)
-        val slice: GatedBookSlice = libraryVault.loadGatedChapterInputs(workId, gate)
+        val slice: BookSlice = libraryVault.loadBookInputs(workId)
 
         return when (scope) {
-            is ToolScope.Selection -> buildSelectionContext(workId, outline.title, slice, scope, gate)
-            is ToolScope.Chapter -> buildChapterContext(workId, outline.title, slice, scope.ordinal, gate)
-            ToolScope.FullBook -> buildFullBookContext(workId, outline.title, slice, gate)
+            is ToolScope.Selection -> buildSelectionContext(outline.title, slice, scope)
+            is ToolScope.Chapter -> buildChapterContext(workId, outline.title, slice, scope.ordinal)
+            ToolScope.FullBook -> buildFullBookContext(workId, outline.title, slice)
         }
     }
 
-    private suspend fun buildSelectionContext(
-        workId: WorkId,
+    private fun buildSelectionContext(
         workTitle: String,
-        slice: GatedBookSlice,
+        slice: BookSlice,
         scope: ToolScope.Selection,
-        gate: SpoilerGate,
     ): ContextBuildOutcome {
         val ordinal = scope.anchor.ordinal
-        if (gate is SpoilerGate.UpTo && ordinal > gate.unlockedMaxOrdinal) {
-            return ContextBuildOutcome.GateLocked(
-                "Selection in chapter ${ordinal.value} exceeds SpoilerGate ${gate.unlockedMaxOrdinal.value}",
-            )
-        }
         val ch = slice.chapters.firstOrNull { it.ordinal == ordinal }
-            ?: return ContextBuildOutcome.GateLocked("Chapter ${ordinal.value} is unavailable within SpoilerGate")
+            ?: return ContextBuildOutcome.Unavailable("Chapter ${ordinal.value} is unavailable")
 
         val cleanedBlocks = cleanBlocks(ch.blocks)
         val anchorBid = when (val a = scope.anchor) {
@@ -141,22 +132,15 @@ internal class ContextBuilder(
     private suspend fun buildChapterContext(
         workId: WorkId,
         workTitle: String,
-        slice: GatedBookSlice,
+        slice: BookSlice,
         ordinal: ChapterOrdinal,
-        gate: SpoilerGate,
     ): ContextBuildOutcome {
-        if (gate is SpoilerGate.UpTo && ordinal > gate.unlockedMaxOrdinal) {
-            return ContextBuildOutcome.GateLocked(
-                "Chapter ${ordinal.value} exceeds SpoilerGate ${gate.unlockedMaxOrdinal.value}",
-            )
-        }
         val ch = slice.chapters.firstOrNull { it.ordinal == ordinal }
-            ?: return ContextBuildOutcome.GateLocked("Chapter ${ordinal.value} is unavailable within SpoilerGate")
+            ?: return ContextBuildOutcome.Unavailable("Chapter ${ordinal.value} is unavailable")
 
-        val fnEntries = resolveGatedFootnotes(
+        val fnEntries = resolveFootnotes(
             workId = workId,
             footnotes = slice.footnotes.filter { it.sourceChapterOrdinal == ordinal },
-            gate = gate,
         )
         val (contextText, covered, sampled) = formatChapterBodyAndNotes(
             blocks = ch.blocks,
@@ -186,17 +170,11 @@ internal class ContextBuilder(
     private suspend fun buildFullBookContext(
         workId: WorkId,
         workTitle: String,
-        slice: GatedBookSlice,
-        gate: SpoilerGate,
+        slice: BookSlice,
     ): ContextBuildOutcome {
-        val chapters = slice.chapters.filter { ch ->
-            when (gate) {
-                is SpoilerGate.UpTo -> ch.ordinal <= gate.unlockedMaxOrdinal
-                SpoilerGate.FullBookUnlocked -> true
-            }
-        }
+        val chapters = slice.chapters
         if (chapters.isEmpty()) {
-            return ContextBuildOutcome.GateLocked("No unlocked chapters available within SpoilerGate")
+            return ContextBuildOutcome.Unavailable("No body chapters available")
         }
 
         val recentCount = minOf(3, chapters.size)
@@ -207,7 +185,7 @@ internal class ContextBuilder(
         var usedChars = 0
 
         if (earlier.isNotEmpty()) {
-            parts += "【已读前章 L2 精要摘要】"
+            parts += "【前章 L2 精要摘要】"
             val digestBudget = minOf(8_000, CHAPTER_CHAR_BUDGET / 3)
             for (ch in earlier) {
                 val digest = getOrBuildChapterDigest(workId, ch)
@@ -221,12 +199,11 @@ internal class ContextBuilder(
         val remainingBudget = maxOf(4_000, CHAPTER_CHAR_BUDGET - usedChars)
         val perRecentBudget = maxOf(1_500, remainingBudget / maxOf(1, recent.size))
 
-        val allGatedNotes = resolveGatedFootnotes(
+        val allNotes = resolveFootnotes(
             workId = workId,
             footnotes = slice.footnotes,
-            gate = gate,
         )
-        val notesByChapter = allGatedNotes.groupBy { it.sourceOrdinal }
+        val notesByChapter = allNotes.groupBy { it.sourceOrdinal }
 
         var coveredBlocks = 0
         var anySampled = false
@@ -248,15 +225,11 @@ internal class ContextBuilder(
         val combinedHash = chapters.joinToString(":") { "${it.ordinal.value}:${it.contentHash.sha256Hex.take(12)}" }
         val validIds = chapters.flatMap { ch -> ch.blocks.map { it.blockId } }.toSet()
         val fallbackIds = listOfNotNull(recent.lastOrNull()?.blocks?.firstOrNull()?.blockId)
-        val gateLabel = when (gate) {
-            is SpoilerGate.UpTo -> "已解锁第 1–${gate.unlockedMaxOrdinal.value} 章"
-            SpoilerGate.FullBookUnlocked -> "全书已解锁"
-        }
 
         return ContextBuildOutcome.Ready(
             BuiltCompanionContext(
                 workTitle = workTitle,
-                chapterTitle = gateLabel,
+                chapterTitle = "全书共 ${chapters.size} 章",
                 chapterContentSha256 = combinedHash,
                 scopeKind = "full_book",
                 selectedText = "",
@@ -270,7 +243,7 @@ internal class ContextBuilder(
         )
     }
 
-    private suspend fun getOrBuildChapterDigest(workId: WorkId, ch: GatedChapterSlice): ChapterDigestEntity {
+    private suspend fun getOrBuildChapterDigest(workId: WorkId, ch: ChapterSlice): ChapterDigestEntity {
         val existing = dao.getChapterDigest(workId.raw, ch.ordinal.value)
         if (existing != null && existing.chapterContentSha256 == ch.contentHash.sha256Hex) {
             return existing
@@ -305,17 +278,13 @@ internal class ContextBuilder(
         val text: String,
     )
 
-    private suspend fun resolveGatedFootnotes(
+    private suspend fun resolveFootnotes(
         workId: WorkId,
         footnotes: List<FootnoteLink>,
-        gate: SpoilerGate,
     ): List<ResolvedNote> {
         val result = mutableListOf<ResolvedNote>()
         val seen = hashSetOf<String>()
         for (fn in footnotes) {
-            if (gate is SpoilerGate.UpTo && fn.sourceChapterOrdinal > gate.unlockedMaxOrdinal) {
-                continue
-            }
             val detail = runCatching {
                 libraryVault.resolveFootnote(workId, fn.sourceChapterOrdinal, fn.marker)
             }.getOrNull()
@@ -342,7 +311,7 @@ internal class ContextBuilder(
         val text: String,
     )
 
-    private fun cleanBlocks(blocks: List<GatedBlock>): List<CleanSemanticBlock> {
+    private fun cleanBlocks(blocks: List<BookBlock>): List<CleanSemanticBlock> {
         val out = ArrayList<CleanSemanticBlock>(blocks.size)
         for (blk in blocks) {
             val cleaned = cleanForModel(blk.text)
@@ -357,7 +326,7 @@ internal class ContextBuilder(
     }
 
     private fun formatChapterBodyAndNotes(
-        blocks: List<GatedBlock>,
+        blocks: List<BookBlock>,
         footnotes: List<ResolvedNote>,
         budget: Int,
     ): Triple<String, Int, Boolean> {

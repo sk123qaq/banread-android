@@ -16,7 +16,6 @@ import app.banread.model.ReadProfileId
 import app.banread.model.ReaderEngine
 import app.banread.model.ReaderTheme
 import app.banread.model.ReadingAnchor
-import app.banread.model.SpoilerGate
 import app.banread.model.ToolId
 import app.banread.model.ToolScope
 import app.banread.model.VizHostEvent
@@ -40,7 +39,6 @@ enum class CompanionDetent {
 enum class CompanionScopeChoice(val labelZh: String) {
     SELECTION("选段"),
     CHAPTER("本章"),
-    UP_TO_WATERMARK("截至当前进度"),
     FULL_BOOK("全书"),
 }
 
@@ -69,8 +67,6 @@ data class CompanionUiState(
     val literatureSubKindHints: Map<String, String> = emptyMap(),
     val scopeChoice: CompanionScopeChoice = CompanionScopeChoice.CHAPTER,
     val currentChapterOrdinal: ChapterOrdinal = ChapterOrdinal(1),
-    val currentWatermark: ChapterOrdinal = ChapterOrdinal(1),
-    val fullBookUnlocked: Boolean = false,
     val selectionAnchor: ReadingAnchor? = null,
     val selectedText: String = "",
     val tools: List<CompanionToolItem> = emptyList(),
@@ -81,7 +77,6 @@ data class CompanionUiState(
     val streamingMarkdown: String = "",
     val toolFailure: AppFailure? = null,
     val qaMessages: List<CompanionQaMessage> = emptyList(),
-    val showSpoilerUnlockDialog: Boolean = false,
     val showPerspectivePicker: Boolean = false,
     val isFullscreenVizOpen: Boolean = false,
     val toastMessage: String? = null,
@@ -148,9 +143,6 @@ class CompanionViewModel(
         viewModelScope.launch {
             val toolbox = companionEngine.recommendedTools(workId)
             val profile = profileRegistry.profileById(toolbox.profileId)
-            val gate = readerEngine.currentSpoilerGate(workId)
-            val watermark = (gate as? SpoilerGate.UpTo)?.unlockedMaxOrdinal ?: currentOrdinal
-            val fullUnlocked = gate is SpoilerGate.FullBookUnlocked
 
             val tools = buildToolStrip(profile)
             val pickedTool = initialToolId
@@ -171,8 +163,6 @@ class CompanionViewModel(
                 literatureSubKind = toolbox.literatureSubKind,
                 scopeChoice = initialScope,
                 currentChapterOrdinal = currentOrdinal,
-                currentWatermark = watermark,
-                fullBookUnlocked = fullUnlocked,
                 selectionAnchor = selectionAnchor ?: _uiState.value.selectionAnchor,
                 selectedText = selectedText.ifBlank { _uiState.value.selectedText },
                 tools = tools,
@@ -200,37 +190,8 @@ class CompanionViewModel(
     }
 
     fun selectScope(choice: CompanionScopeChoice) {
-        if (choice == CompanionScopeChoice.FULL_BOOK && !_uiState.value.fullBookUnlocked) {
-            _uiState.value = _uiState.value.copy(showSpoilerUnlockDialog = true)
-            return
-        }
         _uiState.value = _uiState.value.copy(scopeChoice = choice)
         runToolInternal(_uiState.value.activeToolId, forceRefresh = false)
-    }
-
-    fun confirmFullBookUnlock() {
-        _uiState.value = _uiState.value.copy(
-            fullBookUnlocked = true,
-            showSpoilerUnlockDialog = false,
-            scopeChoice = CompanionScopeChoice.FULL_BOOK,
-        )
-        runToolInternal(_uiState.value.activeToolId, forceRefresh = false)
-    }
-
-    fun dismissSpoilerUnlockDialog() {
-        _uiState.value = _uiState.value.copy(showSpoilerUnlockDialog = false)
-    }
-
-    fun relockToWatermark() {
-        val nextScope = if (_uiState.value.scopeChoice == CompanionScopeChoice.FULL_BOOK) {
-            CompanionScopeChoice.CHAPTER
-        } else {
-            _uiState.value.scopeChoice
-        }
-        _uiState.value = _uiState.value.copy(
-            fullBookUnlocked = false,
-            scopeChoice = nextScope,
-        )
     }
 
     fun openPerspectivePicker() {
@@ -280,7 +241,6 @@ class CompanionViewModel(
                 workId = wId,
                 tool = toolId,
                 scope = resolveToolScope(_uiState.value),
-                gate = resolveSpoilerGate(_uiState.value),
                 forceRefresh = forceRefresh,
             )
             val thinkingBuf = StringBuilder()
@@ -353,7 +313,6 @@ class CompanionViewModel(
                 threadId = currentThreadId,
                 workId = wId,
                 scope = resolveToolScope(_uiState.value),
-                gate = resolveSpoilerGate(_uiState.value),
                 question = cleanQuestion,
             ).collect { event ->
                 when (event) {
@@ -404,7 +363,7 @@ class CompanionViewModel(
         viewModelScope.launch {
             val preferredOrdinal = when (state.scopeChoice) {
                 CompanionScopeChoice.SELECTION -> state.selectionAnchor?.ordinal ?: state.currentChapterOrdinal
-                CompanionScopeChoice.CHAPTER, CompanionScopeChoice.UP_TO_WATERMARK, CompanionScopeChoice.FULL_BOOK ->
+                CompanionScopeChoice.CHAPTER, CompanionScopeChoice.FULL_BOOK ->
                     state.currentChapterOrdinal
             }
 
@@ -425,7 +384,7 @@ class CompanionViewModel(
             }
 
             if (anchor == null) {
-                _uiState.value = _uiState.value.copy(toastMessage = "未在当前解锁章节定位到 [${blockId.value}]")
+                _uiState.value = _uiState.value.copy(toastMessage = "未在当前章节定位到 [${blockId.value}]")
                 return@launch
             }
 
@@ -501,20 +460,13 @@ class CompanionViewModel(
             }
         }
         CompanionScopeChoice.CHAPTER -> ToolScope.Chapter(state.currentChapterOrdinal)
-        CompanionScopeChoice.UP_TO_WATERMARK, CompanionScopeChoice.FULL_BOOK -> ToolScope.FullBook
+        CompanionScopeChoice.FULL_BOOK -> ToolScope.FullBook
     }
-
-    private fun resolveSpoilerGate(state: CompanionUiState): SpoilerGate =
-        if (state.fullBookUnlocked) {
-            SpoilerGate.FullBookUnlocked
-        } else {
-            SpoilerGate.UpTo(state.currentWatermark)
-        }
 
     private fun formatFailureMessage(failure: AppFailure): String = when (failure) {
         is AppFailure.DesktopConnectionRequired -> "需连接桌面伴读网关（${failure.featureName}）"
         is AppFailure.ProviderAuthOrQuota -> failure.message
-        is AppFailure.CapacityPreflightBlocked -> "当前范围受防剧透或上下文限制：${failure.reason}"
+        is AppFailure.CapacityPreflightBlocked -> "当前范围受上下文限制：${failure.reason}"
         is AppFailure.UnsupportedDrmOrFormat -> failure.reason
         is AppFailure.ScannedPdfNeedsOcr -> "扫描版 PDF 需先 OCR 后才能生成全章文本伴读"
         is AppFailure.NetworkOrSyncConflict -> failure.message
