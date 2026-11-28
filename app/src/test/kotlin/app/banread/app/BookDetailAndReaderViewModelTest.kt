@@ -2,6 +2,7 @@ package app.banread.app
 
 import app.banread.app.data.InMemoryAppPreferencesStore
 import app.banread.app.ui.detail.BookDetailViewModel
+import app.banread.app.ui.reader.ReaderSheet
 import app.banread.app.ui.reader.ReflowReaderViewModel
 import app.banread.model.BlockId
 import app.banread.model.ChapterOrdinal
@@ -121,6 +122,46 @@ class BookDetailAndReaderViewModelTest {
         vm.returnToPreFootnoteLocation()
         assertNull(vm.uiState.value.preFootnoteReturnAnchor)
         assertEquals(ChapterOrdinal(2), reader.goToCalls.last().first.ordinal)
+    }
+
+    @Test
+    fun `reader sheets are mutually exclusive and typography clamps to reader ranges`() = runTest {
+        val workId = WorkId("w_sheets")
+        val vault = FakeLibraryVault().apply {
+            worksFlow.value = listOf(sampleWorkSummary("w_sheets", "面板测试"))
+        }
+        val reader = FakeReaderEngine()
+        val surface = FakeReflowSurfaceController()
+        val prefs = InMemoryAppPreferencesStore()
+        val vm = ReflowReaderViewModel(workId, vault, reader, surface, null, prefs)
+
+        assertEquals(ReaderSheet.NONE, vm.uiState.value.activeSheet)
+        vm.openSheet(ReaderSheet.TYPOGRAPHY)
+        assertEquals(ReaderSheet.TYPOGRAPHY, vm.uiState.value.activeSheet)
+        vm.openSheet(ReaderSheet.THEME)
+        assertEquals(ReaderSheet.THEME, vm.uiState.value.activeSheet)
+        vm.toggleMoreSheet()
+        assertEquals(ReaderSheet.MORE, vm.uiState.value.activeSheet)
+        vm.toggleMoreSheet()
+        assertEquals(ReaderSheet.NONE, vm.uiState.value.activeSheet)
+        vm.openSheet(ReaderSheet.TOC)
+        vm.dismissSheet()
+        assertEquals(ReaderSheet.NONE, vm.uiState.value.activeSheet)
+
+        vm.updateTypography(
+            vm.uiState.value.typography.copy(
+                fontSizeSp = 99f,
+                lineHeightMultiplier = 0.2f,
+                paragraphSpacingDp = -4f,
+                horizontalMarginDp = 200f,
+            ),
+        )
+        val applied = reader.appliedTypographies.last()
+        assertEquals(36f, applied.fontSizeSp, 0.01f)
+        assertEquals(1.2f, applied.lineHeightMultiplier, 0.01f)
+        assertEquals(0f, applied.paragraphSpacingDp, 0.01f)
+        assertEquals(40f, applied.horizontalMarginDp, 0.01f)
+        assertEquals(36f, prefs.state.value.typography.fontSizeSp, 0.01f)
     }
 
     @Test

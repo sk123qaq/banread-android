@@ -267,7 +267,14 @@ internal object MarkdownBlockParser {
     private fun parseChunk(out: MutableList<ParsedBlock>, chunk: String) {
         val lines = chunk.split('\n').filter { it.isNotBlank() }
         if (lines.isEmpty()) return
-        if (lines.all { HR_RE.matches(it.trim()) }) return
+        if (lines.all { HR_RE.matches(it.trim()) }) {
+            out += makeBlock(
+                index = out.size,
+                kind = MarkdownBlockKind.HR,
+                cleanText = "",
+            )
+            return
+        }
 
         val heading = HEADING_RE.matchEntire(lines[0].trim())
         if (heading != null && lines.size == 1) {
@@ -351,9 +358,10 @@ internal object MarkdownBlockParser {
                 items += cleanItem
                 itemRefs += refs
             }
+            val ordered = lines.all { it.trim().matches(Regex("""^\d+[.)]\s+.*""")) }
             out += makeBlock(
                 index = out.size,
-                kind = MarkdownBlockKind.LIST,
+                kind = if (ordered) MarkdownBlockKind.ORDERED_LIST else MarkdownBlockKind.LIST,
                 cleanText = items.joinToString("\n"),
                 listItems = items,
                 listItemRefs = itemRefs,

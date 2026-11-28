@@ -8,6 +8,7 @@ import android.net.Uri
 import android.view.MotionEvent
 import android.view.ViewConfiguration
 import android.webkit.WebView
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -25,6 +26,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -33,10 +35,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
@@ -48,12 +48,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -68,7 +65,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -78,14 +74,11 @@ import app.banread.app.ui.components.BanReadSurfaceCard
 import app.banread.app.ui.components.CompactActionButton
 import app.banread.app.ui.components.RemoteCursorBannerCard
 import app.banread.app.ui.components.SingleLinePill
-import app.banread.app.ui.theme.BanReadPalettes
 import app.banread.app.ui.theme.BanReadTheme
 import app.banread.model.FootnoteDetail
-import app.banread.model.ReaderTheme
 import app.banread.model.ReadingAnchor
 import app.banread.model.ToolId
 import app.banread.reader.FoliateWebAdapter
-import app.banread.reader.PaginationMode
 import app.banread.reader.TextSelectionEvent
 import kotlin.math.hypot
 
@@ -104,6 +97,9 @@ fun ReflowReaderScreen(
     companionOverlay: @Composable () -> Unit,
 ) {
     val state by viewModel.uiState.collectAsState()
+    BackHandler(enabled = state.activeSheet != ReaderSheet.NONE) {
+        viewModel.dismissSheet()
+    }
     val palette = BanReadTheme.palette
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -158,7 +154,10 @@ fun ReflowReaderScreen(
                                         return@setOnTouchListener false
                                     }
                                     val curState = viewModel.uiState.value
-                                    if (curState.activeSelection != null || curState.activeFootnote != null) {
+                                    if (curState.activeSelection != null ||
+                                        curState.activeFootnote != null ||
+                                        curState.activeSheet != ReaderSheet.NONE
+                                    ) {
                                         viewModel.onTapCenterZone()
                                         return@setOnTouchListener false
                                     }
@@ -358,35 +357,53 @@ fun ReflowReaderScreen(
             )
         }
 
+        val sheetFraction = state.activeSheet.panelHeightFraction()
         AnimatedVisibility(
             visible = state.hudVisible,
             enter = fadeIn(animationSpec = palette.tweenSpec()),
             exit = fadeOut(animationSpec = palette.tweenSpec()),
-            modifier = Modifier.align(Alignment.BottomCenter),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .then(
+                    if (sheetFraction != null) Modifier.fillMaxHeight(sheetFraction) else Modifier,
+                ),
         ) {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                if (state.typographySheetOpen) {
-                    TypographySheet(
+            Column(
+                modifier = if (sheetFraction != null) Modifier.fillMaxSize() else Modifier.fillMaxWidth(),
+            ) {
+                when (state.activeSheet) {
+                    ReaderSheet.TYPOGRAPHY -> TypographySheet(
+                        state = state,
+                        onUpdateTypography = viewModel::updateTypography,
+                        onClose = viewModel::dismissSheet,
+                        modifier = Modifier.weight(1f),
+                    )
+                    ReaderSheet.THEME -> ThemeSheet(
                         state = state,
                         onSelectTheme = viewModel::applyTheme,
+                        onClose = viewModel::dismissSheet,
+                        modifier = Modifier.weight(1f),
+                    )
+                    ReaderSheet.MORE -> MoreSheet(
+                        state = state,
                         onUpdateTypography = viewModel::updateTypography,
                         onSelectPagination = viewModel::setPaginationMode,
                         onToggleVolumeTurn = viewModel::setVolumeKeyPageTurn,
                         onPickCustomFont = {
                             fontPickerLauncher.launch(arrayOf("font/*", "application/octet-stream", "*/*"))
                         },
-                        onClose = viewModel::dismissTypographySheet,
+                        onClose = viewModel::dismissSheet,
+                        modifier = Modifier.weight(1f),
                     )
+                    ReaderSheet.NONE, ReaderSheet.TOC -> Unit
                 }
                 ReaderBottomHud(
-                    typographyOpen = state.typographySheetOpen,
+                    activeSheet = state.activeSheet,
                     onBackToToc = onBackToDetail,
                     onToggleTypography = viewModel::toggleTypographySheet,
-                    onCycleTheme = {
-                        val all = ReaderTheme.entries
-                        val next = all[(all.indexOf(state.theme) + 1) % all.size]
-                        viewModel.applyTheme(next)
-                    },
+                    onToggleTheme = viewModel::toggleThemeSheet,
+                    onToggleMore = viewModel::toggleMoreSheet,
                     onOpenCompanion = {
                         val ord = state.sessionState.currentCursor?.ordinal
                             ?: app.banread.model.ChapterOrdinal(1)
@@ -461,10 +478,11 @@ private fun ReaderTopHud(
 
 @Composable
 private fun ReaderBottomHud(
-    typographyOpen: Boolean,
+    activeSheet: ReaderSheet,
     onBackToToc: () -> Unit,
     onToggleTypography: () -> Unit,
-    onCycleTheme: () -> Unit,
+    onToggleTheme: () -> Unit,
+    onToggleMore: () -> Unit,
     onOpenCompanion: () -> Unit,
 ) {
     val palette = BanReadTheme.palette
@@ -479,267 +497,33 @@ private fun ReaderBottomHud(
                 modifier = Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 CompactActionButton(label = "目录", onClick = onBackToToc)
                 CompactActionButton(
                     label = "Aa 排版",
-                    primary = typographyOpen,
+                    primary = activeSheet == ReaderSheet.TYPOGRAPHY,
                     onClick = onToggleTypography,
                 )
-                CompactActionButton(label = "主题", onClick = onCycleTheme)
+                CompactActionButton(
+                    label = "主题",
+                    primary = activeSheet == ReaderSheet.THEME,
+                    onClick = onToggleTheme,
+                )
                 CompactActionButton(
                     label = "✦ 伴读",
                     primary = true,
                     onClick = onOpenCompanion,
                 )
+                CompactActionButton(
+                    label = "更多",
+                    primary = activeSheet == ReaderSheet.MORE,
+                    onClick = onToggleMore,
+                )
             }
         }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun TypographySheet(
-    state: ReflowReaderUiState,
-    onSelectTheme: (ReaderTheme) -> Unit,
-    onUpdateTypography: (app.banread.model.TypographyProfile) -> Unit,
-    onSelectPagination: (PaginationMode) -> Unit,
-    onToggleVolumeTurn: (Boolean) -> Unit,
-    onPickCustomFont: () -> Unit,
-    onClose: () -> Unit,
-) {
-    val palette = BanReadTheme.palette
-    val typo = state.typography
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        color = palette.surface,
-        shape = RoundedCornerShape(14.dp),
-        border = BorderStroke(palette.borderWidth, palette.lineStrong),
-        shadowElevation = if (palette.isEink) 0.dp else 6.dp,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "Aa 排版与主题设置（零重载实时生效）",
-                    color = palette.ink,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.5.sp,
-                )
-                IconButton(onClick = onClose, modifier = Modifier.size(26.dp)) {
-                    Icon(
-                        imageVector = Icons.Filled.Close,
-                        contentDescription = "关闭排版面板",
-                        tint = palette.ink2,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
-            }
-
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                ReaderTheme.entries.forEach { themeOption ->
-                    val pal = BanReadPalettes.forTheme(themeOption)
-                    val selected = state.theme == themeOption
-                    Surface(
-                        modifier = Modifier.clickable { onSelectTheme(themeOption) },
-                        color = if (selected) palette.cinnabarSoft else palette.surfaceSubtle,
-                        shape = RoundedCornerShape(999.dp),
-                        border = BorderStroke(
-                            width = if (selected) 1.5.dp else 1.dp,
-                            color = if (selected) palette.cinnabar else palette.lineStrong,
-                        ),
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(5.dp),
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(12.dp)
-                                    .clip(CircleShape)
-                                    .background(pal.paperReading)
-                                    .border(1.dp, pal.ink, CircleShape),
-                            )
-                            Text(
-                                text = pal.labelZh,
-                                color = palette.ink,
-                                fontSize = 11.5.sp,
-                                maxLines = 1,
-                                softWrap = false,
-                            )
-                        }
-                    }
-                }
-            }
-
-            TypoSliderRow(
-                label = "字号 ${typo.fontSizeSp.toInt()}sp",
-                value = typo.fontSizeSp,
-                range = 12f..36f,
-                onValueChange = { onUpdateTypography(typo.copy(fontSizeSp = it)) },
-            )
-            TypoSliderRow(
-                label = "行高 ${"%.2f".format(typo.lineHeightMultiplier)}",
-                value = typo.lineHeightMultiplier,
-                range = 1.2f..2.4f,
-                onValueChange = { onUpdateTypography(typo.copy(lineHeightMultiplier = it)) },
-            )
-            TypoSliderRow(
-                label = "段距 ${typo.paragraphSpacingDp.toInt()}dp",
-                value = typo.paragraphSpacingDp,
-                range = 0f..28f,
-                onValueChange = { onUpdateTypography(typo.copy(paragraphSpacingDp = it)) },
-            )
-            TypoSliderRow(
-                label = "页边距 ${typo.horizontalMarginDp.toInt()}dp",
-                value = typo.horizontalMarginDp,
-                range = 8f..40f,
-                onValueChange = { onUpdateTypography(typo.copy(horizontalMarginDp = it)) },
-            )
-
-            Text("字体", color = palette.ink2, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                val builtinFonts = listOf(
-                    "Noto Serif CJK SC" to "思源宋体",
-                    "LXGW WenKai" to "霞鹜文楷",
-                    "Noto Sans CJK SC" to "现代黑体",
-                )
-                builtinFonts.forEach { (family, label) ->
-                    val selected = typo.fontFamily == family
-                    SingleLinePill(
-                        text = label,
-                        containerColor = if (selected) palette.cinnabar else palette.surfaceSubtle,
-                        contentColor = if (selected) Color.White else palette.ink,
-                        borderColor = if (selected) palette.cinnabar else palette.lineStrong,
-                        onClick = { onUpdateTypography(typo.copy(fontFamily = family)) },
-                    )
-                }
-                state.registeredFonts.forEach { reg ->
-                    val selected = typo.fontFamily == reg.cssFontFamily
-                    SingleLinePill(
-                        text = reg.displayName,
-                        containerColor = if (selected) palette.cinnabar else palette.surfaceSubtle,
-                        contentColor = if (selected) Color.White else palette.ink,
-                        borderColor = if (selected) palette.cinnabar else palette.lineStrong,
-                        onClick = { onUpdateTypography(typo.copy(fontFamily = reg.cssFontFamily)) },
-                    )
-                }
-                SingleLinePill(
-                    text = "+ 导入 .ttf/.otf",
-                    containerColor = palette.surface,
-                    contentColor = palette.cinnabar,
-                    borderColor = palette.cinnabar,
-                    onClick = onPickCustomFont,
-                )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("CJK 标点挤压", color = palette.ink, fontSize = 12.5.sp)
-                Switch(
-                    checked = typo.squeezeChinesePunctuation,
-                    onCheckedChange = { onUpdateTypography(typo.copy(squeezeChinesePunctuation = it)) },
-                )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("音量键翻页", color = palette.ink, fontSize = 12.5.sp)
-                Switch(
-                    checked = state.volumeKeyPageTurn,
-                    onCheckedChange = onToggleVolumeTurn,
-                )
-            }
-
-            Text("翻页动画", color = palette.ink2, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                val modes = if (state.theme == ReaderTheme.EINK_HIGH_CONTRAST) {
-                    listOf(PaginationMode.NONE to "无动画（墨水屏锁定）")
-                } else {
-                    listOf(
-                        PaginationMode.SLIDE to "滑动",
-                        PaginationMode.COVER to "覆盖",
-                        PaginationMode.NONE to "无动画",
-                        PaginationMode.VERTICAL_SCROLL to "滚屏",
-                    )
-                }
-                modes.forEach { (mode, label) ->
-                    val selected = state.paginationMode == mode
-                    SingleLinePill(
-                        text = label,
-                        containerColor = if (selected) palette.cinnabar else palette.surfaceSubtle,
-                        contentColor = if (selected) Color.White else palette.ink,
-                        borderColor = if (selected) palette.cinnabar else palette.lineStrong,
-                        onClick = { onSelectPagination(mode) },
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun TypoSliderRow(
-    label: String,
-    value: Float,
-    range: ClosedFloatingPointRange<Float>,
-    onValueChange: (Float) -> Unit,
-) {
-    val palette = BanReadTheme.palette
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Text(
-            text = label,
-            color = palette.ink2,
-            fontSize = 12.sp,
-            modifier = Modifier.width(88.dp),
-            maxLines = 1,
-            softWrap = false,
-        )
-        Slider(
-            value = value.coerceIn(range.start, range.endInclusive),
-            onValueChange = onValueChange,
-            valueRange = range,
-            colors = SliderDefaults.colors(
-                thumbColor = palette.cinnabar,
-                activeTrackColor = palette.cinnabar,
-                inactiveTrackColor = palette.line,
-            ),
-            modifier = Modifier.weight(1f),
-        )
     }
 }
 

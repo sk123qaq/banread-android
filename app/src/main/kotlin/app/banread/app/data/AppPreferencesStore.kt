@@ -109,9 +109,9 @@ class SharedPrefsAppPreferencesStore(
             lineHeightMultiplier = prefs.getFloat(KEY_LINE_HEIGHT, defaults.typography.lineHeightMultiplier)
                 .coerceIn(1.2f, 2.4f),
             paragraphSpacingDp = prefs.getFloat(KEY_PARA_SPACING, defaults.typography.paragraphSpacingDp)
-                .coerceAtLeast(0f),
+                .coerceIn(0f, 28f),
             horizontalMarginDp = prefs.getFloat(KEY_MARGIN_DP, defaults.typography.horizontalMarginDp)
-                .coerceAtLeast(0f),
+                .coerceIn(8f, 40f),
             squeezeChinesePunctuation = prefs.getBoolean(
                 KEY_SQUEEZE_PUNCT,
                 defaults.typography.squeezeChinesePunctuation,
