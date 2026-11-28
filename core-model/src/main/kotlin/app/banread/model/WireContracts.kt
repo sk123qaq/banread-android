@@ -63,7 +63,6 @@ data class DeviceProgressShard(
     @SerialName("device_id")
     val deviceId: DeviceId,
     val cursor: ReadingAnchor,
-    val watermark: ChapterOrdinal,
     @SerialName("updated_at_epoch_ms")
     val updatedAtEpochMs: Long,
 )

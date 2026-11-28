@@ -41,11 +41,4 @@ class ValueInvariantsTest {
         assertThrows(IllegalArgumentException::class.java) { BookSourceHash("deadbeef") }
         assertThrows(IllegalArgumentException::class.java) { ChapterContentHash("z".repeat(64)) }
     }
-
-    @Test
-    fun `spoilerGate cacheKey encodes chapter boundary or full unlock`() {
-        assertEquals("gate:ch03", SpoilerGate.UpTo(ChapterOrdinal(3)).cacheKey)
-        assertEquals("gate:ch14", SpoilerGate.UpTo(ChapterOrdinal(14)).cacheKey)
-        assertEquals("gate:full", SpoilerGate.FullBookUnlocked.cacheKey)
-    }
 }

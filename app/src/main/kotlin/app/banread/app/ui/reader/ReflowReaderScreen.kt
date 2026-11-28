@@ -208,16 +208,6 @@ fun ReflowReaderScreen(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                Spacer(Modifier.width(8.dp))
-                state.sessionState.spoilerWatermark?.let { wm ->
-                    Text(
-                        text = "防剧透锁至第 ${wm.value} 章",
-                        color = palette.ink3,
-                        fontSize = 11.sp,
-                        maxLines = 1,
-                        softWrap = false,
-                    )
-                }
             }
 
             // Bottom quick-access "✦ 伴读" pill
@@ -232,7 +222,6 @@ fun ReflowReaderScreen(
                 Surface(
                     modifier = Modifier.clickable {
                         val ord = state.sessionState.currentCursor?.ordinal
-                            ?: state.sessionState.spoilerWatermark
                             ?: app.banread.model.ChapterOrdinal(1)
                         onOpenCompanion(ord, null, "", null)
                     },
@@ -285,7 +274,6 @@ fun ReflowReaderScreen(
                     modifier = Modifier.clickable {
                         viewModel.clearReturnToCompanionPill()
                         val ord = state.sessionState.currentCursor?.ordinal
-                            ?: state.sessionState.spoilerWatermark
                             ?: app.banread.model.ChapterOrdinal(1)
                         onOpenCompanion(ord, null, "", null)
                     },
@@ -375,9 +363,7 @@ fun ReflowReaderScreen(
         ) {
             ReaderTopHud(
                 title = state.currentChapterTitle.ifBlank { state.bookTitle },
-                pendingJumpOrdinal = state.sessionState.pendingWatermarkJump?.value,
                 onBack = onBackToDetail,
-                onConfirmPendingWatermark = viewModel::confirmCurrentPendingWatermark,
             )
         }
 
@@ -412,7 +398,6 @@ fun ReflowReaderScreen(
                     },
                     onOpenCompanion = {
                         val ord = state.sessionState.currentCursor?.ordinal
-                            ?: state.sessionState.spoilerWatermark
                             ?: app.banread.model.ChapterOrdinal(1)
                         onOpenCompanion(ord, null, "", null)
                     },
@@ -445,9 +430,7 @@ fun ReflowReaderScreen(
 @Composable
 private fun ReaderTopHud(
     title: String,
-    pendingJumpOrdinal: Int?,
     onBack: () -> Unit,
-    onConfirmPendingWatermark: () -> Unit,
 ) {
     val palette = BanReadTheme.palette
     Surface(
@@ -480,15 +463,6 @@ private fun ReaderTopHud(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                if (pendingJumpOrdinal != null) {
-                    SingleLinePill(
-                        text = "预览中 · 推进至第 $pendingJumpOrdinal 章",
-                        containerColor = palette.amberSoft,
-                        contentColor = palette.amber,
-                        borderColor = palette.amber,
-                        onClick = onConfirmPendingWatermark,
-                    )
-                }
             }
             HorizontalDivider(thickness = palette.borderWidth, color = palette.line)
         }

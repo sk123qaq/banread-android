@@ -47,7 +47,7 @@ import java.nio.file.StandardCopyOption
  * Deep-module coordinator for `:module-sync`:
  * - Desktop `--mobile-bind` gateway pairing, catalog, outbox pull (resumable + verified ACK), and cross-book search.
  * - Single-writer per-device shard sync (`progress/<uid>/<deviceId>.json`, `notes/<uid>/<deviceId>.jsonl`).
- * - Monotonic watermark raising, tombstone-preserving note merge, non-intrusive [RemoteCursorBanner],
+ * - Tombstone-preserving note merge, non-intrusive [RemoteCursorBanner],
  *   and WorkManager offline retry queue.
  */
 class DefaultSyncCoordinator internal constructor(
@@ -204,7 +204,7 @@ class DefaultSyncCoordinator internal constructor(
                     comp.importDesktopPrecomputedCache(imported.workId, cacheDir.absolutePath)
                 }
 
-                // Preserve annotations and high watermark if a local EPUB/MOBI was superseded
+                // Preserve cursor and annotations if a local EPUB/MOBI was superseded
                 imported.supersededWorkId?.let { oldWorkId ->
                     readerEngine.migrateWorkState(oldWorkId, imported.workId)
                 }
@@ -239,12 +239,8 @@ class DefaultSyncCoordinator internal constructor(
 
             // If no remote transport is configured at all, return clean local snapshot
             if (cloudPort == null && pairedDesktop == null) {
-                val wm = localProgress?.watermark
-                    ?: (readerEngine.currentSpoilerGate(workId) as? app.banread.model.SpoilerGate.UpTo)?.unlockedMaxOrdinal
-                    ?: ChapterOrdinal(1)
                 return@runCatching SyncMergeOutcome(
                     workId = workId,
-                    mergedWatermark = wm,
                     mergedNoteCount = localNotes.count { it.deletedAtEpochMs == null },
                     remoteCursorBanner = null,
                 )
@@ -299,16 +295,7 @@ class DefaultSyncCoordinator internal constructor(
                 }
             }
 
-            // 3. Monotonic max watermark elevation (never regresses)
-            val localWm = localProgress?.watermark
-                ?: (readerEngine.currentSpoilerGate(workId) as? app.banread.model.SpoilerGate.UpTo)?.unlockedMaxOrdinal
-                ?: ChapterOrdinal(1)
-            val maxWm = (allRemoteProgress.map { it.watermark } + localWm).max()
-            if (maxWm > localWm) {
-                readerEngine.raiseWatermarkFromRemote(workId, maxWm)
-            }
-
-            // 4. Pull & merge NoteLogEntry union by noteId (latest updatedAt wins, preserving deletedAt tombstones)
+            // 3. Pull & merge NoteLogEntry union by noteId (latest updatedAt wins, preserving deletedAt tombstones)
             val pulledNotes = mutableListOf<NoteLogEntry>()
             if (cloudPort != null) {
                 val noteKeys = cloudPort.listShards("notes/${workId.raw}/")
@@ -350,12 +337,11 @@ class DefaultSyncCoordinator internal constructor(
             }
 
             configStore.update {
-                it.copy(lastSyncSummary = "已同步 ${workId.raw} · 水位第 ${maxWm.value} 章 · $mergedNoteCount 条批注")
+                it.copy(lastSyncSummary = "已同步 ${workId.raw} · $mergedNoteCount 条批注")
             }
 
             SyncMergeOutcome(
                 workId = workId,
-                mergedWatermark = maxWm,
                 mergedNoteCount = mergedNoteCount,
                 remoteCursorBanner = banner,
             )

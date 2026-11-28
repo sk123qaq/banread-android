@@ -40,8 +40,6 @@ internal data class DesktopProgressShardDto(
     val blockId: String,
     @SerialName("char_offset")
     val charOffset: Int = 0,
-    @SerialName("high_water_mark_ordinal")
-    val highWaterMarkOrdinal: Int,
     @SerialName("updated_at_ms")
     val updatedAtMs: Long,
 )
@@ -49,8 +47,6 @@ internal data class DesktopProgressShardDto(
 @Serializable
 internal data class MergedProgressResponseDto(
     val uid: String = "",
-    @SerialName("merged_high_water_mark_ordinal")
-    val mergedHighWaterMarkOrdinal: Int = 0,
     val shards: List<DesktopProgressShardDto> = emptyList(),
 )
 

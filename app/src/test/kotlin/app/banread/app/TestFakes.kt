@@ -9,6 +9,7 @@ import app.banread.model.AppFailure
 import app.banread.model.AppFailureException
 import app.banread.model.AuditedArtifact
 import app.banread.model.BlockId
+import app.banread.model.BookSlice
 import app.banread.model.ChapterContentHash
 import app.banread.model.ChapterOrdinal
 import app.banread.model.ChapterOutlineItem
@@ -21,7 +22,6 @@ import app.banread.model.DeviceId
 import app.banread.model.DeviceProgressShard
 import app.banread.model.FootnoteDetail
 import app.banread.model.FootnoteLink
-import app.banread.model.GatedBookSlice
 import app.banread.model.ImportedWork
 import app.banread.model.LibraryVault
 import app.banread.model.NoteLogEntry
@@ -34,7 +34,6 @@ import app.banread.model.ReaderTheme
 import app.banread.model.ReadingAnchor
 import app.banread.model.ReadingSurfaceMode
 import app.banread.model.ReflowPrepProgress
-import app.banread.model.SpoilerGate
 import app.banread.model.TextQuote
 import app.banread.model.TokenEstimate
 import app.banread.model.ToolId
@@ -148,8 +147,8 @@ internal class FakeLibraryVault : LibraryVault {
         }
     }
 
-    override suspend fun loadGatedChapterInputs(workId: WorkId, gate: SpoilerGate): GatedBookSlice =
-        GatedBookSlice(workId, gate, emptyList(), emptyList())
+    override suspend fun loadBookInputs(workId: WorkId): BookSlice =
+        BookSlice(workId, emptyList(), emptyList())
 
     override suspend fun listWorks(): List<WorkSummary> = worksFlow.value
 
@@ -171,20 +170,19 @@ internal class FakeReaderEngine : ReaderEngine {
     private val _activeState = MutableStateFlow(ReaderSessionState())
     override val activeState: StateFlow<ReaderSessionState> = _activeState.asStateFlow()
 
-    var watermarkByWork = mutableMapOf<String, ChapterOrdinal>()
+    var initialOrdinalByWork = mutableMapOf<String, ChapterOrdinal>()
     var openCalls = 0
     val appliedThemes = mutableListOf<ReaderTheme>()
     val appliedTypographies = mutableListOf<TypographyProfile>()
     val goToCalls = mutableListOf<Pair<ReadingAnchor, Long>>()
-    val confirmedAdvances = mutableListOf<Pair<WorkId, ChapterOrdinal>>()
     val savedAnnotations = mutableListOf<Triple<WorkId, ReadingAnchor, Pair<String, String>>>()
 
     override suspend fun open(workId: WorkId, modePreference: ReadingSurfaceMode): ReaderSessionHandle {
         openCalls++
-        val wm = watermarkByWork.getOrPut(workId.raw) { ChapterOrdinal(2) }
+        val startOrd = initialOrdinalByWork.getOrPut(workId.raw) { ChapterOrdinal(2) }
         val anchor = ReadingAnchor.ReflowCfi(
-            ordinal = wm,
-            href = "OEBPS/ch_${wm.twoDigit()}.xhtml",
+            ordinal = startOrd,
+            href = "OEBPS/ch_${startOrd.twoDigit()}.xhtml",
             progression = 0f,
             totalProgression = 0f,
             cfi = "",
@@ -195,10 +193,8 @@ internal class FakeReaderEngine : ReaderEngine {
             workId = workId,
             mode = modePreference,
             currentCursor = anchor,
-            spoilerWatermark = wm,
-            pendingWatermarkJump = null,
         )
-        return ReaderSessionHandle(workId, modePreference, anchor, SpoilerGate.UpTo(wm))
+        return ReaderSessionHandle(workId, modePreference, anchor)
     }
 
     override suspend fun switchPdfSurface(workId: WorkId, targetMode: ReadingSurfaceMode): Result<Unit> {
@@ -208,21 +204,7 @@ internal class FakeReaderEngine : ReaderEngine {
 
     override suspend fun goTo(anchor: ReadingAnchor, highlightPulseMs: Long) {
         goToCalls += anchor to highlightPulseMs
-        val cur = _activeState.value
-        val wm = cur.spoilerWatermark ?: ChapterOrdinal(2)
-        val pending = if (anchor.ordinal > wm) anchor.ordinal else null
-        _activeState.value = cur.copy(currentCursor = anchor, pendingWatermarkJump = pending)
-    }
-
-    override suspend fun confirmWatermarkAdvance(workId: WorkId, targetOrdinal: ChapterOrdinal) {
-        confirmedAdvances += workId to targetOrdinal
-        val prev = watermarkByWork[workId.raw] ?: ChapterOrdinal(1)
-        val next = if (targetOrdinal > prev) targetOrdinal else prev
-        watermarkByWork[workId.raw] = next
-        _activeState.value = _activeState.value.copy(
-            spoilerWatermark = next,
-            pendingWatermarkJump = null,
-        )
+        _activeState.value = _activeState.value.copy(currentCursor = anchor)
     }
 
     override suspend fun applyTypography(profile: TypographyProfile) {
@@ -242,24 +224,15 @@ internal class FakeReaderEngine : ReaderEngine {
         savedAnnotations += Triple(workId, anchor, colorToken to comment)
     }
 
-    override suspend fun currentSpoilerGate(workId: WorkId): SpoilerGate =
-        SpoilerGate.UpTo(watermarkByWork[workId.raw] ?: ChapterOrdinal(2))
-
-    override suspend fun raiseWatermarkFromRemote(workId: WorkId, remoteMaxOrdinal: ChapterOrdinal) {
-        confirmWatermarkAdvance(workId, remoteMaxOrdinal)
-    }
-
     val mergedRemoteNotes = mutableListOf<NoteLogEntry>()
 
     override suspend fun snapshotProgress(workId: WorkId): DeviceProgressShard? {
         val state = _activeState.value
         val cursor = state.takeIf { it.workId == workId }?.currentCursor ?: return null
-        val wm = state.spoilerWatermark ?: watermarkByWork[workId.raw] ?: ChapterOrdinal(1)
         return DeviceProgressShard(
             workId = workId,
             deviceId = DeviceId("fake-android"),
             cursor = cursor,
-            watermark = wm,
             updatedAtEpochMs = 1_000L,
         )
     }
@@ -419,7 +392,6 @@ internal class FakeCompanionEngine(
         threadId: String?,
         workId: WorkId,
         scope: ToolScope,
-        gate: SpoilerGate,
         question: String,
     ): Flow<CompanionEvent> = flow {
         llmTokenCalls++

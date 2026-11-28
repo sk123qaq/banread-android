@@ -24,7 +24,6 @@ import app.banread.model.NoteLogEntry
 import app.banread.model.ReadProfileId
 import app.banread.model.ReadingAnchor
 import app.banread.model.ReadingSurfaceMode
-import app.banread.model.SpoilerGate
 import app.banread.model.StateSyncPort
 import app.banread.model.TextQuote
 import app.banread.model.WorkId
@@ -119,14 +118,12 @@ class MultiDeviceSyncAndWorkManagerTest {
         // Phone A opens and advances to chapter 12 + saves a note
         readerA.open(workId, ReadingSurfaceMode.REFLOWABLE)
         val anchorA12 = vaultA.resolveAnchor(workId, ChapterOrdinal(12), BlockId("B01"))
-        readerA.confirmWatermarkAdvance(workId, ChapterOrdinal(12))
         readerA.goTo(anchorA12)
         readerA.saveAnnotation(workId, anchorA12, "YELLOW", "Phone A 第12章批注")
 
         // Phone B opens at chapter 3 + creates 2 notes (one will be soft-deleted later by Phone A)
         readerB.open(workId, ReadingSurfaceMode.REFLOWABLE)
         val anchorB3 = vaultB.resolveAnchor(workId, ChapterOrdinal(3), BlockId("B01"))
-        readerB.confirmWatermarkAdvance(workId, ChapterOrdinal(3))
         readerB.goTo(anchorB3)
         readerB.saveAnnotation(workId, anchorB3, "BLUE", "Phone B 保留批注")
         readerB.saveAnnotation(workId, anchorB3, "PINK", "Phone B 待删批注")
@@ -139,8 +136,7 @@ class MultiDeviceSyncAndWorkManagerTest {
         val progressKeys = cloudSync.listShards("progress/B0001/")
         assertEquals(listOf("progress/B0001/phone-a.json", "progress/B0001/phone-b.json"), progressKeys)
 
-        // Phone B's watermark must have risen monotonically to 12, while its cursor stays at Chapter 3!
-        assertEquals(SpoilerGate.UpTo(ChapterOrdinal(12)), readerB.currentSpoilerGate(workId))
+        // Phone B's cursor stays at Chapter 3 (never force-jumped by Phone A)
         assertEquals(ChapterOrdinal(3), readerB.activeState.value.currentCursor?.ordinal)
 
         // Phone A reconciles to pull Phone B's 2 notes, then soft-deletes "Phone B 待删批注"
@@ -150,7 +146,7 @@ class MultiDeviceSyncAndWorkManagerTest {
         val targetToDelete = notesOnA.first { it.comment == "Phone B 待删批注" }
         readerA.deleteAnnotation(workId, targetToDelete.noteId)
 
-        // Desktop flips back to Chapter 2 B01 with a newer timestamp while keeping desktop watermark at 10
+        // Desktop flips back to Chapter 2 B01 with a newer timestamp
         val desktopNewerTs = System.currentTimeMillis() + 60_000L
         desktopGw.pushProgressShard(
             "tok-sync",
@@ -159,14 +155,12 @@ class MultiDeviceSyncAndWorkManagerTest {
                 workId = workId,
                 deviceId = DeviceId("desktop-linux"),
                 cursor = ReadingAnchor.BlockOffset(ChapterOrdinal(2), BlockId("B01"), 0, 10, "翻查旧章"),
-                watermark = ChapterOrdinal(10),
                 updatedAtEpochMs = desktopNewerTs,
             ),
         )
 
         // Phone A reconciles: gets non-intrusive RemoteCursorBanner for desktop Ch 2 WITHOUT force-jumping from Ch 12!
         val outcomeA = coordA.reconcileWork(workId).getOrThrow()
-        assertEquals(ChapterOrdinal(12), outcomeA.mergedWatermark)
         assertEquals(ChapterOrdinal(12), readerA.activeState.value.currentCursor?.ordinal)
         assertNotNull(outcomeA.remoteCursorBanner)
         assertEquals(DeviceId("desktop-linux"), outcomeA.remoteCursorBanner!!.sourceDeviceId)
@@ -207,7 +201,6 @@ class MultiDeviceSyncAndWorkManagerTest {
 
         reader.open(workId, ReadingSurfaceMode.REFLOWABLE)
         val anchor4 = vault.resolveAnchor(workId, ChapterOrdinal(4), BlockId("B01"))
-        reader.confirmWatermarkAdvance(workId, ChapterOrdinal(4))
         reader.goTo(anchor4)
         reader.saveAnnotation(workId, anchor4, "GREEN", "断网期间保存的笔记")
 
@@ -253,11 +246,11 @@ class MultiDeviceSyncAndWorkManagerTest {
         assertEquals(0, coord.getSyncStatus().pendingOpCount)
         assertTrue(cloudDown.delegate.listShards("progress/B0001/").contains("progress/B0001/offline-phone.json"))
         assertTrue(cloudDown.delegate.listShards("notes/B0001/").contains("notes/B0001/offline-phone.jsonl"))
-        assertEquals(ChapterOrdinal(4), desktopGw.fetchProgressShards("tok-wm", "http://127.0.0.1:8780", workId).single().watermark)
+        assertEquals(ChapterOrdinal(4), desktopGw.fetchProgressShards("tok-wm", "http://127.0.0.1:8780", workId).single().cursor.ordinal)
     }
 
     @Test
-    fun `pulling bcbook matching already-imported local EPUB preserves annotations and high watermark without duplicating work`() = runTest {
+    fun `pulling bcbook matching already-imported local EPUB preserves annotations and cursor without duplicating work`() = runTest {
         val epubFile = buildMinimalEpub(tempFolder.newFile("local.epub"), title = "万历十五年", author = "黄仁宇")
         val epubSha = sha256Hex(epubFile.readBytes())
 
@@ -271,7 +264,6 @@ class MultiDeviceSyncAndWorkManagerTest {
         ).also { closeables += it as Closeable }
         reader.open(localImported.workId, ReadingSurfaceMode.REFLOWABLE)
         val localAnchor = vault.resolveAnchor(localImported.workId, ChapterOrdinal(1), BlockId("B01"))
-        reader.confirmWatermarkAdvance(localImported.workId, ChapterOrdinal(5))
         reader.saveAnnotation(localImported.workId, localAnchor, "YELLOW", "本地EPUB旧高亮")
 
         // Pull desktop .bcbook with matching bookSourceSha256
@@ -293,11 +285,11 @@ class MultiDeviceSyncAndWorkManagerTest {
         coord.pullStudyPacks(listOf(WorkId("B0777"))).collect { pullStates += it }
         assertTrue(pullStates.last() is BundleTransferState.Ingested)
 
-        // Must NOT duplicate work; local_... replaced by B0777, while watermark & annotation are preserved!
+        // Must NOT duplicate work; local_... replaced by B0777, while progress & annotation are preserved!
         val allWorks = vault.listWorks()
         assertEquals(1, allWorks.size)
         assertEquals(WorkId("B0777"), allWorks.single().workId)
-        assertEquals(SpoilerGate.UpTo(ChapterOrdinal(5)), reader.currentSpoilerGate(WorkId("B0777")))
+        assertNotNull(reader.snapshotProgress(WorkId("B0777")))
         val migratedNotes = reader.listNoteLogEntries(WorkId("B0777"), includeDeleted = false)
         assertEquals(listOf("本地EPUB旧高亮"), migratedNotes.map { it.comment })
         assertNull(vault.getWorkSummary(localImported.workId))

@@ -59,28 +59,18 @@ class WireContractsTest {
     }
 
     @Test
-    fun `parses notes-at-end fixture and enforces spoiler gate filtering for body and notes`() {
+    fun `parses notes-at-end fixture with body, front_back, notes roles and cross-chapter footnote links`() {
         val raw = readFixture("notes_at_end_spoiler_gate.json")
-        val fixture = json.decodeFromString(NotesGateFixture.serializer(), raw)
+        val fixture = json.decodeFromString(NotesFixture.serializer(), raw)
 
         assertEquals(20, fixture.chapters.size)
         assertEquals(ChapterRole.NOTES, fixture.chapters.last().chapterRole)
         assertEquals(ChapterOrdinal(20), fixture.chapters.last().ordinal)
 
-        val gate = fixture.gateAtChapter3
-        assertEquals("gate:ch03", gate.cacheKey)
-
-        val visibleBody = fixture.chapters.filter {
-            it.chapterRole == ChapterRole.BODY && it.ordinal <= gate.unlockedMaxOrdinal
-        }
-        assertEquals(listOf(ChapterOrdinal(2), ChapterOrdinal(3)), visibleBody.map { it.ordinal })
-
-        val visibleNotes = fixture.footnoteLinks.filter {
-            it.sourceChapterOrdinal <= gate.unlockedMaxOrdinal
-        }
-        assertEquals(1, visibleNotes.size)
-        assertEquals("fn_ch03_n45", visibleNotes.single().id)
-        assertEquals(ChapterOrdinal(20), visibleNotes.single().targetChapterOrdinal)
+        val bodyChapters = fixture.chapters.filter { it.chapterRole == ChapterRole.BODY }
+        assertEquals(18, bodyChapters.size)
+        assertEquals(2, fixture.footnoteLinks.size)
+        assertEquals(ChapterOrdinal(20), fixture.footnoteLinks.first().targetChapterOrdinal)
     }
 
     @Test
@@ -158,17 +148,15 @@ class WireContractsTest {
     }
 
     @Test
-    fun `merges multi-device progress shards monotonically and preserves note tombstones`() {
+    fun `parses multi-device progress shards and preserves note tombstones`() {
         val raw = readFixture("device_shards_concurrent_merge.json")
         val fixture = json.decodeFromString(DeviceShardsFixture.serializer(), raw)
 
         assertEquals(2, fixture.progressShards.size)
-        val mergedWatermark = fixture.progressShards.maxOf { it.watermark }
-        assertEquals(ChapterOrdinal(12), mergedWatermark)
-
+        val mobileShard = fixture.progressShards.first { it.deviceId == DeviceId("pixel-8-mobile") }
         val desktopShard = fixture.progressShards.first { it.deviceId == DeviceId("desktop-linux") }
+        assertEquals(ChapterOrdinal(12), mobileShard.cursor.ordinal)
         assertEquals(ChapterOrdinal(2), desktopShard.cursor.ordinal)
-        assertTrue(desktopShard.watermark < mergedWatermark)
 
         val tombstone = fixture.noteEntries.first { it.noteId == "note-desktop-02" }
         assertNotNull(tombstone.deletedAtEpochMs)
@@ -215,11 +203,9 @@ class WireContractsTest {
     }
 
     @Serializable
-    private data class NotesGateFixture(
+    private data class NotesFixture(
         @SerialName("work_id")
         val workId: WorkId,
-        @SerialName("gate_at_chapter_3")
-        val gateAtChapter3: SpoilerGate.UpTo,
         val chapters: List<LogicalChapterEntry>,
         @SerialName("footnote_links")
         val footnoteLinks: List<FootnoteLink>,

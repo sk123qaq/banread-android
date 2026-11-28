@@ -15,7 +15,7 @@ interface LibraryVault {
     suspend fun resolveAnchor(workId: WorkId, ordinal: ChapterOrdinal, blockId: BlockId): ReadingAnchor
     suspend fun resolveFootnote(workId: WorkId, currentOrdinal: ChapterOrdinal, markerOrHref: String): FootnoteDetail?
     suspend fun overrideProfile(workId: WorkId, profile: ReadProfileId, literatureSubKind: String?)
-    suspend fun loadGatedChapterInputs(workId: WorkId, gate: SpoilerGate): GatedBookSlice
+    suspend fun loadBookInputs(workId: WorkId): BookSlice
     suspend fun listWorks(): List<WorkSummary>
     fun observeWorks(): Flow<List<WorkSummary>>
     suspend fun getWorkSummary(workId: WorkId): WorkSummary?
@@ -72,23 +72,22 @@ data class FootnoteDetail(
     val fullNoteText: String,
 )
 
-data class GatedBlock(
+data class BookBlock(
     val blockId: BlockId,
     val text: String,
 )
 
-data class GatedChapterSlice(
+data class ChapterSlice(
     val ordinal: ChapterOrdinal,
     val title: String,
     val role: ChapterRole,
     val contentHash: ChapterContentHash,
-    val blocks: List<GatedBlock>,
+    val blocks: List<BookBlock>,
 )
 
-data class GatedBookSlice(
+data class BookSlice(
     val workId: WorkId,
-    val gate: SpoilerGate,
-    val chapters: List<GatedChapterSlice>,
+    val chapters: List<ChapterSlice>,
     val footnotes: List<FootnoteLink>,
 )
 
@@ -99,12 +98,9 @@ interface ReaderEngine {
     suspend fun open(workId: WorkId, modePreference: ReadingSurfaceMode): ReaderSessionHandle
     suspend fun switchPdfSurface(workId: WorkId, targetMode: ReadingSurfaceMode): Result<Unit>
     suspend fun goTo(anchor: ReadingAnchor, highlightPulseMs: Long = 0L)
-    suspend fun confirmWatermarkAdvance(workId: WorkId, targetOrdinal: ChapterOrdinal)
     suspend fun applyTypography(profile: TypographyProfile)
     suspend fun applyTheme(theme: ReaderTheme)
     suspend fun saveAnnotation(workId: WorkId, anchor: ReadingAnchor, colorToken: String, comment: String)
-    suspend fun currentSpoilerGate(workId: WorkId): SpoilerGate
-    suspend fun raiseWatermarkFromRemote(workId: WorkId, remoteMaxOrdinal: ChapterOrdinal)
     suspend fun snapshotProgress(workId: WorkId): DeviceProgressShard? = null
     suspend fun listNoteLogEntries(workId: WorkId, includeDeleted: Boolean = true): List<NoteLogEntry> = emptyList()
     suspend fun mergeRemoteAnnotations(workId: WorkId, entries: List<NoteLogEntry>): Int = 0
@@ -125,15 +121,12 @@ data class ReaderSessionState(
     val workId: WorkId? = null,
     val mode: ReadingSurfaceMode = ReadingSurfaceMode.REFLOWABLE,
     val currentCursor: ReadingAnchor? = null,
-    val spoilerWatermark: ChapterOrdinal? = null,
-    val pendingWatermarkJump: ChapterOrdinal? = null,
 )
 
 data class ReaderSessionHandle(
     val workId: WorkId,
     val mode: ReadingSurfaceMode,
     val initialAnchor: ReadingAnchor,
-    val spoilerGate: SpoilerGate,
 )
 
 data class TypographyProfile(
@@ -162,7 +155,6 @@ interface CompanionEngine {
         threadId: String?,
         workId: WorkId,
         scope: ToolScope,
-        gate: SpoilerGate,
         question: String,
     ): Flow<CompanionEvent>
     fun askScannedRegion(
@@ -201,7 +193,6 @@ data class CompanionRequest(
     val workId: WorkId,
     val tool: ToolId,
     val scope: ToolScope,
-    val gate: SpoilerGate,
     val forceRefresh: Boolean = false,
 )
 
@@ -467,7 +458,6 @@ data class RemoteCursorBanner(
 
 data class SyncMergeOutcome(
     val workId: WorkId,
-    val mergedWatermark: ChapterOrdinal,
     val mergedNoteCount: Int,
     val remoteCursorBanner: RemoteCursorBanner? = null,
 )

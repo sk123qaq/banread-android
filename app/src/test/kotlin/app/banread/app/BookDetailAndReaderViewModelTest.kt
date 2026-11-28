@@ -35,13 +35,13 @@ class BookDetailAndReaderViewModelTest {
     val mainRule = MainDispatcherRule()
 
     @Test
-    fun `BookDetailViewModel handles perspective override, collapsed frontBack, and anti-spoiler forward jump`() = runTest {
+    fun `BookDetailViewModel handles perspective override, collapsed frontBack, and direct TOC jump without anti-spoiler dialog`() = runTest {
         val workId = WorkId("w_detail")
         val vault = FakeLibraryVault().apply {
             worksFlow.value = listOf(sampleWorkSummary("w_detail", "测试小说"))
         }
         val reader = FakeReaderEngine()
-        reader.watermarkByWork[workId.raw] = ChapterOrdinal(3)
+        reader.initialOrdinalByWork[workId.raw] = ChapterOrdinal(3)
         val registry = loadTestProfileRegistry()
 
         val vm = BookDetailViewModel(workId, vault, reader, registry)
@@ -60,22 +60,13 @@ class BookDetailAndReaderViewModelTest {
         assertEquals(ReadProfileId("literature"), vm.uiState.value.activeProfile?.readType)
         assertEquals("drama", vm.uiState.value.outline?.literatureSubKind)
 
-        // Forward jump beyond watermark (ch 3 -> ch 10) opens confirmation dialog
+        // Clicking any TOC chapter (e.g. ch 10) jumps directly with zero confirmation prompt
         val ch10 = ChapterOutlineItem(ChapterOrdinal(10), "第 10 章", ChapterRole.BODY, 15)
         vm.onChapterClicked(ch10)
-        assertEquals(ch10, vm.uiState.value.pendingForwardJump)
-
-        // Preview-only jump keeps watermark locked at 3
-        vm.confirmForwardJumpPreviewOnly()
-        assertNull(vm.uiState.value.pendingForwardJump)
-        assertEquals(ChapterOrdinal(3), reader.activeState.value.spoilerWatermark)
         assertEquals(ChapterOrdinal(10), reader.activeState.value.currentCursor?.ordinal)
-
-        // Advance-and-jump promotes watermark to 10
-        vm.onChapterClicked(ch10)
-        vm.confirmForwardJumpAdvance()
-        assertEquals(ChapterOrdinal(10), reader.activeState.value.spoilerWatermark)
-        assertEquals(workId to ChapterOrdinal(10), reader.confirmedAdvances.last())
+        assertEquals(ChapterOrdinal(10), reader.goToCalls.last().first.ordinal)
+        assertEquals(ReadingSurfaceMode.REFLOWABLE, vm.uiState.value.pendingNavigationMode)
+        assertEquals(ChapterOrdinal(10), vm.uiState.value.currentOrdinal)
     }
 
     @Test
@@ -140,27 +131,25 @@ class BookDetailAndReaderViewModelTest {
     }
 
     @Test
-    fun `ReflowReaderViewModel skips redundant open when already open on REFLOWABLE and preserves pendingWatermarkJump`() = runTest {
+    fun `ReflowReaderViewModel skips redundant open when already open on REFLOWABLE and preserves currentCursor`() = runTest {
         val workId = WorkId("w_preopen")
         val vault = FakeLibraryVault().apply {
             worksFlow.value = listOf(sampleWorkSummary("w_preopen", "预打开小说"))
         }
         val reader = FakeReaderEngine()
-        reader.watermarkByWork[workId.raw] = ChapterOrdinal(3)
+        reader.initialOrdinalByWork[workId.raw] = ChapterOrdinal(3)
         reader.open(workId, ReadingSurfaceMode.REFLOWABLE)
-        val previewAnchor = vault.resolveAnchor(workId, ChapterOrdinal(10), BlockId("B01"))
-        reader.goTo(previewAnchor)
+        val jumpedAnchor = vault.resolveAnchor(workId, ChapterOrdinal(10), BlockId("B01"))
+        reader.goTo(jumpedAnchor)
         assertEquals(1, reader.openCalls)
-        assertEquals(ChapterOrdinal(10), reader.activeState.value.pendingWatermarkJump)
 
         val surface = FakeReflowSurfaceController()
         val prefs = InMemoryAppPreferencesStore()
         val vm = ReflowReaderViewModel(workId, vault, reader, surface, null, prefs)
 
-        // Must NOT re-open and wipe pendingWatermarkJump
+        // Must NOT re-open and reset currentCursor
         assertEquals(1, reader.openCalls)
-        assertEquals(ChapterOrdinal(10), vm.uiState.value.sessionState.pendingWatermarkJump)
-        assertEquals(ChapterOrdinal(3), vm.uiState.value.sessionState.spoilerWatermark)
+        assertEquals(ChapterOrdinal(10), vm.uiState.value.sessionState.currentCursor?.ordinal)
 
         // Explicit reopenSurface() (e.g. after switching from PDF) DOES invoke open()
         vm.reopenSurface()
@@ -174,21 +163,21 @@ class BookDetailAndReaderViewModelTest {
     }
 
     @Test
-    fun `BookDetailViewModel unlocked chapter click opens and navigates to target chapter ordinal`() = runTest {
-        val workId = WorkId("w_toc_unlocked")
+    fun `BookDetailViewModel chapter click opens and navigates directly to target chapter ordinal`() = runTest {
+        val workId = WorkId("w_toc_direct")
         val vault = FakeLibraryVault().apply {
             worksFlow.value = listOf(sampleWorkSummary(workId.raw, "目录跳转测试"))
         }
         val reader = FakeReaderEngine()
-        reader.watermarkByWork[workId.raw] = ChapterOrdinal(10)
+        reader.initialOrdinalByWork[workId.raw] = ChapterOrdinal(10)
         val registry = loadTestProfileRegistry()
 
         val vm = BookDetailViewModel(workId, vault, reader, registry)
         val ch3 = ChapterOutlineItem(ChapterOrdinal(3), "第 3 章", ChapterRole.BODY, 12)
         vm.onChapterClicked(ch3)
 
-        assertNull(vm.uiState.value.pendingForwardJump)
         assertEquals(ReadingSurfaceMode.REFLOWABLE, vm.uiState.value.pendingNavigationMode)
+        assertEquals(ChapterOrdinal(3), vm.uiState.value.currentOrdinal)
         assertEquals(1, reader.openCalls)
         assertEquals(1, reader.goToCalls.size)
         val targetAnchor = reader.goToCalls.single().first as ReadingAnchor.ReflowCfi

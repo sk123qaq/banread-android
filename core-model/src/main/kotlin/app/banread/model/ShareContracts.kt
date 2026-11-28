@@ -5,7 +5,6 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class SharedCompanionArtifact(
     val scopeKey: String,
-    val progressGateKey: String,
     val toolId: String,
     val promptVersion: Int,
     val chapterContentSha256: String = "",
@@ -18,7 +17,6 @@ data class SharedCompanionArtifact(
 data class SharedQaTurn(
     val threadId: String,
     val scopeKey: String,
-    val gateOrdinal: Int? = null,
     val turnIndex: Int,
     val role: String,
     val content: String,

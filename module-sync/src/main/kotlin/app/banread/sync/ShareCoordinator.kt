@@ -366,17 +366,6 @@ class ShareCoordinator internal constructor(
                 val normalizedNotes = bundle.notes.map { it.copy(workId = targetWorkId) }
                 readerEngine.mergeRemoteAnnotations(targetWorkId, normalizedNotes)
 
-                // Optionally advance watermark strictly monotonically (never regresses, never forces cursor)
-                var raisedWm: Int? = null
-                if (manifest.includeProgress && bundle.progress != null) {
-                    val beforeGate = (readerEngine.currentSpoilerGate(targetWorkId) as? app.banread.model.SpoilerGate.UpTo)
-                        ?.unlockedMaxOrdinal ?: ChapterOrdinal(1)
-                    if (bundle.progress.watermark > beforeGate) {
-                        readerEngine.raiseWatermarkFromRemote(targetWorkId, bundle.progress.watermark)
-                        raisedWm = bundle.progress.watermark.value
-                    }
-                }
-
                 configStore.update {
                     val modeText = if (preview.willSkipBookDownload) "同 SHA 跳过原书" else "新书入库"
                     it.copy(lastSyncSummary = "已接收《${manifest.title}》($modeText)")
@@ -390,7 +379,6 @@ class ShareCoordinator internal constructor(
                     importedArtifacts = companionResult.importedArtifacts,
                     importedNotes = normalizedNotes.count { it.deletedAtEpochMs == null },
                     importedQaTurns = companionResult.importedQaTurns,
-                    raisedWatermarkOrdinal = raisedWm,
                 )
             } finally {
                 tempDir.deleteRecursively()
@@ -466,7 +454,6 @@ class ShareCoordinator internal constructor(
             mapCount = companionPayload.artifacts.size,
             noteCount = notes.size,
             qaCount = companionPayload.qaTurns.map { it.threadId }.distinct().size,
-            watermarkOrdinal = progress?.watermark?.value,
             senderDeviceId = configStore.currentDeviceId(),
             createdAtEpochMs = System.currentTimeMillis(),
         )

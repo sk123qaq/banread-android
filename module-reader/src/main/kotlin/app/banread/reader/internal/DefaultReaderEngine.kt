@@ -15,7 +15,6 @@ import app.banread.model.ReaderSessionState
 import app.banread.model.ReaderTheme
 import app.banread.model.ReadingAnchor
 import app.banread.model.ReadingSurfaceMode
-import app.banread.model.SpoilerGate
 import app.banread.model.TextQuote
 import app.banread.model.TypographyProfile
 import app.banread.model.WorkId
@@ -94,10 +93,9 @@ internal class DefaultReaderEngine(
             )
         }
 
-        val (initialAnchor, initialWatermark, assetRoot, notes) = mutex.withLock {
+        val (initialAnchor, assetRoot, notes) = mutex.withLock {
             val saved = withContext(ioDispatcher) { dao.findProgress(workId.raw) }
             val resolvedInitial: ReadingAnchor
-            val resolvedWatermark: ChapterOrdinal
 
             if (saved != null) {
                 val savedCursor = decodeAnchor(saved.cursorJson)
@@ -108,14 +106,12 @@ internal class DefaultReaderEngine(
                 } else {
                     adaptAnchorForMode(workId, savedCursor.ordinal, effectiveMode)
                 }
-                resolvedWatermark = ChapterOrdinal(maxOf(1, saved.spoilerWatermarkOrdinal))
             } else {
                 val firstChapterOrd = outline.bodyChapters.firstOrNull()?.ordinal
                     ?: (outline.frontBackChapters + outline.notesChapters)
                         .minByOrNull { it.ordinal }?.ordinal
                     ?: ChapterOrdinal(1)
                 resolvedInitial = adaptAnchorForMode(workId, firstChapterOrd, effectiveMode)
-                resolvedWatermark = firstChapterOrd
 
                 withContext(ioDispatcher) {
                     dao.upsertProgress(
@@ -123,7 +119,6 @@ internal class DefaultReaderEngine(
                             workId = workId.raw,
                             surfaceMode = effectiveMode.name,
                             cursorJson = encodeAnchor(resolvedInitial),
-                            spoilerWatermarkOrdinal = resolvedWatermark.value,
                             updatedAtMs = System.currentTimeMillis(),
                         ),
                     )
@@ -138,13 +133,10 @@ internal class DefaultReaderEngine(
                 workId = workId,
                 mode = effectiveMode,
                 currentCursor = resolvedInitial,
-                spoilerWatermark = resolvedWatermark,
-                pendingWatermarkJump = null,
             )
 
-            Quad(
+            Triple(
                 resolvedInitial,
-                resolvedWatermark,
                 assetRootForMode(workId, effectiveMode, availability),
                 existingNotes,
             )
@@ -161,7 +153,6 @@ internal class DefaultReaderEngine(
             workId = workId,
             mode = effectiveMode,
             initialAnchor = initialAnchor,
-            spoilerGate = SpoilerGate.UpTo(initialWatermark),
         )
     }
 
@@ -192,13 +183,6 @@ internal class DefaultReaderEngine(
                 saved?.let { decodeAnchor(it.cursorJson).ordinal }
             } ?: ChapterOrdinal(1)
 
-            val watermark = ChapterOrdinal(
-                maxOf(
-                    1,
-                    saved?.spoilerWatermarkOrdinal ?: 1,
-                    _activeState.value.takeIf { it.workId == workId }?.spoilerWatermark?.value ?: 1,
-                ),
-            )
             val newAnchor = adaptAnchorForMode(workId, currentOrd, targetMode)
             withContext(ioDispatcher) {
                 dao.upsertProgress(
@@ -206,7 +190,6 @@ internal class DefaultReaderEngine(
                         workId = workId.raw,
                         surfaceMode = targetMode.name,
                         cursorJson = encodeAnchor(newAnchor),
-                        spoilerWatermarkOrdinal = watermark.value,
                         updatedAtMs = System.currentTimeMillis(),
                     ),
                 )
@@ -216,7 +199,6 @@ internal class DefaultReaderEngine(
                 _activeState.value = _activeState.value.copy(
                     mode = targetMode,
                     currentCursor = newAnchor,
-                    spoilerWatermark = watermark,
                 )
             }
             val activeNotes = withContext(ioDispatcher) {
@@ -242,41 +224,6 @@ internal class DefaultReaderEngine(
             rendererPort.navigateWithPulse(anchor, highlightPulseMs)
         } else {
             rendererPort.navigate(anchor)
-        }
-    }
-
-    override suspend fun confirmWatermarkAdvance(workId: WorkId, targetOrdinal: ChapterOrdinal) {
-        mutex.withLock {
-            val saved = withContext(ioDispatcher) { dao.findProgress(workId.raw) }
-            val currentWatermark = saved?.spoilerWatermarkOrdinal ?: 1
-            val promoted = maxOf(currentWatermark, targetOrdinal.value)
-            val promotedOrd = ChapterOrdinal(promoted)
-
-            val cursorJson = saved?.cursorJson ?: encodeAnchor(
-                adaptAnchorForMode(workId, promotedOrd, _activeState.value.mode),
-            )
-            val surfaceMode = saved?.surfaceMode ?: _activeState.value.mode.name
-
-            withContext(ioDispatcher) {
-                dao.upsertProgress(
-                    ReadingProgressEntity(
-                        workId = workId.raw,
-                        surfaceMode = surfaceMode,
-                        cursorJson = cursorJson,
-                        spoilerWatermarkOrdinal = promoted,
-                        updatedAtMs = System.currentTimeMillis(),
-                    ),
-                )
-            }
-
-            val current = _activeState.value
-            if (current.workId == workId) {
-                val nextPending = current.pendingWatermarkJump?.takeIf { it.value > promoted }
-                _activeState.value = current.copy(
-                    spoilerWatermark = promotedOrd,
-                    pendingWatermarkJump = nextPending,
-                )
-            }
         }
     }
 
@@ -314,71 +261,15 @@ internal class DefaultReaderEngine(
         rendererPort.renderDecorations(notes)
     }
 
-    override suspend fun currentSpoilerGate(workId: WorkId): SpoilerGate {
-        val active = _activeState.value
-        val activeWatermark = active.spoilerWatermark
-        if (active.workId == workId && activeWatermark != null) {
-            return SpoilerGate.UpTo(activeWatermark)
-        }
-        val saved = withContext(ioDispatcher) { dao.findProgress(workId.raw) }
-        val ord = ChapterOrdinal(maxOf(1, saved?.spoilerWatermarkOrdinal ?: 1))
-        return SpoilerGate.UpTo(ord)
-    }
-
-    override suspend fun raiseWatermarkFromRemote(workId: WorkId, remoteMaxOrdinal: ChapterOrdinal) {
-        mutex.withLock {
-            val saved = withContext(ioDispatcher) { dao.findProgress(workId.raw) }
-            val localOrd = saved?.spoilerWatermarkOrdinal ?: 1
-            val raised = maxOf(localOrd, remoteMaxOrdinal.value)
-            val raisedOrd = ChapterOrdinal(raised)
-
-            if (saved != null) {
-                withContext(ioDispatcher) {
-                    dao.upsertProgress(
-                        saved.copy(
-                            spoilerWatermarkOrdinal = raised,
-                            updatedAtMs = System.currentTimeMillis(),
-                        ),
-                    )
-                }
-            } else {
-                val defaultCursor = adaptAnchorForMode(workId, raisedOrd, ReadingSurfaceMode.REFLOWABLE)
-                withContext(ioDispatcher) {
-                    dao.upsertProgress(
-                        ReadingProgressEntity(
-                            workId = workId.raw,
-                            surfaceMode = ReadingSurfaceMode.REFLOWABLE.name,
-                            cursorJson = encodeAnchor(defaultCursor),
-                            spoilerWatermarkOrdinal = raised,
-                            updatedAtMs = System.currentTimeMillis(),
-                        ),
-                    )
-                }
-            }
-
-            val current = _activeState.value
-            if (current.workId == workId) {
-                // Never clobber currentCursor; only raise watermark and clear stale pending jumps <= newMax.
-                val nextPending = current.pendingWatermarkJump?.takeIf { it.value > raised }
-                _activeState.value = current.copy(
-                    spoilerWatermark = raisedOrd,
-                    pendingWatermarkJump = nextPending,
-                )
-            }
-        }
-    }
-
     override suspend fun snapshotProgress(workId: WorkId): DeviceProgressShard? = mutex.withLock {
         val current = _activeState.value
         val saved = withContext(ioDispatcher) { dao.findProgress(workId.raw) }
         if (current.workId == workId && current.currentCursor != null) {
-            val watermark = current.spoilerWatermark ?: ChapterOrdinal(maxOf(1, saved?.spoilerWatermarkOrdinal ?: 1))
             val ts = saved?.updatedAtMs ?: System.currentTimeMillis()
             return@withLock DeviceProgressShard(
                 workId = workId,
                 deviceId = deviceId,
                 cursor = current.currentCursor!!,
-                watermark = watermark,
                 updatedAtEpochMs = ts,
             )
         }
@@ -387,7 +278,6 @@ internal class DefaultReaderEngine(
             workId = workId,
             deviceId = deviceId,
             cursor = decodeAnchor(saved.cursorJson),
-            watermark = ChapterOrdinal(maxOf(1, saved.spoilerWatermarkOrdinal)),
             updatedAtEpochMs = saved.updatedAtMs,
         )
     }
@@ -471,17 +361,10 @@ internal class DefaultReaderEngine(
                 val oldProgress = dao.findProgress(fromWorkId.raw)
                 val targetProgress = dao.findProgress(toWorkId.raw)
                 if (oldProgress != null) {
-                    val maxWm = maxOf(
-                        oldProgress.spoilerWatermarkOrdinal,
-                        targetProgress?.spoilerWatermarkOrdinal ?: 1,
-                    )
                     val mergedProgress = if (targetProgress == null || oldProgress.updatedAtMs >= targetProgress.updatedAtMs) {
-                        oldProgress.copy(
-                            workId = toWorkId.raw,
-                            spoilerWatermarkOrdinal = maxWm,
-                        )
+                        oldProgress.copy(workId = toWorkId.raw)
                     } else {
-                        targetProgress.copy(spoilerWatermarkOrdinal = maxWm)
+                        targetProgress
                     }
                     dao.upsertProgress(mergedProgress)
                     dao.deleteProgress(fromWorkId.raw)
@@ -514,32 +397,6 @@ internal class DefaultReaderEngine(
             val current = _activeState.value
             val saved = withContext(ioDispatcher) { dao.findProgress(workId.raw) }
 
-            val currentWatermark = saved?.spoilerWatermarkOrdinal
-                ?: current.takeIf { it.workId == workId }?.spoilerWatermark?.value
-                ?: 1
-
-            val newOrd = anchor.ordinal.value
-            val nextWatermark: Int
-            val nextPendingJump: ChapterOrdinal?
-
-            when {
-                // Backward or same-chapter flip: update cursor ONLY, NEVER lower spoilerWatermark
-                newOrd <= currentWatermark -> {
-                    nextWatermark = currentWatermark
-                    nextPendingJump = null
-                }
-                // Sequential 1-chapter advance: auto-advance spoilerWatermark
-                newOrd == currentWatermark + 1 -> {
-                    nextWatermark = newOrd
-                    nextPendingJump = null
-                }
-                // Forward multi-chapter jump: lock spoilerWatermark and flag pendingWatermarkJump
-                else -> {
-                    nextWatermark = currentWatermark
-                    nextPendingJump = ChapterOrdinal(newOrd)
-                }
-            }
-
             val effectiveMode = current.takeIf { it.workId == workId }?.mode
                 ?: saved?.surfaceMode?.let { runCatching { ReadingSurfaceMode.valueOf(it) }.getOrNull() }
                 ?: ReadingSurfaceMode.REFLOWABLE
@@ -550,7 +407,6 @@ internal class DefaultReaderEngine(
                         workId = workId.raw,
                         surfaceMode = effectiveMode.name,
                         cursorJson = encodeAnchor(anchor),
-                        spoilerWatermarkOrdinal = nextWatermark,
                         updatedAtMs = System.currentTimeMillis(),
                     ),
                 )
@@ -559,8 +415,6 @@ internal class DefaultReaderEngine(
             if (current.workId == workId) {
                 _activeState.value = current.copy(
                     currentCursor = anchor,
-                    spoilerWatermark = ChapterOrdinal(nextWatermark),
-                    pendingWatermarkJump = nextPendingJump,
                 )
             }
         }
@@ -671,12 +525,5 @@ internal class DefaultReaderEngine(
         val hasReflowable: Boolean,
         val hasPdfFixed: Boolean,
         val pdfFile: File,
-    )
-
-    private data class Quad<A, B, C, D>(
-        val first: A,
-        val second: B,
-        val third: C,
-        val fourth: D,
     )
 }

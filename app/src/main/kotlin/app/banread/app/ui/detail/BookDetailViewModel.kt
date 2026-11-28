@@ -11,7 +11,6 @@ import app.banread.model.ReadProfileId
 import app.banread.model.ReaderEngine
 import app.banread.model.ReadingAnchor
 import app.banread.model.ReadingSurfaceMode
-import app.banread.model.SpoilerGate
 import app.banread.model.TextQuote
 import app.banread.model.WorkId
 import app.banread.model.WorkOutline
@@ -30,11 +29,9 @@ data class BookDetailUiState(
     val activeProfile: ReadProfile? = null,
     val allProfiles: List<ReadProfile> = emptyList(),
     val literatureSubKindHints: Map<String, String> = emptyMap(),
-    val currentWatermark: ChapterOrdinal = ChapterOrdinal(1),
-    val fullBookUnlocked: Boolean = false,
+    val currentOrdinal: ChapterOrdinal? = null,
     val frontBackExpanded: Boolean = false,
     val showPerspectivePicker: Boolean = false,
-    val pendingForwardJump: ChapterOutlineItem? = null,
     val errorMessage: String? = null,
     val pendingNavigationMode: ReadingSurfaceMode? = null,
 )
@@ -66,16 +63,11 @@ class BookDetailViewModel(
             runCatching {
                 val summary = libraryVault.getWorkSummary(workId)
                 val outline = libraryVault.getWorkOutline(workId)
-                val gate = readerEngine.currentSpoilerGate(workId)
-                val firstBodyOrd = outline.bodyChapters.firstOrNull()?.ordinal?.value ?: 1
-                val (watermark, isFull) = when (gate) {
-                    is SpoilerGate.UpTo -> ChapterOrdinal(maxOf(gate.unlockedMaxOrdinal.value, firstBodyOrd)) to false
-                    SpoilerGate.FullBookUnlocked -> {
-                        val maxOrd = (outline.bodyChapters + outline.notesChapters + outline.frontBackChapters)
-                            .maxOfOrNull { it.ordinal.value } ?: firstBodyOrd
-                        ChapterOrdinal(maxOrd) to true
-                    }
-                }
+                val currentOrdinal = readerEngine.activeState.value
+                    .takeIf { it.workId == workId }
+                    ?.currentCursor
+                    ?.ordinal
+                    ?: outline.bodyChapters.firstOrNull()?.ordinal
                 val profileId = outline.readProfileId ?: summary?.readProfileId ?: profileRegistry.defaultReadType
                 val profile = profileRegistry.profileById(profileId)
                 _uiState.value = _uiState.value.copy(
@@ -83,8 +75,7 @@ class BookDetailViewModel(
                     summary = summary,
                     outline = outline,
                     activeProfile = profile,
-                    currentWatermark = watermark,
-                    fullBookUnlocked = isFull,
+                    currentOrdinal = currentOrdinal,
                 )
             }.onFailure { err ->
                 _uiState.value = _uiState.value.copy(
@@ -138,31 +129,10 @@ class BookDetailViewModel(
     }
 
     fun onChapterClicked(item: ChapterOutlineItem) {
-        val current = _uiState.value
-        if (!current.fullBookUnlocked && item.ordinal > current.currentWatermark) {
-            _uiState.value = current.copy(pendingForwardJump = item)
-        } else {
-            jumpToOrdinal(item.ordinal, advanceWatermark = false)
-        }
+        jumpToOrdinal(item.ordinal)
     }
 
-    fun dismissForwardJumpDialog() {
-        _uiState.value = _uiState.value.copy(pendingForwardJump = null)
-    }
-
-    fun confirmForwardJumpAdvance() {
-        val target = _uiState.value.pendingForwardJump ?: return
-        _uiState.value = _uiState.value.copy(pendingForwardJump = null)
-        jumpToOrdinal(target.ordinal, advanceWatermark = true)
-    }
-
-    fun confirmForwardJumpPreviewOnly() {
-        val target = _uiState.value.pendingForwardJump ?: return
-        _uiState.value = _uiState.value.copy(pendingForwardJump = null)
-        jumpToOrdinal(target.ordinal, advanceWatermark = false)
-    }
-
-    private fun jumpToOrdinal(ordinal: ChapterOrdinal, advanceWatermark: Boolean) {
+    private fun jumpToOrdinal(ordinal: ChapterOrdinal) {
         val summary = _uiState.value.summary
         val mode = if (summary != null && ReadingSurfaceMode.REFLOWABLE !in summary.supportedModes &&
             ReadingSurfaceMode.PDF_FIXED in summary.supportedModes
@@ -173,10 +143,6 @@ class BookDetailViewModel(
         }
         viewModelScope.launch {
             readerEngine.open(workId, mode)
-            if (advanceWatermark) {
-                readerEngine.confirmWatermarkAdvance(workId, ordinal)
-                _uiState.value = _uiState.value.copy(currentWatermark = ordinal)
-            }
             val anchor = runCatching {
                 libraryVault.resolveAnchor(workId, ordinal, BlockId("B01"))
             }.getOrElse {
@@ -195,7 +161,10 @@ class BookDetailViewModel(
                 }
             }
             readerEngine.goTo(anchor)
-            _uiState.value = _uiState.value.copy(pendingNavigationMode = mode)
+            _uiState.value = _uiState.value.copy(
+                currentOrdinal = ordinal,
+                pendingNavigationMode = mode,
+            )
         }
     }
 

@@ -135,7 +135,7 @@ class CloudShardAdaptersTest {
         assertTrue(dav.listShards("progress/B0001/").isEmpty())
         assertNull(dav.getShard("progress/B0001/pixel.json"))
 
-        val payload = """{"uid":"B0001","watermark":4}""".toByteArray()
+        val payload = """{"uid":"B0001","ordinal":4}""".toByteArray()
         dav.putShard("progress/B0001/pixel.json", payload)
         assertTrue(recordedRequests.any { it.method == "MKCOL" && it.path == "/dav/progress/" })
         assertTrue(recordedRequests.any { it.method == "MKCOL" && it.path == "/dav/progress/B0001/" })

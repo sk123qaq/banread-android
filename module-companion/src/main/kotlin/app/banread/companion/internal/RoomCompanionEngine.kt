@@ -19,7 +19,6 @@ import app.banread.model.ShareCompanionMergeResult
 import app.banread.model.SharedCompanionArtifact
 import app.banread.model.SharedCompanionPayload
 import app.banread.model.SharedQaTurn
-import app.banread.model.SpoilerGate
 import app.banread.model.SyncCoordinator
 import app.banread.model.TokenEstimate
 import app.banread.model.ToolId
@@ -75,9 +74,9 @@ internal class RoomCompanionEngine(
         val (profileId, subKind) = resolveWorkProfile(request.workId)
         val effectiveToolId = resolveEffectiveToolId(request.tool, profileId)
 
-        // 1. Build anti-spoiler gated context exclusively via LibraryVault
-        val ctx = when (val outcome = contextBuilder.build(request.workId, request.scope, request.gate)) {
-            is ContextBuildOutcome.GateLocked -> {
+        // 1. Build context via LibraryVault
+        val ctx = when (val outcome = contextBuilder.build(request.workId, request.scope)) {
+            is ContextBuildOutcome.Unavailable -> {
                 emit(CompanionEvent.Failure(AppFailure.CapacityPreflightBlocked(0L, outcome.reason)))
                 return@flow
             }
@@ -85,54 +84,27 @@ internal class RoomCompanionEngine(
         }
 
         val scopeKey = scopeKeyFor(request.scope)
-        val gateKey = progressGateKeyFor(request.scope, request.gate)
 
-        // 2. Room L3 Cache Lookup & FullBook SWR (allows offline hits for precomputed cross-book results)
+        // 2. Room L3 Cache Lookup & SWR (allows offline hits for precomputed cross-book results)
         if (!request.forceRefresh) {
             val exact = dao.getExactResult(
                 workId = request.workId.raw,
                 scopeKey = scopeKey,
-                progressGateKey = gateKey,
                 toolId = effectiveToolId,
                 promptVersion = PromptCatalog.PROMPT_VERSION,
             )
-            if (exact != null && isContentHashCompatible(exact.chapterContentSha256, ctx.chapterContentSha256)) {
+            if (exact != null) {
                 dao.touchResult(
                     workId = request.workId.raw,
                     scopeKey = scopeKey,
-                    progressGateKey = gateKey,
                     toolId = effectiveToolId,
                     promptVersion = PromptCatalog.PROMPT_VERSION,
                     nowMs = System.currentTimeMillis(),
                 )
                 val artifact = json.decodeFromString(AuditedArtifact.serializer(), exact.artifactJson)
-                emit(CompanionEvent.CachedHit(artifact = artifact, isStale = false))
+                val isStale = !isContentHashCompatible(exact.chapterContentSha256, ctx.chapterContentSha256)
+                emit(CompanionEvent.CachedHit(artifact = artifact, isStale = isStale))
                 return@flow
-            }
-
-            if (request.scope is ToolScope.FullBook) {
-                val targetGateOrdinal = when (val g = request.gate) {
-                    is SpoilerGate.UpTo -> g.unlockedMaxOrdinal.value
-                    SpoilerGate.FullBookUnlocked -> Int.MAX_VALUE
-                }
-                val swrCandidate = findBestEarlierFullBookCache(
-                    workId = request.workId,
-                    toolId = effectiveToolId,
-                    targetGateOrdinal = targetGateOrdinal,
-                )
-                if (swrCandidate != null) {
-                    dao.touchResult(
-                        workId = swrCandidate.workId,
-                        scopeKey = swrCandidate.scopeKey,
-                        progressGateKey = swrCandidate.progressGateKey,
-                        toolId = swrCandidate.toolId,
-                        promptVersion = swrCandidate.promptVersion,
-                        nowMs = System.currentTimeMillis(),
-                    )
-                    val artifact = json.decodeFromString(AuditedArtifact.serializer(), swrCandidate.artifactJson)
-                    emit(CompanionEvent.CachedHit(artifact = artifact, isStale = true))
-                    return@flow
-                }
             }
         }
 
@@ -172,7 +144,6 @@ internal class RoomCompanionEngine(
             literatureSubKind = subKind,
             profileRegistry = profileRegistry,
             ctx = ctx,
-            gate = request.gate,
             crossBookHits = crossBookHits,
         )
 
@@ -236,7 +207,6 @@ internal class RoomCompanionEngine(
             CompanionResultEntity(
                 workId = request.workId.raw,
                 scopeKey = scopeKey,
-                progressGateKey = gateKey,
                 toolId = effectiveToolId,
                 promptVersion = PromptCatalog.PROMPT_VERSION,
                 chapterContentSha256 = ctx.chapterContentSha256,
@@ -256,30 +226,25 @@ internal class RoomCompanionEngine(
         threadId: String?,
         workId: WorkId,
         scope: ToolScope,
-        gate: SpoilerGate,
         question: String,
     ): Flow<CompanionEvent> = flow {
         val effectiveThreadId = threadId?.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString()
         val (profileId, subKind) = resolveWorkProfile(workId)
 
-        val ctx = when (val outcome = contextBuilder.build(workId, scope, gate)) {
-            is ContextBuildOutcome.GateLocked -> {
+        val ctx = when (val outcome = contextBuilder.build(workId, scope)) {
+            is ContextBuildOutcome.Unavailable -> {
                 emit(CompanionEvent.Failure(AppFailure.CapacityPreflightBlocked(0L, outcome.reason)))
                 return@flow
             }
             is ContextBuildOutcome.Ready -> outcome.context
         }
 
-        val currentGateOrd = (gate as? SpoilerGate.UpTo)?.unlockedMaxOrdinal?.value
         val allTurns = dao.getQaTurns(workId.raw, effectiveThreadId)
-        val existingTurns = allTurns.filter { turn ->
-            currentGateOrd == null || (turn.gateOrdinal != null && turn.gateOrdinal <= currentGateOrd)
-        }
 
-        val historyText = if (existingTurns.isNotEmpty()) {
+        val historyText = if (allTurns.isNotEmpty()) {
             buildString {
                 append("\n\n【历史追问对话】\n")
-                for (turn in existingTurns.takeLast(12)) {
+                for (turn in allTurns.takeLast(12)) {
                     val speaker = if (turn.role == "user") "读者" else "助手"
                     append("$speaker：${turn.content}\n")
                 }
@@ -294,7 +259,6 @@ internal class RoomCompanionEngine(
             literatureSubKind = subKind,
             profileRegistry = profileRegistry,
             ctx = ctx,
-            gate = gate,
             question = question,
         )
         val fullUserPrompt = basePrompt.userPrompt + historyText
@@ -332,7 +296,6 @@ internal class RoomCompanionEngine(
                 threadId = effectiveThreadId,
                 workId = workId.raw,
                 scopeKey = scopeKey,
-                gateOrdinal = currentGateOrd,
                 turnIndex = nextTurn,
                 role = "user",
                 content = question,
@@ -344,7 +307,6 @@ internal class RoomCompanionEngine(
                 threadId = effectiveThreadId,
                 workId = workId.raw,
                 scopeKey = scopeKey,
-                gateOrdinal = currentGateOrd,
                 turnIndex = nextTurn + 1,
                 role = "assistant",
                 content = answer,
@@ -434,8 +396,8 @@ internal class RoomCompanionEngine(
 
     override suspend fun estimateTokenCost(request: CompanionRequest): TokenEstimate {
         val (profileId, subKind) = resolveWorkProfile(request.workId)
-        val builtPrompt = when (val outcome = contextBuilder.build(request.workId, request.scope, request.gate)) {
-            is ContextBuildOutcome.GateLocked -> {
+        val builtPrompt = when (val outcome = contextBuilder.build(request.workId, request.scope)) {
+            is ContextBuildOutcome.Unavailable -> {
                 return TokenEstimate(estimatedInputTokens = 0L, estimatedOutputTokens = 0L, withinContextWindow = false)
             }
             is ContextBuildOutcome.Ready -> PromptCatalog.buildPrompt(
@@ -444,7 +406,6 @@ internal class RoomCompanionEngine(
                 literatureSubKind = subKind,
                 profileRegistry = profileRegistry,
                 ctx = outcome.context,
-                gate = request.gate,
             )
         }
         val totalChars = builtPrompt.systemPrompt.length + builtPrompt.userPrompt.length
@@ -475,7 +436,6 @@ internal class RoomCompanionEngine(
                     val decoded = json.decodeFromString(AuditedArtifact.serializer(), row.artifactJson)
                     SharedCompanionArtifact(
                         scopeKey = row.scopeKey,
-                        progressGateKey = row.progressGateKey,
                         toolId = row.toolId,
                         promptVersion = row.promptVersion,
                         chapterContentSha256 = row.chapterContentSha256,
@@ -493,7 +453,6 @@ internal class RoomCompanionEngine(
                 SharedQaTurn(
                     threadId = turn.threadId,
                     scopeKey = turn.scopeKey,
-                    gateOrdinal = turn.gateOrdinal,
                     turnIndex = turn.turnIndex,
                     role = turn.role,
                     content = turn.content,
@@ -517,7 +476,6 @@ internal class RoomCompanionEngine(
             val existing = dao.getExactResult(
                 workId = workId.raw,
                 scopeKey = item.scopeKey,
-                progressGateKey = item.progressGateKey,
                 toolId = item.toolId,
                 promptVersion = item.promptVersion,
             )
@@ -527,7 +485,6 @@ internal class RoomCompanionEngine(
                     CompanionResultEntity(
                         workId = workId.raw,
                         scopeKey = item.scopeKey,
-                        progressGateKey = item.progressGateKey,
                         toolId = item.toolId,
                         promptVersion = item.promptVersion,
                         chapterContentSha256 = item.chapterContentSha256,
@@ -560,7 +517,6 @@ internal class RoomCompanionEngine(
                     threadId = turn.threadId,
                     workId = workId.raw,
                     scopeKey = turn.scopeKey,
-                    gateOrdinal = turn.gateOrdinal,
                     turnIndex = nextIndex,
                     role = turn.role,
                     content = turn.content,
@@ -608,42 +564,12 @@ internal class RoomCompanionEngine(
         ToolScope.FullBook -> "full_book"
     }
 
-    private fun progressGateKeyFor(scope: ToolScope, gate: SpoilerGate): String = when (scope) {
-        ToolScope.FullBook -> gate.cacheKey
-        is ToolScope.Chapter, is ToolScope.Selection -> DesktopCacheImporter.CHAPTER_SELF_GATE_KEY
-    }
-
     private fun isContentHashCompatible(cachedHash: String, currentHash: String): Boolean {
         if (cachedHash.isBlank() || currentHash.isBlank()) return true
         return cachedHash == currentHash
     }
 
-    private suspend fun findBestEarlierFullBookCache(
-        workId: WorkId,
-        toolId: String,
-        targetGateOrdinal: Int,
-    ): CompanionResultEntity? {
-        val candidates = dao.getAllGateVariants(
-            workId = workId.raw,
-            scopeKey = "full_book",
-            toolId = toolId,
-            promptVersion = PromptCatalog.PROMPT_VERSION,
-        )
-        var best: CompanionResultEntity? = null
-        var bestOrd = -1
-        for (item in candidates) {
-            val ord = GATE_CH_REGEX.matchEntire(item.progressGateKey)?.groupValues?.get(1)?.toIntOrNull() ?: continue
-            if (ord < targetGateOrdinal && ord > bestOrd) {
-                bestOrd = ord
-                best = item
-            }
-        }
-        return best
-    }
-
     companion object {
-        private val GATE_CH_REGEX = Regex("""^gate:ch(\d+)$""")
-
         fun create(
             libraryVault: LibraryVault,
             aiRuntime: AiRuntime,

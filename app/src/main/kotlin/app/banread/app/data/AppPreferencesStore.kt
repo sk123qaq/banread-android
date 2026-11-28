@@ -15,7 +15,6 @@ data class AppPreferencesState(
     val theme: ReaderTheme = ReaderTheme.SEPIA_WARM,
     val volumeKeyPageTurn: Boolean = true,
     val paginationMode: PaginationMode = PaginationMode.SLIDE,
-    val defaultSpoilerLock: Boolean = true,
     val typography: TypographyProfile = TypographyProfile(
         fontFamily = "Noto Serif CJK SC",
         fontSizeSp = 17f,
@@ -32,7 +31,6 @@ interface AppPreferencesPort {
     fun setTheme(theme: ReaderTheme)
     fun setVolumeKeyPageTurn(enabled: Boolean)
     fun setPaginationMode(mode: PaginationMode)
-    fun setDefaultSpoilerLock(enabled: Boolean)
     fun updateTypography(profile: TypographyProfile)
 }
 
@@ -52,10 +50,6 @@ class InMemoryAppPreferencesStore(
 
     override fun setPaginationMode(mode: PaginationMode) {
         _state.value = _state.value.copy(paginationMode = mode)
-    }
-
-    override fun setDefaultSpoilerLock(enabled: Boolean) {
-        _state.value = _state.value.copy(defaultSpoilerLock = enabled)
     }
 
     override fun updateTypography(profile: TypographyProfile) {
@@ -86,11 +80,6 @@ class SharedPrefsAppPreferencesStore(
     override fun setPaginationMode(mode: PaginationMode) {
         prefs.edit().putString(KEY_PAGINATION, mode.name).apply()
         _state.value = _state.value.copy(paginationMode = mode)
-    }
-
-    override fun setDefaultSpoilerLock(enabled: Boolean) {
-        prefs.edit().putBoolean(KEY_SPOILER_LOCK, enabled).apply()
-        _state.value = _state.value.copy(defaultSpoilerLock = enabled)
     }
 
     override fun updateTypography(profile: TypographyProfile) {
@@ -136,7 +125,6 @@ class SharedPrefsAppPreferencesStore(
             theme = theme,
             volumeKeyPageTurn = prefs.getBoolean(KEY_VOLUME_TURN, defaults.volumeKeyPageTurn),
             paginationMode = pagination,
-            defaultSpoilerLock = prefs.getBoolean(KEY_SPOILER_LOCK, defaults.defaultSpoilerLock),
             typography = typography,
             deviceId = DeviceId(storedDeviceId),
         )
@@ -147,7 +135,6 @@ class SharedPrefsAppPreferencesStore(
         const val KEY_THEME = "theme"
         const val KEY_VOLUME_TURN = "volume_key_turn"
         const val KEY_PAGINATION = "pagination_mode"
-        const val KEY_SPOILER_LOCK = "default_spoiler_lock"
         const val KEY_DEVICE_ID = "device_id"
         const val KEY_FONT_FAMILY = "typo_font_family"
         const val KEY_FONT_SIZE = "typo_font_size"

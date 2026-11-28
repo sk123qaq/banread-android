@@ -11,6 +11,8 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Entity(tableName = "reading_progress")
 internal data class ReadingProgressEntity(
@@ -18,7 +20,6 @@ internal data class ReadingProgressEntity(
     val workId: String,
     val surfaceMode: String,
     val cursorJson: String,
-    val spoilerWatermarkOrdinal: Int,
     val updatedAtMs: Long,
 )
 
@@ -95,13 +96,37 @@ internal interface ReaderDao {
         AnnotationEntity::class,
         FontEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 internal abstract class ReaderDatabase : RoomDatabase() {
     abstract fun readerDao(): ReaderDao
 
     companion object {
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `reading_progress_new` (
+                        `workId` TEXT NOT NULL,
+                        `surfaceMode` TEXT NOT NULL,
+                        `cursorJson` TEXT NOT NULL,
+                        `updatedAtMs` INTEGER NOT NULL,
+                        PRIMARY KEY(`workId`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    INSERT OR REPLACE INTO `reading_progress_new` (`workId`, `surfaceMode`, `cursorJson`, `updatedAtMs`)
+                    SELECT `workId`, `surfaceMode`, `cursorJson`, `updatedAtMs` FROM `reading_progress`
+                    """.trimIndent(),
+                )
+                db.execSQL("DROP TABLE `reading_progress`")
+                db.execSQL("ALTER TABLE `reading_progress_new` RENAME TO `reading_progress`")
+            }
+        }
+
         @Volatile
         private var persistentInstance: ReaderDatabase? = null
 
@@ -121,6 +146,7 @@ internal abstract class ReaderDatabase : RoomDatabase() {
                     ReaderDatabase::class.java,
                     "banread_reader_v1.db",
                 )
+                    .addMigrations(MIGRATION_1_2)
                     .fallbackToDestructiveMigration()
                     .build()
                     .also { persistentInstance = it }

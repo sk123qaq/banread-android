@@ -6,23 +6,22 @@ import app.banread.model.AppFailure
 import app.banread.model.AppFailureException
 import app.banread.model.BcBookManifest
 import app.banread.model.BlockId
+import app.banread.model.BookBlock
+import app.banread.model.BookSlice
 import app.banread.model.BookSourceHash
 import app.banread.model.ChapterContentHash
 import app.banread.model.ChapterOrdinal
 import app.banread.model.ChapterOutlineItem
 import app.banread.model.ChapterRole
+import app.banread.model.ChapterSlice
 import app.banread.model.FootnoteDetail
 import app.banread.model.FootnoteLink
-import app.banread.model.GatedBlock
-import app.banread.model.GatedBookSlice
-import app.banread.model.GatedChapterSlice
 import app.banread.model.ImportedWork
 import app.banread.model.LibraryVault
 import app.banread.model.ReadProfileId
 import app.banread.model.ReadingAnchor
 import app.banread.model.ReadingSurfaceMode
 import app.banread.model.ReflowPrepProgress
-import app.banread.model.SpoilerGate
 import app.banread.model.TextQuote
 import app.banread.model.WorkId
 import app.banread.model.WorkOutline
@@ -698,34 +697,24 @@ internal class RoomLibraryVault private constructor(
         )
     }
 
-    override suspend fun loadGatedChapterInputs(
+    override suspend fun loadBookInputs(
         workId: WorkId,
-        gate: SpoilerGate,
-    ): GatedBookSlice = withContext(Dispatchers.IO) {
+    ): BookSlice = withContext(Dispatchers.IO) {
         dao.findWorkById(workId.raw)
             ?: throw NoSuchElementException("Work not found: ${workId.raw}")
 
         val chapters = dao.getChapters(workId.raw)
-        val gatedBodyChapters = chapters.filter { ch ->
-            ch.chapterRole == ChapterRole.BODY.name && when (gate) {
-                is SpoilerGate.UpTo -> ch.ordinal <= gate.unlockedMaxOrdinal.value
-                SpoilerGate.FullBookUnlocked -> true
-            }
-        }
+        val bodyChapters = chapters.filter { it.chapterRole == ChapterRole.BODY.name }
+        val blocksByOrdinal = dao.getAllBlocksForWork(workId.raw).groupBy { it.ordinal }
 
-        val blocksByOrdinal = when (gate) {
-            is SpoilerGate.UpTo -> dao.getBlocksUpToOrdinal(workId.raw, gate.unlockedMaxOrdinal.value)
-            SpoilerGate.FullBookUnlocked -> dao.getAllBlocksForWork(workId.raw)
-        }.groupBy { it.ordinal }
-
-        val chapterSlices = gatedBodyChapters.map { ch ->
+        val chapterSlices = bodyChapters.map { ch ->
             val blocks = blocksByOrdinal[ch.ordinal].orEmpty().map { blk ->
-                GatedBlock(
+                BookBlock(
                     blockId = BlockId(blk.blockId),
                     text = blk.cleanText,
                 )
             }
-            GatedChapterSlice(
+            ChapterSlice(
                 ordinal = ChapterOrdinal(ch.ordinal),
                 title = ch.title,
                 role = ChapterRole.valueOf(ch.chapterRole),
@@ -734,11 +723,7 @@ internal class RoomLibraryVault private constructor(
             )
         }
 
-        val footnoteEntities = when (gate) {
-            is SpoilerGate.UpTo -> dao.getFootnotesUpToOrdinal(workId.raw, gate.unlockedMaxOrdinal.value)
-            SpoilerGate.FullBookUnlocked -> dao.getFootnotesNonBoilerplate(workId.raw)
-        }
-
+        val footnoteEntities = dao.getFootnotesNonBoilerplate(workId.raw)
         val footnoteLinks = footnoteEntities.map { fn ->
             FootnoteLink(
                 id = fn.footnoteId,
@@ -752,9 +737,8 @@ internal class RoomLibraryVault private constructor(
             )
         }
 
-        GatedBookSlice(
+        BookSlice(
             workId = workId,
-            gate = gate,
             chapters = chapterSlices,
             footnotes = footnoteLinks,
         )

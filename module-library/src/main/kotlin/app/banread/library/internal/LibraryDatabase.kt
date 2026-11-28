@@ -140,18 +140,8 @@ internal interface LibraryDao {
     @Query("SELECT * FROM chapter_blocks WHERE workId = :workId ORDER BY ordinal ASC, blockIndex ASC")
     suspend fun getAllBlocksForWork(workId: String): List<ChapterBlockEntity>
 
-    @Query("SELECT * FROM chapter_blocks WHERE workId = :workId AND ordinal <= :maxOrdinal ORDER BY ordinal ASC, blockIndex ASC")
-    suspend fun getBlocksUpToOrdinal(workId: String, maxOrdinal: Int): List<ChapterBlockEntity>
-
     @Query("SELECT * FROM footnotes WHERE workId = :workId ORDER BY sourceChapterOrdinal ASC, footnoteId ASC")
     suspend fun getFootnotesForWork(workId: String): List<FootnoteEntity>
-
-    @Query(
-        "SELECT * FROM footnotes WHERE workId = :workId AND sourceChapterOrdinal <= :maxOrdinal " +
-            "AND isTranslatorOrBib = 0 " +
-            "ORDER BY sourceChapterOrdinal ASC, footnoteId ASC",
-    )
-    suspend fun getFootnotesUpToOrdinal(workId: String, maxOrdinal: Int): List<FootnoteEntity>
 
     @Query(
         "SELECT * FROM footnotes WHERE workId = :workId AND isTranslatorOrBib = 0 " +
