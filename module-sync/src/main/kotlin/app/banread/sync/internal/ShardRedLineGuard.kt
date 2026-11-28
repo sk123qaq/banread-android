@@ -2,6 +2,10 @@ package app.banread.sync.internal
 
 import app.banread.model.AppFailure
 import app.banread.model.AppFailureException
+import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import java.io.IOException
+import java.net.ProtocolException
 import java.net.URI
 
 /**
@@ -96,13 +100,15 @@ internal object ShardRedLineGuard {
 }
 
 internal object SyncEndpointUrlPolicy {
-    fun normalizeHttpBaseUrl(rawUrl: String, requireHttpsForPublicHosts: Boolean = false): String {
+    fun normalizeHttpBaseUrl(rawUrl: String, requireHttpsForPublicHosts: Boolean = true): String {
         val clean = rawUrl.trim().trimEnd('/')
+        val httpUrl = clean.toHttpUrlOrNull()
+            ?: throw AppFailureException(AppFailure.NetworkOrSyncConflict("URL must use http:// or https:// with host: $rawUrl"))
         val uri = runCatching { URI(clean) }.getOrNull()
             ?: throw AppFailureException(AppFailure.NetworkOrSyncConflict("Invalid URL: $rawUrl"))
-        val scheme = uri.scheme?.lowercase()
-        val host = uri.host?.lowercase()
-        if ((scheme != "http" && scheme != "https") || host.isNullOrBlank()) {
+        val scheme = httpUrl.scheme.lowercase()
+        val host = httpUrl.host.lowercase()
+        if ((scheme != "http" && scheme != "https") || host.isBlank() || uri.host.isNullOrBlank()) {
             throw AppFailureException(AppFailure.NetworkOrSyncConflict("URL must use http:// or https:// with host: $rawUrl"))
         }
         if (requireHttpsForPublicHosts && scheme == "http" && !isPrivateOrLoopbackHost(host)) {
@@ -113,19 +119,80 @@ internal object SyncEndpointUrlPolicy {
         return clean
     }
 
+    @Throws(IOException::class)
+    fun checkTransportAllowed(httpUrl: HttpUrl) {
+        if (httpUrl.scheme.equals("http", ignoreCase = true) && !isPrivateOrLoopbackHost(httpUrl.host)) {
+            throw ProtocolException("Public endpoint must use https:// (${httpUrl.host})")
+        }
+    }
+
+    @Throws(IOException::class)
+    fun checkTransportAllowed(uri: URI) {
+        if (uri.scheme.equals("http", ignoreCase = true) && !isPrivateOrLoopbackHost(uri.host.orEmpty())) {
+            throw ProtocolException("Public endpoint must use https:// (${uri.host})")
+        }
+    }
+
+    fun isTailscaleCgnatIpv4(host: String): Boolean {
+        val ipv4 = parseIpv4Octets(host.trim()) ?: return false
+        return ipv4[0] == 100 && ipv4[1] in 64..127
+    }
+
     fun isPrivateOrLoopbackHost(host: String): Boolean {
-        val h = host.lowercase().trim('[', ']')
+        val h = host.lowercase().trim('[', ']').trimEnd('.')
+        if (h.isEmpty()) return false
         if (h == "localhost" || h == "127.0.0.1" || h == "::1" || h == "10.0.2.2") return true
-        if (h.endsWith(".local") || h.endsWith(".lan") || h.endsWith(".home.arpa")) return true
-        val octets = h.split('.')
-        if (octets.size == 4 && octets.all { it.toIntOrNull() in 0..255 }) {
-            val a = octets[0].toInt()
-            val b = octets[1].toInt()
+        if ((h.endsWith(".local") && h.length > ".local".length) ||
+            (h.endsWith(".lan") && h.length > ".lan".length) ||
+            (h.endsWith(".home.arpa") && h.length > ".home.arpa".length)
+        ) {
+            return !h.startsWith(".") && !h.contains("..")
+        }
+        val ipv4 = parseIpv4Octets(h)
+        if (ipv4 != null) {
+            val a = ipv4[0]
+            val b = ipv4[1]
             if (a == 10 || a == 127) return true
             if (a == 192 && b == 168) return true
             if (a == 172 && b in 16..31) return true
-            if (a == 100 && b in 64..127) return true // Tailscale CGNAT
+            if (a == 100 && b in 64..127) return true // Tailscale CGNAT 100.64.0.0/10
+            return false
         }
+        if (':' in h && isPrivateOrLoopbackIpv6(h)) return true
         return false
+    }
+
+    private fun parseIpv4Octets(host: String): IntArray? {
+        val parts = host.split('.')
+        if (parts.size != 4) return null
+        val out = IntArray(4)
+        for (i in 0 until 4) {
+            val p = parts[i]
+            if (p.isEmpty() || !p.all(Char::isDigit)) return null
+            val v = p.toIntOrNull() ?: return null
+            if (v !in 0..255) return null
+            out[i] = v
+        }
+        return out
+    }
+
+    private fun isPrivateOrLoopbackIpv6(host: String): Boolean {
+        if ('.' in host || host.contains(":::")) return false
+        val raw = host.substringBefore('%')
+        if (raw.split("::").size > 2) return false
+        val parts = raw.split(':')
+        if (parts.size < 3 || parts.size > 8) return false
+        if (!parts.all { it.isEmpty() || (it.length <= 4 && it.all { ch -> ch in '0'..'9' || ch in 'a'..'f' }) }) {
+            return false
+        }
+        if (raw == "::1") return true
+        val nonEmpty = parts.filter { it.isNotEmpty() }
+        if (nonEmpty.size == 1 && raw.startsWith("::") && nonEmpty[0].toInt(16) == 1) return true
+        if (parts.size == 8 && parts.take(7).all { it.isNotEmpty() && it.toInt(16) == 0 } && parts[7].toInt(16) == 1) {
+            return true
+        }
+        val firstSegment = parts.firstOrNull()?.takeIf { it.isNotEmpty() } ?: return false
+        val firstHextet = firstSegment.toInt(16)
+        return firstHextet in 0xFC00..0xFDFF || firstHextet in 0xFE80..0xFEBF
     }
 }

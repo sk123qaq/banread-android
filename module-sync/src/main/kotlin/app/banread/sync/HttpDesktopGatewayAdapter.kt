@@ -36,6 +36,9 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.net.Proxy
+import java.net.ProxySelector
+import java.net.SocketAddress
 import java.net.URI
 import java.net.URLDecoder
 import java.util.concurrent.TimeUnit
@@ -62,7 +65,7 @@ object PairingUriParser {
         if (token.isEmpty() || token.any { it.isWhitespace() }) {
             throw AppFailureException(AppFailure.NetworkOrSyncConflict("配对二维码缺少有效 token 参数"))
         }
-        val normalizedBase = SyncEndpointUrlPolicy.normalizeHttpBaseUrl(rawBase, requireHttpsForPublicHosts = false)
+        val normalizedBase = SyncEndpointUrlPolicy.normalizeHttpBaseUrl(rawBase)
         return ParsedPairingUri(baseUrl = normalizedBase, token = token)
     }
 
@@ -456,7 +459,7 @@ class HttpDesktopGatewayAdapter(
         AppFailureException(AppFailure.NetworkOrSyncConflict("桌面网关鉴权失败 (HTTP 401)：请重新扫码配对"))
 
     private fun normalizeBase(baseUrl: String): String =
-        SyncEndpointUrlPolicy.normalizeHttpBaseUrl(baseUrl, requireHttpsForPublicHosts = false)
+        SyncEndpointUrlPolicy.normalizeHttpBaseUrl(baseUrl)
 
     private fun DeviceProgressShard.toDesktopWireDto(): DesktopProgressShardDto {
         val (blk, offset) = when (val c = cursor) {
@@ -499,6 +502,24 @@ class HttpDesktopGatewayAdapter(
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
+            .proxySelector(CleartextGuardProxySelector)
+            .addNetworkInterceptor { chain ->
+                SyncEndpointUrlPolicy.checkTransportAllowed(chain.request().url)
+                chain.proceed(chain.request())
+            }
             .build()
+
+        private object CleartextGuardProxySelector : ProxySelector() {
+            override fun select(uri: URI?): List<Proxy> {
+                if (uri != null) {
+                    SyncEndpointUrlPolicy.checkTransportAllowed(uri)
+                }
+                return getDefault()?.select(uri) ?: listOf(Proxy.NO_PROXY)
+            }
+
+            override fun connectFailed(uri: URI?, sa: SocketAddress?, ioe: IOException?) {
+                getDefault()?.connectFailed(uri, sa, ioe)
+            }
+        }
     }
 }

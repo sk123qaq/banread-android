@@ -117,10 +117,11 @@ class ShareCoordinator internal constructor(
         shareIdOverride: String? = null,
     ): Result<ShareSendResult> = withContext(ioDispatcher) {
         runCatching {
-            val relayBaseUrl = configStore.read().r2RelayBaseUrl?.takeIf { it.isNotBlank() }
+            val rawRelayBaseUrl = configStore.read().r2RelayBaseUrl?.takeIf { it.isNotBlank() }
                 ?: throw AppFailureException(
                     AppFailure.NetworkOrSyncConflict("未配置 R2 / Worker 中转端点，请改用微信 .bcnote 离线包或先配置 R2 地址"),
                 )
+            val relayBaseUrl = SyncEndpointUrlPolicy.normalizeHttpBaseUrl(rawRelayBaseUrl)
             val uploadToken = secretVault.getSecret(SyncConfigStore.ALIAS_R2_RELAY_TOKEN)?.takeIf { it.isNotBlank() }
             val shareId = shareIdOverride?.takeIf { it.isNotBlank() } ?: generateShareId()
             val prepared = prepareShareData(workId, selection, shareId)
@@ -670,7 +671,8 @@ class ShareCoordinator internal constructor(
         if (effectiveCode.isEmpty()) {
             throw AppFailureException(AppFailure.NetworkOrSyncConflict("局域网接收需要 6 位配对码"))
         }
-        val base = "${httpUrl.scheme}://${httpUrl.host}:${httpUrl.port}"
+        val hostPart = if (':' in httpUrl.host) "[${httpUrl.host}]" else httpUrl.host
+        val base = SyncEndpointUrlPolicy.normalizeHttpBaseUrl("${httpUrl.scheme}://$hostPart:${httpUrl.port}")
         return base to effectiveCode
     }
 
