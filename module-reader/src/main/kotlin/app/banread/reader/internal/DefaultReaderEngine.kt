@@ -6,6 +6,7 @@ import app.banread.model.BlockId
 import app.banread.model.BookRendererPort
 import app.banread.model.ChapterOrdinal
 import app.banread.model.DeviceId
+import app.banread.model.DeviceProgressShard
 import app.banread.model.LibraryVault
 import app.banread.model.NoteLogEntry
 import app.banread.model.ReaderEngine
@@ -363,6 +364,138 @@ internal class DefaultReaderEngine(
                     spoilerWatermark = raisedOrd,
                     pendingWatermarkJump = nextPending,
                 )
+            }
+        }
+    }
+
+    override suspend fun snapshotProgress(workId: WorkId): DeviceProgressShard? = mutex.withLock {
+        val current = _activeState.value
+        val saved = withContext(ioDispatcher) { dao.findProgress(workId.raw) }
+        if (current.workId == workId && current.currentCursor != null) {
+            val watermark = current.spoilerWatermark ?: ChapterOrdinal(maxOf(1, saved?.spoilerWatermarkOrdinal ?: 1))
+            val ts = saved?.updatedAtMs ?: System.currentTimeMillis()
+            return@withLock DeviceProgressShard(
+                workId = workId,
+                deviceId = deviceId,
+                cursor = current.currentCursor!!,
+                watermark = watermark,
+                updatedAtEpochMs = ts,
+            )
+        }
+        if (saved == null) return@withLock null
+        return@withLock DeviceProgressShard(
+            workId = workId,
+            deviceId = deviceId,
+            cursor = decodeAnchor(saved.cursorJson),
+            watermark = ChapterOrdinal(maxOf(1, saved.spoilerWatermarkOrdinal)),
+            updatedAtEpochMs = saved.updatedAtMs,
+        )
+    }
+
+    override suspend fun listNoteLogEntries(workId: WorkId, includeDeleted: Boolean): List<NoteLogEntry> =
+        withContext(ioDispatcher) {
+            val rows = if (includeDeleted) {
+                dao.getAllAnnotations(workId.raw)
+            } else {
+                dao.getActiveAnnotations(workId.raw)
+            }
+            rows.map { it.toDomain() }
+        }
+
+    override suspend fun mergeRemoteAnnotations(workId: WorkId, entries: List<NoteLogEntry>): Int {
+        if (entries.isEmpty()) {
+            return withContext(ioDispatcher) { dao.getActiveAnnotations(workId.raw).size }
+        }
+        val activeNotes = mutex.withLock {
+            withContext(ioDispatcher) {
+                for (remote in entries) {
+                    val existing = dao.findAnnotation(workId.raw, remote.noteId)
+                    val shouldApply = when {
+                        existing == null -> true
+                        remote.updatedAtEpochMs > existing.updatedAtMs -> true
+                        remote.updatedAtEpochMs < existing.updatedAtMs -> false
+                        remote.deletedAtEpochMs != null && existing.deletedAtMs == null -> true
+                        remote.deletedAtEpochMs == null && existing.deletedAtMs != null -> false
+                        else -> remote.deviceId.raw > existing.deviceId
+                    }
+                    if (shouldApply) {
+                        dao.upsertAnnotation(
+                            AnnotationEntity(
+                                noteId = remote.noteId,
+                                workId = workId.raw,
+                                deviceId = remote.deviceId.raw,
+                                anchorJson = encodeAnchor(remote.anchor),
+                                colorToken = remote.colorToken,
+                                comment = remote.comment,
+                                updatedAtMs = remote.updatedAtEpochMs,
+                                deletedAtMs = remote.deletedAtEpochMs,
+                            ),
+                        )
+                    }
+                }
+                dao.getActiveAnnotations(workId.raw).map { it.toDomain() }
+            }
+        }
+        if (_activeState.value.workId == workId) {
+            rendererPort.renderDecorations(activeNotes)
+        }
+        return activeNotes.size
+    }
+
+    override suspend fun deleteAnnotation(workId: WorkId, noteId: String) {
+        val activeNotes = mutex.withLock {
+            val now = System.currentTimeMillis()
+            withContext(ioDispatcher) {
+                val existing = dao.findAnnotation(workId.raw, noteId)
+                if (existing != null && existing.deletedAtMs == null) {
+                    dao.upsertAnnotation(
+                        existing.copy(
+                            deviceId = deviceId.raw,
+                            updatedAtMs = maxOf(now, existing.updatedAtMs + 1L),
+                            deletedAtMs = now,
+                        ),
+                    )
+                }
+                dao.getActiveAnnotations(workId.raw).map { it.toDomain() }
+            }
+        }
+        if (_activeState.value.workId == workId) {
+            rendererPort.renderDecorations(activeNotes)
+        }
+    }
+
+    override suspend fun migrateWorkState(fromWorkId: WorkId, toWorkId: WorkId) {
+        if (fromWorkId == toWorkId) return
+        mutex.withLock {
+            withContext(ioDispatcher) {
+                val oldProgress = dao.findProgress(fromWorkId.raw)
+                val targetProgress = dao.findProgress(toWorkId.raw)
+                if (oldProgress != null) {
+                    val maxWm = maxOf(
+                        oldProgress.spoilerWatermarkOrdinal,
+                        targetProgress?.spoilerWatermarkOrdinal ?: 1,
+                    )
+                    val mergedProgress = if (targetProgress == null || oldProgress.updatedAtMs >= targetProgress.updatedAtMs) {
+                        oldProgress.copy(
+                            workId = toWorkId.raw,
+                            spoilerWatermarkOrdinal = maxWm,
+                        )
+                    } else {
+                        targetProgress.copy(spoilerWatermarkOrdinal = maxWm)
+                    }
+                    dao.upsertProgress(mergedProgress)
+                    dao.deleteProgress(fromWorkId.raw)
+                }
+                val oldNotes = dao.getAllAnnotations(fromWorkId.raw)
+                for (note in oldNotes) {
+                    val existingTarget = dao.findAnnotation(toWorkId.raw, note.noteId)
+                    if (existingTarget == null || note.updatedAtMs > existingTarget.updatedAtMs) {
+                        dao.upsertAnnotation(note.copy(workId = toWorkId.raw))
+                    }
+                }
+                if (oldNotes.isNotEmpty()) {
+                    dao.reassignAnnotationsWorkId(fromWorkId.raw, toWorkId.raw)
+                }
             }
         }
     }

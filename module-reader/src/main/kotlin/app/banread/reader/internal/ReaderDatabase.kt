@@ -61,6 +61,18 @@ internal interface ReaderDao {
     )
     suspend fun getActiveAnnotations(workId: String): List<AnnotationEntity>
 
+    @Query("SELECT * FROM annotations WHERE workId = :workId ORDER BY updatedAtMs ASC")
+    suspend fun getAllAnnotations(workId: String): List<AnnotationEntity>
+
+    @Query("SELECT * FROM annotations WHERE workId = :workId AND noteId = :noteId LIMIT 1")
+    suspend fun findAnnotation(workId: String, noteId: String): AnnotationEntity?
+
+    @Query("UPDATE annotations SET workId = :toWorkId WHERE workId = :fromWorkId")
+    suspend fun reassignAnnotationsWorkId(fromWorkId: String, toWorkId: String)
+
+    @Query("DELETE FROM reading_progress WHERE workId = :workId")
+    suspend fun deleteProgress(workId: String)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAnnotation(entity: AnnotationEntity)
 

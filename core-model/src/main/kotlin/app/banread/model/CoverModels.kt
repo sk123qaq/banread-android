@@ -47,4 +47,5 @@ data class WorkSummary(
     val coverDisplayMode: CoverDisplayMode = classifyCoverDisplayMode(coverRel, coverWidth, coverHeight),
     val coverFilePath: String? = null,
     val addedAtMs: Long = 0L,
+    val bookSourceSha256: String? = null,
 )

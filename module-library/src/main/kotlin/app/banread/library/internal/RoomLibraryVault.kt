@@ -85,6 +85,7 @@ internal class RoomLibraryVault private constructor(
 
             val existing = dao.findWorkById(manifest.uid.raw)
                 ?: dao.findWorkBySourceHash(manifest.bookSourceSha256.sha256Hex)
+                ?: findMatchingLocalWorkByMetadata(manifest.title, manifest.author)
 
             val booksDir = File(filesRoot, "books").apply { mkdirs() }
             val storedPackFile = File(booksDir, "${manifest.uid.raw}.bcbook")
@@ -217,7 +218,7 @@ internal class RoomLibraryVault private constructor(
                 )
             }
 
-            Result.success(workEntity.toImportedWork())
+            Result.success(workEntity.toImportedWork(supersededWorkId = supersededWorkId?.let(::WorkId)))
         } catch (ex: AppFailureException) {
             Result.failure(ex)
         } catch (ex: Exception) {
@@ -777,6 +778,15 @@ internal class RoomLibraryVault private constructor(
         resolveVerifiedCoverFile(work.workId, work.coverRel)
     }
 
+    override suspend fun resolveOriginalBookFile(workId: WorkId): File? = withContext(Dispatchers.IO) {
+        val work = dao.findWorkById(workId.raw) ?: return@withContext null
+        val path = work.originalFilePath.takeIf { it.isNotBlank() } ?: return@withContext null
+        val file = File(path)
+        val rootCanonical = runCatching { filesRoot.canonicalFile.toPath() }.getOrNull() ?: return@withContext null
+        val fileCanonical = runCatching { file.canonicalFile.toPath() }.getOrNull() ?: return@withContext null
+        if (!fileCanonical.startsWith(rootCanonical) || !file.isFile) null else file
+    }
+
     override suspend fun deleteWork(workId: WorkId): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val existing = dao.findWorkById(workId.raw)
@@ -1017,7 +1027,22 @@ internal class RoomLibraryVault private constructor(
         return chapterEntities to blockEntities
     }
 
-    private fun WorkEntity.toImportedWork(): ImportedWork {
+    private suspend fun findMatchingLocalWorkByMetadata(title: String, author: String): WorkEntity? {
+        val normTitle = normalizeMatchKey(title)
+        val normAuthor = normalizeMatchKey(author)
+        if (normTitle.isEmpty() || normAuthor.isEmpty()) return null
+        return dao.listAllWorks().firstOrNull { w ->
+            w.workId.startsWith("local_") &&
+                w.format in setOf("EPUB", "MOBI", "AZW3") &&
+                normalizeMatchKey(w.title) == normTitle &&
+                normalizeMatchKey(w.author) == normAuthor
+        }
+    }
+
+    private fun normalizeMatchKey(raw: String): String =
+        raw.lowercase().replace(Regex("[\\s\\p{P}·•《》]+"), "")
+
+    private fun WorkEntity.toImportedWork(supersededWorkId: WorkId? = null): ImportedWork {
         val modes = json.decodeFromString(ListSerializer(ReadingSurfaceMode.serializer()), supportedModesJson).toSet()
         return ImportedWork(
             workId = WorkId(workId),
@@ -1032,6 +1057,8 @@ internal class RoomLibraryVault private constructor(
             coverWidth = coverWidth,
             coverHeight = coverHeight,
             coverDisplayMode = classifyCoverDisplayMode(coverRel, coverWidth, coverHeight),
+            bookSourceSha256 = bookSourceSha256,
+            supersededWorkId = supersededWorkId,
         )
     }
 
@@ -1057,6 +1084,7 @@ internal class RoomLibraryVault private constructor(
             coverDisplayMode = classifyCoverDisplayMode(effectiveRel, effectiveWidth, effectiveHeight),
             coverFilePath = verifiedFile?.absolutePath,
             addedAtMs = addedAtMs,
+            bookSourceSha256 = bookSourceSha256,
         )
     }
 
