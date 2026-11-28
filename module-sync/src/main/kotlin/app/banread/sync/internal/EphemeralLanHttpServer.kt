@@ -294,6 +294,7 @@ internal class EphemeralLanHttpServer(
             raw.trim().replace("-", "").replace(" ", "")
 
         fun detectLanIpv4(): String {
+            var tailscaleFallback: String? = null
             runCatching {
                 val interfaces = NetworkInterface.getNetworkInterfaces()
                 while (interfaces.hasMoreElements()) {
@@ -302,13 +303,19 @@ internal class EphemeralLanHttpServer(
                     val addrs = iface.inetAddresses
                     while (addrs.hasMoreElements()) {
                         val addr = addrs.nextElement()
-                        if (addr is Inet4Address && !addr.isLoopbackAddress && addr.isSiteLocalAddress) {
-                            return addr.hostAddress ?: continue
+                        if (addr is Inet4Address && !addr.isLoopbackAddress) {
+                            val host = addr.hostAddress ?: continue
+                            if (addr.isSiteLocalAddress) {
+                                return host
+                            }
+                            if (tailscaleFallback == null && SyncEndpointUrlPolicy.isTailscaleCgnatIpv4(host)) {
+                                tailscaleFallback = host
+                            }
                         }
                     }
                 }
             }
-            return "127.0.0.1"
+            return tailscaleFallback ?: "127.0.0.1"
         }
     }
 }
