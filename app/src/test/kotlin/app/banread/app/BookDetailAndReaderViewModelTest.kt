@@ -165,5 +165,34 @@ class BookDetailAndReaderViewModelTest {
         // Explicit reopenSurface() (e.g. after switching from PDF) DOES invoke open()
         vm.reopenSurface()
         assertEquals(2, reader.openCalls)
+
+        // syncPreferencesAndOutline() refreshes preferences/styles without re-opening the session
+        prefs.setTheme(ReaderTheme.SLATE_NIGHT)
+        vm.syncPreferencesAndOutline()
+        assertEquals(2, reader.openCalls)
+        assertEquals(ReaderTheme.SLATE_NIGHT, reader.appliedThemes.last())
+    }
+
+    @Test
+    fun `BookDetailViewModel unlocked chapter click opens and navigates to target chapter ordinal`() = runTest {
+        val workId = WorkId("w_toc_unlocked")
+        val vault = FakeLibraryVault().apply {
+            worksFlow.value = listOf(sampleWorkSummary(workId.raw, "目录跳转测试"))
+        }
+        val reader = FakeReaderEngine()
+        reader.watermarkByWork[workId.raw] = ChapterOrdinal(10)
+        val registry = loadTestProfileRegistry()
+
+        val vm = BookDetailViewModel(workId, vault, reader, registry)
+        val ch3 = ChapterOutlineItem(ChapterOrdinal(3), "第 3 章", ChapterRole.BODY, 12)
+        vm.onChapterClicked(ch3)
+
+        assertNull(vm.uiState.value.pendingForwardJump)
+        assertEquals(ReadingSurfaceMode.REFLOWABLE, vm.uiState.value.pendingNavigationMode)
+        assertEquals(1, reader.openCalls)
+        assertEquals(1, reader.goToCalls.size)
+        val targetAnchor = reader.goToCalls.single().first as ReadingAnchor.ReflowCfi
+        assertEquals(ChapterOrdinal(3), targetAnchor.ordinal)
+        assertEquals("OEBPS/ch_03.xhtml", targetAnchor.href)
     }
 }

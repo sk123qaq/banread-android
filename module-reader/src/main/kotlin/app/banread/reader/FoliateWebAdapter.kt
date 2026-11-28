@@ -57,6 +57,7 @@ class FoliateWebAdapter(
     val selectionEvents: Flow<TextSelectionEvent> = _selectionEvents.asSharedFlow()
 
     private val pendingScripts = ConcurrentLinkedQueue<String>()
+    private val scriptLock = Any()
 
     @Volatile
     private var attachedWebView: WebView? = null
@@ -105,9 +106,11 @@ class FoliateWebAdapter(
 
     @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
     fun attachWebView(webView: WebView) {
-        destroyed = false
-        attachedWebView = webView
-        bridgeReady = false
+        synchronized(scriptLock) {
+            destroyed = false
+            attachedWebView = webView
+            bridgeReady = false
+        }
 
         webView.settings.apply {
             javaScriptEnabled = true
@@ -133,11 +136,14 @@ class FoliateWebAdapter(
 
     fun detachWebView() {
         // 先置 destroyed：此后所有已 post/在飞的 evaluateJavascript 闭包都会自行丢弃。
-        destroyed = true
-        val webView = attachedWebView
-        attachedWebView = null
-        bridgeReady = false
-        pendingScripts.clear()
+        val webView: WebView?
+        synchronized(scriptLock) {
+            destroyed = true
+            webView = attachedWebView
+            attachedWebView = null
+            bridgeReady = false
+            pendingScripts.clear()
+        }
         mainHandler.removeCallbacksAndMessages(null)
         webView?.removeJavascriptInterface("BanReadNative")
     }
@@ -205,26 +211,37 @@ class FoliateWebAdapter(
     }
 
     private fun evaluateBridge(script: String) {
-        val webView = attachedWebView
-        if (webView == null || !bridgeReady) {
-            // 没有可执行的 WebView：入队，等 attach + onBridgeReady 后统一 flush（首开/重进阅读器都走这里）。
-            pendingScripts.add(script)
-            return
+        val webViewToRun: WebView? = synchronized(scriptLock) {
+            val webView = attachedWebView
+            if (webView == null || !bridgeReady) {
+                // 没有可执行的 WebView：入队，等 attach + onBridgeReady 后统一 flush（首开/重进阅读器都走这里）。
+                pendingScripts.add(script)
+                null
+            } else {
+                webView
+            }
         }
-        runOnMain {
-            if (!isLive(webView)) return@runOnMain
-            webView.evaluateJavascript(script, null)
+        if (webViewToRun != null) {
+            runOnMain {
+                if (!isLive(webViewToRun)) return@runOnMain
+                webViewToRun.evaluateJavascript(script, null)
+            }
         }
     }
 
-    private fun flushPendingScripts(webView: WebView) {
-        if (!isLive(webView)) return
-        while (true) {
-            val next = pendingScripts.poll() ?: break
-            runOnMain {
-                if (!isLive(webView)) return@runOnMain
-                webView.evaluateJavascript(next, null)
+    private fun flushPendingScriptsOnMain(webView: WebView) {
+        val queued = synchronized(scriptLock) {
+            if (!isLive(webView)) return
+            bridgeReady = true
+            buildList {
+                while (true) {
+                    add(pendingScripts.poll() ?: break)
+                }
             }
+        }
+        for (next in queued) {
+            if (!isLive(webView)) return
+            webView.evaluateJavascript(next, null)
         }
     }
 
@@ -248,9 +265,9 @@ class FoliateWebAdapter(
     ) {
         @JavascriptInterface
         fun onBridgeReady(unused: String) {
-            if (!isLive(webView)) return
-            bridgeReady = true
-            flushPendingScripts(webView)
+            mainHandler.post {
+                flushPendingScriptsOnMain(webView)
+            }
         }
 
         @JavascriptInterface

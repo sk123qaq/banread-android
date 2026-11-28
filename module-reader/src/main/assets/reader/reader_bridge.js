@@ -83,6 +83,10 @@
 
     var state = {
         view: null,
+        viewReady: false,
+        openPromise: null,
+        pendingAnchor: null,
+        navChain: Promise.resolve(),
         currentBookUrl: null,
         currentCss: '',
         paginationMode: 'SLIDE',
@@ -376,115 +380,178 @@
         }, durationMs);
     }
 
+    function enqueueNav(seq, fn) {
+        var run = state.navChain.then(function () {
+            if (seq !== state.openSeq || !state.view || !state.viewReady) return;
+            return fn();
+        });
+        state.navChain = run.catch(function () {});
+        return run;
+    }
+
+    function resolveTargetSection(view, anchor) {
+        if (!view || !view.book) return null;
+        var candidates = [];
+        if (anchor.href) {
+            var rawHref = String(anchor.href).split('#')[0];
+            candidates.push(anchor.href);
+            if (rawHref && rawHref !== anchor.href) candidates.push(rawHref);
+            if (rawHref && rawHref.indexOf('OEBPS/') !== 0) {
+                candidates.push('OEBPS/' + rawHref.replace(/^\/+/, ''));
+            }
+        }
+        for (var i = 0; i < candidates.length; i++) {
+            var res = view.resolveNavigation ? view.resolveNavigation(candidates[i]) : null;
+            if (res && typeof res.index === 'number' && res.index >= 0) {
+                return res;
+            }
+        }
+        if (typeof anchor.ordinal === 'number' && anchor.ordinal >= 1) {
+            var chName = 'ch_' + String(anchor.ordinal).padStart(2, '0') + '.xhtml';
+            var sections = view.book.sections || [];
+            for (var j = 0; j < sections.length; j++) {
+                if (sections[j] && sections[j].id && sections[j].id.indexOf(chName) >= 0) {
+                    return { index: j, anchor: function () { return 0; } };
+                }
+            }
+            var fallbackIdx = anchor.ordinal - 1;
+            if (fallbackIdx >= 0 && fallbackIdx < sections.length) {
+                return { index: fallbackIdx, anchor: function () { return 0; } };
+            }
+        }
+        if (anchor.cfi && view.resolveNavigation) {
+            var cfiRes = view.resolveNavigation(anchor.cfi);
+            if (cfiRes && typeof cfiRes.index === 'number' && cfiRes.index >= 0) {
+                return cfiRes;
+            }
+        }
+        return null;
+    }
+
     async function openBook(bookUrl, initialAnchorJson) {
         var seq = ++state.openSeq;
+        state.viewReady = false;
+        state.pendingAnchor = null;
+        state.navChain = Promise.resolve();
         var view = null;
-        try {
-            var root = document.getElementById('reader-root');
-            if (state.view) {
-                try { state.view.close(); } catch (_) {}
-                state.view.remove();
-                state.view = null;
-            }
-            state.currentBookUrl = bookUrl;
 
-            view = document.createElement('foliate-view');
-            root.appendChild(view);
-            state.view = view;
-
-            view.addEventListener('load', function (e) {
-                if (seq !== state.openSeq) return;
-                var detail = e.detail || {};
-                // 章节文档已加载、renderer 已有真实尺寸：先按实际宽度重涂 gap，再设 flow 触发 render()。
-                syncGapWithRenderedWidth();
-                applyPaginationMode(state.paginationMode);
-                if (state.currentCss && view.renderer && view.renderer.setStyles) {
-                    view.renderer.setStyles(state.currentCss);
+        var openTask = (async function () {
+            try {
+                var root = document.getElementById('reader-root');
+                if (state.view) {
+                    try { state.view.close(); } catch (_) {}
+                    state.view.remove();
+                    state.view = null;
                 }
-                attachDocListeners(detail.doc, detail.index);
-            });
+                state.currentBookUrl = bookUrl;
 
-            view.addEventListener('relocate', function (e) {
-                if (seq !== state.openSeq) return;
-                // 首次渲染完成 / 转屏后视口宽度变化时，按真实宽度重算 gap（宽度未变不会重涂）。
-                syncGapWithRenderedWidth();
-                var detail = e.detail || {};
-                var current = resolveCurrentDoc();
-                var doc = current ? current.doc : null;
-                var sectionIdx = detail.section ? detail.section.current : (current ? current.index : 0);
-                var ordinal = getOrdinalFromDoc(doc, sectionIdx);
-                var section = view.book && view.book.sections ? view.book.sections[sectionIdx] : null;
-                var href = section ? section.id : ('OEBPS/ch_' + String(ordinal).padStart(2, '0') + '.xhtml');
-                var blockId = detail.range ? findBlockIdForNode(detail.range.startContainer) : null;
-                var textQuote = extractTextQuoteFromRange(detail.range);
-                var totalProgression = finiteUnit(detail.fraction);
-                var renderer = view.renderer;
-                var progression = 0;
-                if (renderer) {
-                    if (renderer.scrolled) {
-                        var viewSize = renderer.viewSize;
-                        progression = (typeof viewSize === 'number' && Number.isFinite(viewSize) && viewSize > 0)
-                            ? finiteUnit(renderer.start / viewSize)
-                            : 0;
-                    } else if (typeof renderer.pages === 'number' && renderer.pages > 2) {
-                        progression = finiteUnit((renderer.page - 1) / Math.max(1, renderer.pages - 2));
+                view = document.createElement('foliate-view');
+                root.appendChild(view);
+                state.view = view;
+
+                view.addEventListener('load', function (e) {
+                    if (seq !== state.openSeq) return;
+                    var detail = e.detail || {};
+                    // 章节文档已加载、renderer 已有真实尺寸：先按实际宽度重涂 gap，再设 flow 触发 render()。
+                    syncGapWithRenderedWidth();
+                    applyPaginationMode(state.paginationMode);
+                    if (state.currentCss && view.renderer && view.renderer.setStyles) {
+                        view.renderer.setStyles(state.currentCss);
+                    }
+                    attachDocListeners(detail.doc, detail.index);
+                });
+
+                view.addEventListener('relocate', function (e) {
+                    if (seq !== state.openSeq) return;
+                    // 首次渲染完成 / 转屏后视口宽度变化时，按真实宽度重算 gap（宽度未变不会重涂）。
+                    syncGapWithRenderedWidth();
+                    var detail = e.detail || {};
+                    var current = resolveCurrentDoc();
+                    var doc = current ? current.doc : null;
+                    var sectionIdx = detail.section ? detail.section.current : (current ? current.index : 0);
+                    var ordinal = getOrdinalFromDoc(doc, sectionIdx);
+                    var section = view.book && view.book.sections ? view.book.sections[sectionIdx] : null;
+                    var href = section ? section.id : ('OEBPS/ch_' + String(ordinal).padStart(2, '0') + '.xhtml');
+                    var blockId = detail.range ? findBlockIdForNode(detail.range.startContainer) : null;
+                    var textQuote = extractTextQuoteFromRange(detail.range);
+                    var totalProgression = finiteUnit(detail.fraction);
+                    var renderer = view.renderer;
+                    var progression = 0;
+                    if (renderer) {
+                        if (renderer.scrolled) {
+                            var viewSize = renderer.viewSize;
+                            progression = (typeof viewSize === 'number' && Number.isFinite(viewSize) && viewSize > 0)
+                                ? finiteUnit(renderer.start / viewSize)
+                                : 0;
+                        } else if (typeof renderer.pages === 'number' && renderer.pages > 2) {
+                            progression = finiteUnit((renderer.page - 1) / Math.max(1, renderer.pages - 2));
+                        }
+                    }
+                    notifyNative('onRelocated', {
+                        ordinal: ordinal,
+                        href: href,
+                        progression: progression,
+                        totalProgression: totalProgression,
+                        cfi: detail.cfi || '',
+                        blockId: blockId,
+                        textQuote: textQuote
+                    });
+                });
+
+                view.addEventListener('link', function (e) {
+                    if (seq !== state.openSeq) return;
+                    var detail = e.detail || {};
+                    if (isFootnoteElement(detail.a, detail.href)) {
+                        e.preventDefault();
+                        var current = resolveCurrentDoc();
+                        var ordinal = getOrdinalFromDoc(current ? current.doc : null, current ? current.index : 0);
+                        var marker = detail.a.getAttribute('data-fn-marker') || detail.a.textContent || '';
+                        notifyNative('onFootnoteClicked', {
+                            ordinal: ordinal,
+                            href: detail.href || '',
+                            marker: marker.trim()
+                        });
+                    }
+                });
+
+                view.addEventListener('create-overlay', function (e) {
+                    var detail = e.detail || {};
+                    Promise.resolve().then(function () {
+                        if (seq !== state.openSeq) return;
+                        applyAllAnnotationsToCurrentOverlay(detail.index);
+                    });
+                });
+
+                view.addEventListener('draw-annotation', function (e) {
+                    var detail = e.detail || {};
+                    var draw = detail.draw;
+                    var annotation = detail.annotation || {};
+                    var parsed = parseDecorationStyle(annotation.colorToken);
+                    var Overlayer = globalThis.Foliate && globalThis.Foliate.Overlayer;
+                    if (!Overlayer || typeof draw !== 'function') return;
+                    if (parsed.underlineStyle === 'SOLID') {
+                        draw(Overlayer.underline, { color: parsed.color });
+                    } else if (parsed.underlineStyle === 'WAVY') {
+                        draw(Overlayer.squiggly, { color: parsed.color });
+                    } else {
+                        draw(Overlayer.highlight, { color: parsed.color });
+                    }
+                });
+
+                var bookOrUrl = bookUrl;
+                if (typeof bookUrl === 'string' && bookUrl.endsWith('/')) {
+                    var loader = makeAssetDirectoryLoader(bookUrl);
+                    bookOrUrl = await new globalThis.Foliate.EPUB(loader).init();
+                    if (seq !== state.openSeq) {
+                        if (view && state.view !== view) {
+                            try { view.close(); } catch (_) {}
+                            try { view.remove(); } catch (_) {}
+                        }
+                        return;
                     }
                 }
-                notifyNative('onRelocated', {
-                    ordinal: ordinal,
-                    href: href,
-                    progression: progression,
-                    totalProgression: totalProgression,
-                    cfi: detail.cfi || '',
-                    blockId: blockId,
-                    textQuote: textQuote
-                });
-            });
 
-            view.addEventListener('link', function (e) {
-                if (seq !== state.openSeq) return;
-                var detail = e.detail || {};
-                if (isFootnoteElement(detail.a, detail.href)) {
-                    e.preventDefault();
-                    var current = resolveCurrentDoc();
-                    var ordinal = getOrdinalFromDoc(current ? current.doc : null, current ? current.index : 0);
-                    var marker = detail.a.getAttribute('data-fn-marker') || detail.a.textContent || '';
-                    notifyNative('onFootnoteClicked', {
-                        ordinal: ordinal,
-                        href: detail.href || '',
-                        marker: marker.trim()
-                    });
-                }
-            });
-
-            view.addEventListener('create-overlay', function (e) {
-                var detail = e.detail || {};
-                Promise.resolve().then(function () {
-                    if (seq !== state.openSeq) return;
-                    applyAllAnnotationsToCurrentOverlay(detail.index);
-                });
-            });
-
-            view.addEventListener('draw-annotation', function (e) {
-                var detail = e.detail || {};
-                var draw = detail.draw;
-                var annotation = detail.annotation || {};
-                var parsed = parseDecorationStyle(annotation.colorToken);
-                var Overlayer = globalThis.Foliate && globalThis.Foliate.Overlayer;
-                if (!Overlayer || typeof draw !== 'function') return;
-                if (parsed.underlineStyle === 'SOLID') {
-                    draw(Overlayer.underline, { color: parsed.color });
-                } else if (parsed.underlineStyle === 'WAVY') {
-                    draw(Overlayer.squiggly, { color: parsed.color });
-                } else {
-                    draw(Overlayer.highlight, { color: parsed.color });
-                }
-            });
-
-            var bookOrUrl = bookUrl;
-            if (typeof bookUrl === 'string' && bookUrl.endsWith('/')) {
-                var loader = makeAssetDirectoryLoader(bookUrl);
-                bookOrUrl = await new globalThis.Foliate.EPUB(loader).init();
+                await view.open(bookOrUrl);
                 if (seq !== state.openSeq) {
                     if (view && state.view !== view) {
                         try { view.close(); } catch (_) {}
@@ -492,65 +559,76 @@
                     }
                     return;
                 }
-            }
-
-            await view.open(bookOrUrl);
-            if (seq !== state.openSeq) {
-                if (view && state.view !== view) {
-                    try { view.close(); } catch (_) {}
-                    try { view.remove(); } catch (_) {}
+                if (view.book && view.book.transformTarget) {
+                    view.book.transformTarget.addEventListener('data', function (ev) {
+                        ev.detail.data = Promise.resolve(ev.detail.data).catch(function () { return ''; });
+                    });
                 }
-                return;
-            }
-            if (view.book && view.book.transformTarget) {
-                view.book.transformTarget.addEventListener('data', function (ev) {
-                    ev.detail.data = Promise.resolve(ev.detail.data).catch(function () { return ''; });
-                });
-            }
 
-            applyPaginationMode(state.paginationMode);
-            if (state.currentCss && view.renderer && view.renderer.setStyles) {
-                view.renderer.setStyles(state.currentCss);
-            }
+                state.viewReady = true;
+                applyPaginationMode(state.paginationMode);
+                if (state.currentCss && view.renderer && view.renderer.setStyles) {
+                    view.renderer.setStyles(state.currentCss);
+                }
 
-            if (initialAnchorJson) {
-                await goToAnchor(initialAnchorJson, 0);
-            } else {
-                await view.init({ showTextStart: false });
+                // 若在 openBook 异步加载期间已有 TOC/锚点跳转入队，直接跳到目标章节，跳过旧的 initialAnchorJson。
+                var queued = state.pendingAnchor;
+                state.pendingAnchor = null;
+                if (queued) {
+                    await enqueueNav(seq, function () {
+                        return performGoToAnchor(queued.anchorJson, queued.pulseMs);
+                    });
+                } else if (initialAnchorJson) {
+                    await enqueueNav(seq, function () {
+                        return performGoToAnchor(initialAnchorJson, 0);
+                    });
+                } else {
+                    await enqueueNav(seq, function () {
+                        return view.init({ showTextStart: false });
+                    });
+                }
+                if (seq !== state.openSeq) return;
+                syncGapWithRenderedWidth();
+            } catch (err) {
+                if (seq === state.openSeq) {
+                    notifyNative('onError', String(err && err.message ? err.message : err));
+                }
+            } finally {
+                if (state.openPromise === openTask) {
+                    state.openPromise = null;
+                }
             }
-            if (seq !== state.openSeq) return;
-            syncGapWithRenderedWidth();
-        } catch (err) {
-            if (seq === state.openSeq) {
-                notifyNative('onError', String(err && err.message ? err.message : err));
-            }
-        }
+        })();
+
+        state.openPromise = openTask;
+        return openTask;
     }
 
-    async function goToAnchor(anchorJson, highlightPulseMs) {
-        if (!state.view) return;
+    async function performGoToAnchor(anchorJson, highlightPulseMs) {
+        if (!state.view || !state.viewReady) return;
         var anchor = typeof anchorJson === 'string' ? JSON.parse(anchorJson) : anchorJson;
         if (!anchor) return;
         var pulseMs = typeof highlightPulseMs === 'number' ? highlightPulseMs : 0;
 
         try {
-            if (anchor.blockId) {
-                var targetHref = anchor.href || ('OEBPS/ch_' + String(anchor.ordinal || 1).padStart(2, '0') + '.xhtml');
-                var resolved = state.view.resolveNavigation(targetHref);
-                if (resolved) {
-                    await state.view.renderer.goTo({
-                        index: resolved.index,
-                        anchor: function (doc) {
-                            var el = doc.querySelector('[data-block-id="' + anchor.blockId + '"]')
-                                || doc.getElementById(anchor.blockId);
-                            if (el && pulseMs > 0) {
-                                setTimeout(function () { pulseBlockElement(doc, el, pulseMs); }, 60);
-                            }
-                            return el || 0;
+            var resolved = resolveTargetSection(state.view, anchor);
+            if (anchor.blockId && resolved && state.view.renderer && state.view.renderer.goTo) {
+                await state.view.renderer.goTo({
+                    index: resolved.index,
+                    anchor: function (doc) {
+                        var el = doc.querySelector('[data-block-id="' + anchor.blockId + '"]')
+                            || doc.getElementById(anchor.blockId);
+                        if (el && pulseMs > 0) {
+                            setTimeout(function () { pulseBlockElement(doc, el, pulseMs); }, 60);
                         }
-                    });
-                    return;
-                }
+                        return el || 0;
+                    }
+                });
+                return;
+            }
+            if (resolved && state.view.renderer && state.view.renderer.goTo) {
+                await state.view.renderer.goTo(resolved);
+                return;
             }
             if (anchor.cfi) {
                 await state.view.goTo(anchor.cfi);
@@ -566,6 +644,24 @@
         } catch (err) {
             notifyNative('onError', 'goToAnchor failed: ' + String(err && err.message ? err.message : err));
         }
+    }
+
+    async function goToAnchor(anchorJson, highlightPulseMs) {
+        if (!state.view && !state.openPromise) return;
+        if (!state.viewReady) {
+            state.pendingAnchor = {
+                anchorJson: anchorJson,
+                pulseMs: typeof highlightPulseMs === 'number' ? highlightPulseMs : 0
+            };
+            if (state.openPromise) {
+                return state.openPromise;
+            }
+            return;
+        }
+        var seq = state.openSeq;
+        return enqueueNav(seq, function () {
+            return performGoToAnchor(anchorJson, highlightPulseMs);
+        });
     }
 
     function updateStyles(cssPayload, paginationMode, horizontalMarginPx) {

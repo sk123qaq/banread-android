@@ -290,8 +290,10 @@ class ReaderEngineContractTest {
             assertTrue("Theme $theme missing fg ${spec.foregroundHex}", css.contains(spec.foregroundHex))
             assertTrue(css.contains("""font-family: "BanReadSong""""))
             assertTrue(css.contains("https://appassets.androidplatform.net/user-fonts/"))
-            assertTrue(css.contains("text-spacing-trim: auto;"))
-            assertTrue(css.contains(""""palt" 1, "halt" 1"""))
+            assertTrue(css.contains("text-spacing-trim: trim-start;"))
+            assertTrue(css.contains(""""chws" 1"""))
+            assertFalse("CSS must not emit palt (collapses CJK punctuation on Android)", css.contains(""""palt""""))
+            assertFalse("CSS must not emit halt (collapses CJK punctuation when combined)", css.contains(""""halt""""))
             assertTrue(css.contains("p:not(.no-indent)"))
 
             // Bug 2 regression: NOTES chapter footnotes must NOT be hidden unconditionally
@@ -788,6 +790,199 @@ class ReaderEngineContractTest {
             .start()
         val output = proc.inputStream.bufferedReader().readText()
         assertEquals("Node reader_bridge regression failed: $output", 0, proc.waitFor())
+    }
+
+    @Test
+    fun `regression - CJK punctuation squeeze off emits normal reset and never emits palt or halt`() = runTest {
+        val bcBook = buildMultiChapterBcBook(tempFolder.newFile("B0202.bcbook"), chapterCount = 4)
+        val imported = vault.ingestStudyPack(bcBook.absolutePath).getOrThrow()
+        readerEngine.open(imported.workId, ReadingSurfaceMode.REFLOWABLE)
+
+        readerEngine.applyTypography(
+            TypographyProfile(
+                fontFamily = "Noto Serif CJK SC",
+                fontSizeSp = 18f,
+                lineHeightMultiplier = 1.6f,
+                paragraphSpacingDp = 12f,
+                horizontalMarginDp = 20f,
+                squeezeChinesePunctuation = false,
+            ),
+        )
+        val offCss = fakeRenderer.lastCssPayload
+        assertTrue(offCss.contains("text-spacing-trim: normal;"))
+        assertTrue(offCss.contains("font-feature-settings: normal;"))
+        assertFalse(offCss.contains(""""palt""""))
+        assertFalse(offCss.contains(""""halt""""))
+        assertFalse(offCss.contains(""""chws""""))
+    }
+
+    @Test
+    fun `regression - TOC chapter goToAnchor queued while openBook is in flight skips stale initialAnchor and lands on target chapter`() = runTest {
+        val bridgeFile = File("src/main/assets/reader/reader_bridge.js")
+        assumeTrue("reader_bridge.js not found from CWD", bridgeFile.isFile)
+
+        // 1. Kotlin FoliateWebAdapter queues load + navigate before onBridgeReady and flushes in strict FIFO order
+        val recordedScripts = mutableListOf<String>()
+        val recordingWebView = object : WebView(context) {
+            override fun evaluateJavascript(script: String, resultCallback: ValueCallback<String>?) {
+                recordedScripts += script
+                super.evaluateJavascript(script, resultCallback)
+            }
+        }
+        val webAdapter = FoliateWebAdapter(context, filesRoot)
+        val bcBook = buildMultiChapterBcBook(tempFolder.newFile("B0203.bcbook"), chapterCount = 8)
+        val imported = vault.ingestStudyPack(bcBook.absolutePath).getOrThrow()
+        val engine = ReaderEngineFactory.create(
+            context = context,
+            filesRoot = filesRoot,
+            libraryVault = vault,
+            rendererPort = webAdapter,
+            allowInMemory = true,
+            fontManager = fontManager,
+        )
+        try {
+            engine.open(imported.workId, ReadingSurfaceMode.REFLOWABLE)
+            val targetAnchor = vault.resolveAnchor(imported.workId, ChapterOrdinal(7), BlockId("B01"))
+            engine.goTo(targetAnchor)
+            assertTrue("Scripts must stay queued until WebView attaches", recordedScripts.isEmpty())
+
+            webAdapter.attachWebView(recordingWebView)
+            val bridgeObj = Shadows.shadowOf(recordingWebView).getJavascriptInterface("BanReadNative")
+            bridgeObj.javaClass.getDeclaredMethod("onBridgeReady", String::class.java).invoke(bridgeObj, "{}")
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+            val openIdx = recordedScripts.indexOfFirst { it.contains("BanReadBridge.openBook") }
+            val goToIdx = recordedScripts.indexOfFirst { it.contains("BanReadBridge.goToAnchor") }
+            assertTrue("Expected openBook and goToAnchor in flushed scripts: $recordedScripts", openIdx >= 0 && goToIdx > openIdx)
+        } finally {
+            (engine as? Closeable)?.close()
+        }
+
+        // 2. JS bridge: openBook (pending EPUB.init/view.open) + immediate goToAnchor jumps directly to target chapter without TypeError
+        val nodeTestScript = tempFolder.newFile("verify_toc_jump.js")
+        nodeTestScript.writeText(
+            """
+            const assert = require('assert');
+            const fs = require('fs');
+            const vm = require('vm');
+
+            const nativeCalls = [];
+            const rendererGoToCalls = [];
+            const viewGoToCalls = [];
+            let epubInitResolver = null;
+            let viewOpenResolver = null;
+
+            const sections = Array.from({ length: 10 }, (_, idx) => ({
+                id: 'OEBPS/ch_' + String(idx + 1).padStart(2, '0') + '.xhtml'
+            }));
+
+            class FakeRenderer {
+                constructor() { this.attrs = {}; this.styles = ''; }
+                setAttribute(k, v) { this.attrs[k] = String(v); }
+                removeAttribute(k) { delete this.attrs[k]; }
+                setStyles(s) { this.styles = s; }
+                getContents() { return []; }
+                async goTo(target) { rendererGoToCalls.push(target); }
+            }
+
+            class FakeView {
+                constructor() {
+                    this.listeners = {};
+                    this.renderer = null;
+                    this.book = null;
+                }
+                addEventListener(type, fn) {
+                    (this.listeners[type] = this.listeners[type] || []).push(fn);
+                }
+                async open(book) {
+                    return new Promise((res) => {
+                        viewOpenResolver = () => {
+                            this.book = book;
+                            this.renderer = new FakeRenderer();
+                            res();
+                        };
+                    });
+                }
+                resolveNavigation(target) {
+                    if (!this.book) throw new TypeError("Cannot read properties of undefined (reading 'resolveHref')");
+                    const clean = String(target).split('#')[0];
+                    const idx = this.book.sections.findIndex(s => s.id === clean);
+                    return idx >= 0 ? { index: idx, anchor: () => 0 } : null;
+                }
+                async init() {}
+                async goTo(target) {
+                    viewGoToCalls.push(target);
+                    const nav = this.resolveNavigation(target);
+                    if (nav) await this.renderer.goTo(nav);
+                }
+                close() {}
+                remove() {}
+            }
+
+            const sandbox = {
+                console, Map, Promise, Set, RegExp, JSON, Math, Number, String, Array, Object, TypeError,
+                setTimeout, clearTimeout,
+                fetch: async () => ({ ok: true, text: async () => '', blob: async () => ({}) }),
+                document: {
+                    getElementById: () => ({ appendChild() {} }),
+                    createElement: () => new FakeView(),
+                },
+                BanReadNative: {
+                    onBridgeReady: (p) => nativeCalls.push(['onBridgeReady', JSON.parse(p)]),
+                    onRelocated: (p) => nativeCalls.push(['onRelocated', JSON.parse(p)]),
+                    onError: (p) => nativeCalls.push(['onError', p]),
+                },
+                Foliate: {
+                    Overlayer: { highlight: () => {}, underline: () => {}, squiggly: () => {} },
+                    EPUB: class {
+                        init() { return new Promise((res) => { epubInitResolver = res; }); }
+                    },
+                },
+            };
+            sandbox.globalThis = sandbox;
+            vm.runInNewContext(fs.readFileSync(${org.json.JSONObject.quote(bridgeFile.absolutePath)}, 'utf8'), sandbox);
+
+            (async () => {
+                const bridge = sandbox.BanReadBridge;
+                const staleInitial = JSON.stringify({
+                    ordinal: 4,
+                    href: 'OEBPS/ch_04.xhtml',
+                    cfi: 'epubcfi(/6/8!/4/2)',
+                    blockId: 'B01'
+                });
+                const tocTarget = JSON.stringify({
+                    ordinal: 7,
+                    href: 'OEBPS/ch_07.xhtml',
+                    cfi: 'epubcfi(/6/14!/4/2)',
+                    blockId: 'B01'
+                });
+
+                // Simulate flushPendingScripts calling openBook then immediately goToAnchor while EPUB.init/view.open are pending
+                const pOpen = bridge.openBook('https://appassets.androidplatform.net/books/B_TOC/', staleInitial);
+                const pJump = bridge.goToAnchor(tocTarget, 0);
+
+                epubInitResolver({ sections });
+                await new Promise(r => setTimeout(r, 0));
+                viewOpenResolver();
+                await Promise.all([pOpen, pJump]);
+
+                const errors = nativeCalls.filter(c => c[0] === 'onError');
+                assert.deepStrictEqual(errors, [], 'Unexpected onError calls: ' + JSON.stringify(errors));
+                assert.strictEqual(rendererGoToCalls.length, 1, 'Expected exactly 1 jump skipping stale initialAnchor');
+                assert.strictEqual(rendererGoToCalls[0].index, 6, 'Expected ch_07 (section index 6), got ' + rendererGoToCalls[0].index);
+
+                // Subsequent in-reader goToAnchor with href missing OEBPS/ and without blockId still resolves cleanly
+                await bridge.goToAnchor(JSON.stringify({ ordinal: 9, href: 'ch_09.xhtml' }), 0);
+                assert.strictEqual(rendererGoToCalls.length, 2);
+                assert.strictEqual(rendererGoToCalls[1].index, 8);
+            })().catch(err => { console.error(err); process.exit(1); });
+            """.trimIndent(),
+        )
+        val proc = ProcessBuilder("node", nodeTestScript.absolutePath)
+            .redirectErrorStream(true)
+            .start()
+        val output = proc.inputStream.bufferedReader().readText()
+        assertEquals("Node TOC jump regression failed: $output", 0, proc.waitFor())
     }
 
     private class FakeRendererAdapter : BookRendererPort {
