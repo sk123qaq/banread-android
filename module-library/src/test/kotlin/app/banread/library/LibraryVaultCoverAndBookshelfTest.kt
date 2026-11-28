@@ -423,7 +423,7 @@ class LibraryVaultCoverAndBookshelfTest {
         FrameworkSQLiteOpenHelperFactory().create(config).writableDatabase.close()
 
         val migratedDb = Room.databaseBuilder(context, LibraryDatabase::class.java, dbName)
-            .addMigrations(LibraryDatabase.MIGRATION_1_2)
+            .addMigrations(LibraryDatabase.MIGRATION_1_2, LibraryDatabase.MIGRATION_2_3)
             .allowMainThreadQueries()
             .build()
         try {

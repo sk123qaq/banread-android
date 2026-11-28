@@ -33,6 +33,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
@@ -43,6 +45,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import java.io.Closeable
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.ceil
 
 internal class RoomLibraryVault private constructor(
@@ -54,6 +57,7 @@ internal class RoomLibraryVault private constructor(
 ) : LibraryVault, Closeable {
 
     private val dao = db.libraryDao()
+    private val recompileLocks = ConcurrentHashMap<String, Mutex>()
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
@@ -238,9 +242,10 @@ internal class RoomLibraryVault private constructor(
             copySourceToFile(sourceUri, tempFile)
             val sourceHash = BookSourceHash(TextSanitizer.sha256Hex(tempFile))
 
-            // Deduplicate by BookSourceHash
+            // Deduplicate by BookSourceHash, upgrading stale EPUB compilations in place
             dao.findWorkBySourceHash(sourceHash.sha256Hex)?.let { existing ->
-                return@withContext Result.success(existing.toImportedWork())
+                val upgraded = ensureEpubUpToDate(existing, fallbackSourceFile = tempFile)
+                return@withContext Result.success(upgraded.toImportedWork())
             }
 
             val format = LocalBookInspector.sniffFormat(tempFile)
@@ -260,105 +265,14 @@ internal class RoomLibraryVault private constructor(
 
             when (format) {
                 DetectedFormat.EPUB -> {
-                    val parsed = LocalBookInspector.parseEpub(tempFile)
                     val destFile = File(booksDir, "${workId.raw}.epub")
                     tempFile.copyTo(destFile, overwrite = true)
-
-                    val resolvedProfile = resolveProfileSmart(parsed.subjects)
-                    val clothColor = profileRegistry.clothColor(workId.raw)
-
-                    val merged = RoleAndSplit.mergeTitlePages(parsed.chapters)
-                    val logicalInputs = merged.mapIndexed { idx, ch ->
-                        RoleAndSplit.LogicalChapterInput(
-                            originalOrdinal = idx + 1,
-                            n = ch.n,
-                            title = ch.title,
-                            role = ch.role,
-                            merged = ch.merged,
-                            sourceFiles = ch.sourceFiles,
-                            contentSha256 = ch.contentSha256,
-                            chars = ch.chars,
-                            blocks = ch.blocks,
-                        )
-                    }
-                    val finalized = RoleAndSplit.applyVirtualSplits(logicalInputs)
-
-                    // Carry forward HTML element IDs across virtual splits
-                    val preSplitHtmlIds = linkedMapOf<Int, Map<String, Set<String>>>()
-                    merged.forEachIndexed { idx, ch ->
-                        if (ch.blockIdToHtmlIds.isNotEmpty()) {
-                            preSplitHtmlIds[idx + 1] = ch.blockIdToHtmlIds
-                        }
-                    }
-
-                    val chaptersForResolution = finalized.map { ch ->
-                        val chOrd = ChapterOrdinal(ch.ordinal)
-                        val origMap = preSplitHtmlIds[ch.originalOrdinal].orEmpty()
-                        val mappedHtmlIds = linkedMapOf<String, Set<String>>()
-                        for ((oldId, newPair) in ch.oldToNewBlockMap) {
-                            if (newPair.first == ch.ordinal) {
-                                origMap[oldId]?.let { mappedHtmlIds[newPair.second] = it }
-                            }
-                        }
-                        ChapterForResolution(
-                            ordinal = ch.ordinal,
-                            title = ch.title,
-                            role = ch.role,
-                            sourceFiles = ch.sourceFiles,
-                            compiledHref = "OEBPS/ch_${chOrd.twoDigit()}.xhtml",
-                            blocks = ch.blocks,
-                            blockIdToHtmlIds = mappedHtmlIds,
-                        )
-                    }
-
-                    val fnResolution = FootnoteResolver.resolveAll(workId.raw, chaptersForResolution)
-                    val compiledRoot = File(filesRoot, "compiled/${workId.raw}")
-                    XhtmlBookCompiler.compile(
-                        compiledRoot = compiledRoot,
-                        input = XhtmlBookCompiler.CompileInput(
-                            workId = workId.raw,
-                            title = parsed.title,
-                            author = parsed.author,
-                            chapters = finalized,
-                            inlineTargets = fnResolution.inlineTargetByRefKey,
-                            images = parsed.images,
-                        ),
+                    val workEntity = compileAndPersistEpub(
+                        workIdRaw = workId.raw,
+                        sourceSha256Hex = sourceHash.sha256Hex,
+                        epubFile = destFile,
+                        existingWork = null,
                     )
-
-                    val epubCover = parsed.cover?.let { cover ->
-                        persistCoverBytes(
-                            workIdRaw = workId.raw,
-                            relPath = "cover.${cover.formatExt}",
-                            bytes = cover.bytes,
-                        )?.let { (rel, _) -> Triple(rel, cover.width, cover.height) }
-                    }
-
-                    val modes = setOf(ReadingSurfaceMode.REFLOWABLE)
-                    val workEntity = WorkEntity(
-                        workId = workId.raw,
-                        bookSourceSha256 = sourceHash.sha256Hex,
-                        title = parsed.title,
-                        author = parsed.author,
-                        subjectsJson = json.encodeToString(ListSerializer(String.serializer()), parsed.subjects),
-                        readProfileId = resolvedProfile.profile.readType.raw,
-                        literatureSubKind = resolvedProfile.subKind.ifBlank { null },
-                        profileSource = "AUTO",
-                        clothColor = clothColor,
-                        coverRel = epubCover?.first,
-                        coverWidth = epubCover?.second,
-                        coverHeight = epubCover?.third,
-                        originalFilePath = destFile.absolutePath,
-                        compiledRootPath = compiledRoot.absolutePath,
-                        format = "EPUB",
-                        supportedModesJson = json.encodeToString(ListSerializer(ReadingSurfaceMode.serializer()), modes.toList()),
-                        isScannedPdf = false,
-                        blockVersion = 2,
-                        canonicalVersion = 1,
-                        addedAtMs = System.currentTimeMillis(),
-                    )
-                    val htmlIdsByChapter = chaptersForResolution.associate { it.ordinal to it.blockIdToHtmlIds }
-                    val (chapterEntities, blockEntities) = toRoomEntities(workId.raw, finalized, htmlIdsByChapter)
-                    dao.replaceWorkTree(workEntity, chapterEntities, blockEntities, fnResolution.entities)
                     Result.success(workEntity.toImportedWork())
                 }
 
@@ -522,8 +436,9 @@ internal class RoomLibraryVault private constructor(
     }
 
     override suspend fun getWorkOutline(workId: WorkId): WorkOutline = withContext(Dispatchers.IO) {
-        val work = dao.findWorkById(workId.raw)
+        val rawWork = dao.findWorkById(workId.raw)
             ?: throw NoSuchElementException("Work not found: ${workId.raw}")
+        val work = ensureEpubUpToDate(rawWork)
         val chapters = dao.getChapters(workId.raw)
 
         val body = mutableListOf<ChapterOutlineItem>()
@@ -563,8 +478,9 @@ internal class RoomLibraryVault private constructor(
         ordinal: ChapterOrdinal,
         blockId: BlockId,
     ): ReadingAnchor = withContext(Dispatchers.IO) {
-        val work = dao.findWorkById(workId.raw)
+        val rawWork = dao.findWorkById(workId.raw)
             ?: throw NoSuchElementException("Work not found: ${workId.raw}")
+        val work = ensureEpubUpToDate(rawWork)
         val chapter = dao.getChapter(workId.raw, ordinal.value)
             ?: throw NoSuchElementException("Chapter ${ordinal.value} not found for ${workId.raw}")
         val block = dao.getBlock(workId.raw, ordinal.value, blockId.value)
@@ -614,6 +530,7 @@ internal class RoomLibraryVault private constructor(
         currentOrdinal: ChapterOrdinal,
         markerOrHref: String,
     ): FootnoteDetail? = withContext(Dispatchers.IO) {
+        dao.findWorkById(workId.raw)?.let { ensureEpubUpToDate(it) }
         val allFootnotes = dao.getFootnotesForWork(workId.raw)
         if (allFootnotes.isEmpty()) return@withContext null
 
@@ -700,8 +617,9 @@ internal class RoomLibraryVault private constructor(
     override suspend fun loadBookInputs(
         workId: WorkId,
     ): BookSlice = withContext(Dispatchers.IO) {
-        dao.findWorkById(workId.raw)
+        val rawWork = dao.findWorkById(workId.raw)
             ?: throw NoSuchElementException("Work not found: ${workId.raw}")
+        ensureEpubUpToDate(rawWork)
 
         val chapters = dao.getChapters(workId.raw)
         val bodyChapters = chapters.filter { it.chapterRole == ChapterRole.BODY.name }
@@ -1085,12 +1003,167 @@ internal class RoomLibraryVault private constructor(
         return profileRegistry.resolveProfile(s1, s2)
     }
 
+    private suspend fun ensureEpubUpToDate(
+        work: WorkEntity,
+        fallbackSourceFile: File? = null,
+    ): WorkEntity {
+        if (work.format != "EPUB" || work.parserVersion >= CURRENT_EPUB_PARSER_VERSION) {
+            return work
+        }
+        val mutex = recompileLocks.computeIfAbsent(work.workId) { Mutex() }
+        return mutex.withLock {
+            val latest = dao.findWorkById(work.workId) ?: return@withLock work
+            if (latest.format != "EPUB" || latest.parserVersion >= CURRENT_EPUB_PARSER_VERSION) {
+                return@withLock latest
+            }
+            val origFile = resolveSafeExistingFile(latest.originalFilePath)
+                ?: fallbackSourceFile?.takeIf { it.isFile }
+                ?: return@withLock latest
+            val storedDest = File(filesRoot, "books/${latest.workId}.epub").apply {
+                parentFile?.mkdirs()
+                if (!isFile) {
+                    origFile.copyTo(this, overwrite = true)
+                }
+            }
+            val sourceForCompile = if (storedDest.isFile) storedDest else origFile
+            runCatching {
+                compileAndPersistEpub(
+                    workIdRaw = latest.workId,
+                    sourceSha256Hex = latest.bookSourceSha256,
+                    epubFile = sourceForCompile,
+                    existingWork = latest,
+                )
+            }.getOrElse { latest }
+        }
+    }
+
+    private fun resolveSafeExistingFile(path: String): File? {
+        if (path.isBlank()) return null
+        val file = File(path)
+        val rootCanonical = runCatching { filesRoot.canonicalFile.toPath() }.getOrNull() ?: return null
+        val fileCanonical = runCatching { file.canonicalFile.toPath() }.getOrNull() ?: return null
+        return if (fileCanonical.startsWith(rootCanonical) && file.isFile) file else null
+    }
+
+    private suspend fun compileAndPersistEpub(
+        workIdRaw: String,
+        sourceSha256Hex: String,
+        epubFile: File,
+        existingWork: WorkEntity?,
+    ): WorkEntity {
+        val parsed = LocalBookInspector.parseEpub(epubFile)
+        val resolvedProfile = resolveProfileSmart(parsed.subjects)
+        val clothColor = existingWork?.clothColor ?: profileRegistry.clothColor(workIdRaw)
+
+        val merged = RoleAndSplit.mergeTitlePages(parsed.chapters)
+        val logicalInputs = merged.mapIndexed { idx, ch ->
+            RoleAndSplit.LogicalChapterInput(
+                originalOrdinal = idx + 1,
+                n = ch.n,
+                title = ch.title,
+                role = ch.role,
+                merged = ch.merged,
+                sourceFiles = ch.sourceFiles,
+                contentSha256 = ch.contentSha256,
+                chars = ch.chars,
+                blocks = ch.blocks,
+            )
+        }
+        val finalized = RoleAndSplit.applyVirtualSplits(logicalInputs)
+
+        val preSplitHtmlIds = linkedMapOf<Int, Map<String, Set<String>>>()
+        merged.forEachIndexed { idx, ch ->
+            if (ch.blockIdToHtmlIds.isNotEmpty()) {
+                preSplitHtmlIds[idx + 1] = ch.blockIdToHtmlIds
+            }
+        }
+
+        val chaptersForResolution = finalized.map { ch ->
+            val chOrd = ChapterOrdinal(ch.ordinal)
+            val origMap = preSplitHtmlIds[ch.originalOrdinal].orEmpty()
+            val mappedHtmlIds = linkedMapOf<String, Set<String>>()
+            for ((oldId, newPair) in ch.oldToNewBlockMap) {
+                if (newPair.first == ch.ordinal) {
+                    origMap[oldId]?.let { mappedHtmlIds[newPair.second] = it }
+                }
+            }
+            ChapterForResolution(
+                ordinal = ch.ordinal,
+                title = ch.title,
+                role = ch.role,
+                sourceFiles = ch.sourceFiles,
+                compiledHref = "OEBPS/ch_${chOrd.twoDigit()}.xhtml",
+                blocks = ch.blocks,
+                blockIdToHtmlIds = mappedHtmlIds,
+            )
+        }
+
+        val fnResolution = FootnoteResolver.resolveAll(workIdRaw, chaptersForResolution)
+        val compiledRoot = File(filesRoot, "compiled/$workIdRaw")
+        XhtmlBookCompiler.compile(
+            compiledRoot = compiledRoot,
+            input = XhtmlBookCompiler.CompileInput(
+                workId = workIdRaw,
+                title = parsed.title,
+                author = parsed.author,
+                chapters = finalized,
+                inlineTargets = fnResolution.inlineTargetByRefKey,
+                images = parsed.images,
+            ),
+        )
+
+        val existingCoverValid = existingWork?.coverRel != null &&
+            resolveVerifiedCoverFile(workIdRaw, existingWork.coverRel) != null
+        val (coverRel, coverWidth, coverHeight) = if (existingCoverValid) {
+            Triple(existingWork!!.coverRel, existingWork.coverWidth, existingWork.coverHeight)
+        } else {
+            val extracted = parsed.cover?.let { cover ->
+                persistCoverBytes(
+                    workIdRaw = workIdRaw,
+                    relPath = "cover.${cover.formatExt}",
+                    bytes = cover.bytes,
+                )?.let { (rel, _) -> Triple(rel, cover.width, cover.height) }
+            }
+            Triple(extracted?.first, extracted?.second, extracted?.third)
+        }
+
+        val modes = setOf(ReadingSurfaceMode.REFLOWABLE)
+        val workEntity = WorkEntity(
+            workId = workIdRaw,
+            bookSourceSha256 = sourceSha256Hex,
+            title = parsed.title,
+            author = parsed.author,
+            subjectsJson = json.encodeToString(ListSerializer(String.serializer()), parsed.subjects),
+            readProfileId = existingWork?.readProfileId ?: resolvedProfile.profile.readType.raw,
+            literatureSubKind = if (existingWork != null) existingWork.literatureSubKind else resolvedProfile.subKind.ifBlank { null },
+            profileSource = existingWork?.profileSource ?: "AUTO",
+            clothColor = clothColor,
+            coverRel = coverRel,
+            coverWidth = coverWidth,
+            coverHeight = coverHeight,
+            originalFilePath = epubFile.absolutePath,
+            compiledRootPath = compiledRoot.absolutePath,
+            format = "EPUB",
+            supportedModesJson = json.encodeToString(ListSerializer(ReadingSurfaceMode.serializer()), modes.toList()),
+            isScannedPdf = false,
+            blockVersion = 2,
+            canonicalVersion = 1,
+            addedAtMs = existingWork?.addedAtMs ?: System.currentTimeMillis(),
+            parserVersion = CURRENT_EPUB_PARSER_VERSION,
+        )
+        val htmlIdsByChapter = chaptersForResolution.associate { it.ordinal to it.blockIdToHtmlIds }
+        val (chapterEntities, blockEntities) = toRoomEntities(workIdRaw, finalized, htmlIdsByChapter)
+        dao.replaceWorkTree(workEntity, chapterEntities, blockEntities, fnResolution.entities)
+        return workEntity
+    }
+
     private fun guessTitleFromUri(uriOrPath: String): String {
         val last = uriOrPath.substringAfterLast('/')
         return last.substringBeforeLast('.').ifBlank { last }
     }
 
     companion object {
+        internal const val CURRENT_EPUB_PARSER_VERSION = 2
         private const val MAX_PDF_COVER_WIDTH_PX = 480
 
         fun create(

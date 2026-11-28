@@ -41,6 +41,7 @@ internal data class WorkEntity(
     val blockVersion: Int,
     val canonicalVersion: Int,
     val addedAtMs: Long,
+    val parserVersion: Int = 1,
 )
 
 @Entity(
@@ -206,7 +207,7 @@ internal interface LibraryDao {
         ChapterBlockEntity::class,
         FootnoteEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 internal abstract class LibraryDatabase : RoomDatabase() {
@@ -220,13 +221,19 @@ internal abstract class LibraryDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE works ADD COLUMN parserVersion INTEGER NOT NULL DEFAULT 1")
+            }
+        }
+
         fun build(context: Context, allowInMemory: Boolean): LibraryDatabase {
             val builder = if (allowInMemory) {
                 Room.inMemoryDatabaseBuilder(context, LibraryDatabase::class.java)
                     .allowMainThreadQueries()
             } else {
                 Room.databaseBuilder(context, LibraryDatabase::class.java, "banread_library_v1.db")
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .fallbackToDestructiveMigration()
             }
             return builder.build()

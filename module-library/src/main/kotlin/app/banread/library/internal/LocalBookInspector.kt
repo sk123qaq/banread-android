@@ -160,6 +160,29 @@ internal object LocalBookInspector {
             val opfDir = opfPath.substringBeforeLast('/', "")
             val opf = parseOpf(zip.getInputStream(opfEntry))
 
+            val navHref = opf.manifestById.values.firstOrNull { item ->
+                item.properties.split(Regex("\\s+")).any { it == "nav" }
+            }?.href
+            val ncxHref = opf.spineTocId?.let { opf.manifestById[it]?.href }
+                ?: opf.manifestById.values.firstOrNull { item ->
+                    item.mediaType.equals("application/x-dtbncx+xml", ignoreCase = true) ||
+                        item.href.endsWith(".ncx", ignoreCase = true)
+                }?.href
+            val navZipPath = navHref?.let { resolveRelativePath(opfDir, it) }
+            val ncxZipPath = ncxHref?.let { resolveRelativePath(opfDir, it) }
+            val tocEntries = EpubTocParser.parsePreferredToc(
+                zip = zip,
+                entryMap = entryMap,
+                navZipPath = navZipPath,
+                ncxZipPath = ncxZipPath,
+            )
+            val tocByPath = linkedMapOf<String, MutableList<EpubTocEntry>>()
+            val tocByPathLower = linkedMapOf<String, MutableList<EpubTocEntry>>()
+            for (te in tocEntries) {
+                tocByPath.getOrPut(te.zipPath) { mutableListOf() }.add(te)
+                tocByPathLower.getOrPut(te.zipPath.lowercase()) { mutableListOf() }.add(te)
+            }
+
             val images = linkedMapOf<String, ByteArray>()
             for ((path, entry) in entryMap) {
                 if (!entry.isDirectory && isImagePath(path)) {
@@ -175,54 +198,192 @@ internal object LocalBookInspector {
                 }
             }
 
-            val rawCandidates = mutableListOf<RoleAndSplit.RawChapterCandidate>()
-            val htmlIdMap = linkedMapOf<Int, Map<String, Set<String>>>()
             val spineItems = opf.spineIdRefs.mapNotNull { idRef -> opf.manifestById[idRef] }
             if (spineItems.isEmpty()) {
                 throw AppFailureException(AppFailure.UnsupportedDrmOrFormat("Invalid EPUB: empty spine"))
             }
 
-            val totalSpine = spineItems.size
-            spineItems.forEachIndexed { idx, item ->
+            data class PendingChapter(
+                val fileName: String,
+                val title: String,
+                val cameFromTocSplit: Boolean,
+                val blocks: MutableList<HardWrapStitcher.StitchInputBlock>,
+                var rawBytes: ByteArray?,
+                val hardWrapProfile: HardWrapStitcher.HardWrapProfile,
+            )
+
+            data class ResolvedTocAnchor(
+                val blockIdx: Int,
+                val entry: EpubTocEntry,
+            )
+
+            val pendingChapters = mutableListOf<PendingChapter>()
+            spineItems.forEach { item ->
                 val resolvedPath = resolveRelativePath(opfDir, item.href)
-                val entry = entryMap[resolvedPath] ?: entryMap[item.href] ?: return@forEachIndexed
+                val entry = entryMap[resolvedPath] ?: entryMap[item.href] ?: return@forEach
                 val rawBytes = zip.getInputStream(entry).readBytes()
                 val xhtml = rawBytes.toString(Charsets.UTF_8)
                 val extracted = extractBlocksFromXhtml(xhtml, resolvedPath)
-                val title = extracted.title.ifBlank {
-                    resolvedPath.substringAfterLast('/').substringBeforeLast('.')
+                val fileName = resolvedPath.substringAfterLast('/')
+                val hardWrapProfile = HardWrapStitcher.analyzeProfile(extracted.blocks)
+
+                val allInputs = extracted.blocks.mapIndexed { bIdx, blk ->
+                    HardWrapStitcher.StitchInputBlock(
+                        block = blk,
+                        htmlIds = extracted.blockIndexToHtmlIds[bIdx].orEmpty(),
+                    )
                 }
-                val bodyTextForRole = extracted.blocks.joinToString("\n\n") { it.cleanText }
-                val role = RoleAndSplit.classifyChapterRole(
-                    title = title,
-                    body = bodyTextForRole,
-                    fileName = resolvedPath.substringAfterLast('/'),
-                    bookTitle = opf.title,
-                    isOnlyChapter = totalSpine == 1,
+
+                val fileTocEntries = tocByPath[resolvedPath]
+                    ?: tocByPathLower[resolvedPath.lowercase()]
+                    ?: emptyList()
+
+                val htmlIdToFirstBlockIdx = hashMapOf<String, Int>()
+                for ((bIdx, ids) in extracted.blockIndexToHtmlIds) {
+                    for (id in ids) {
+                        htmlIdToFirstBlockIdx.putIfAbsent(id, bIdx)
+                    }
+                }
+
+                val resolvedAnchors = if (extracted.blocks.isNotEmpty() && fileTocEntries.isNotEmpty()) {
+                    val byBlockIdx = linkedMapOf<Int, EpubTocEntry>()
+                    for (te in fileTocEntries) {
+                        val targetIdx = if (te.fragmentId == null) {
+                            0
+                        } else {
+                            htmlIdToFirstBlockIdx[te.fragmentId]
+                        }
+                        if (targetIdx != null && targetIdx in extracted.blocks.indices) {
+                            byBlockIdx.putIfAbsent(targetIdx, te)
+                        }
+                    }
+                    byBlockIdx.entries
+                        .map { (bIdx, te) -> ResolvedTocAnchor(bIdx, te) }
+                        .sortedBy { it.blockIdx }
+                } else {
+                    emptyList()
+                }
+
+                val needsTocSplit = resolvedAnchors.size >= 2 ||
+                    (resolvedAnchors.size == 1 && resolvedAnchors[0].blockIdx > 0)
+
+                if (!needsTocSplit) {
+                    val singleTocLabel = resolvedAnchors.firstOrNull()?.entry?.label
+                        ?: fileTocEntries.firstOrNull { it.fragmentId == null }?.label
+                    val title = when {
+                        extracted.hasBodyHeading && extracted.title.isNotBlank() -> extracted.title
+                        !singleTocLabel.isNullOrBlank() -> singleTocLabel
+                        extracted.title.isNotBlank() && (spineItems.size == 1 || extracted.title != opf.title) -> extracted.title
+                        else -> fileName.substringBeforeLast('.')
+                    }
+                    pendingChapters += PendingChapter(
+                        fileName = fileName,
+                        title = title,
+                        cameFromTocSplit = false,
+                        blocks = allInputs.toMutableList(),
+                        rawBytes = rawBytes,
+                        hardWrapProfile = hardWrapProfile,
+                    )
+                } else {
+                    val firstAnchorIdx = resolvedAnchors.first().blockIdx
+                    if (firstAnchorIdx > 0) {
+                        val preambleInputs = allInputs.subList(0, firstAnchorIdx)
+                        val prev = pendingChapters.lastOrNull()
+                        val firstPreambleBlk = preambleInputs.first().block
+                        val preambleStartsWithHeading = firstPreambleBlk.kind == "heading" || firstPreambleBlk.isBoldOnly
+                        val prevIsContinuationCandidate = prev != null &&
+                            prev.cameFromTocSplit &&
+                            prev.blocks.isNotEmpty() &&
+                            !preambleStartsWithHeading &&
+                            RoleAndSplit.classifyChapterRole(
+                                title = prev.title,
+                                body = prev.blocks.joinToString("\n\n") { it.block.cleanText },
+                                fileName = prev.fileName,
+                                bookTitle = opf.title,
+                                isOnlyChapter = false,
+                            ) == ChapterRole.BODY
+
+                        if (prevIsContinuationCandidate) {
+                            prev!!.blocks.addAll(preambleInputs)
+                            prev.rawBytes = null
+                        } else {
+                            val preambleHeading = preambleInputs.firstOrNull {
+                                (it.block.kind == "heading" || it.block.isBoldOnly) && it.block.cleanText.isNotBlank()
+                            }?.block?.cleanText
+                            val preambleChars = preambleInputs.sumOf { TextSanitizer.nonSpaceCount(it.block.cleanText) }
+                            val isOpeningFrontMatter = pendingChapters.all { it.blocks.isEmpty() } && preambleChars <= 120
+                            val preambleTitle = preambleHeading
+                                ?: if (isOpeningFrontMatter) "扉页" else fileName.substringBeforeLast('.')
+                            pendingChapters += PendingChapter(
+                                fileName = fileName,
+                                title = preambleTitle,
+                                cameFromTocSplit = true,
+                                blocks = preambleInputs.toMutableList(),
+                                rawBytes = null,
+                                hardWrapProfile = hardWrapProfile,
+                            )
+                        }
+                    }
+
+                    for (i in resolvedAnchors.indices) {
+                        val start = resolvedAnchors[i].blockIdx
+                        val end = if (i + 1 < resolvedAnchors.size) resolvedAnchors[i + 1].blockIdx else allInputs.size
+                        if (end <= start) continue
+                        val sliceInputs = allInputs.subList(start, end)
+                        pendingChapters += PendingChapter(
+                            fileName = fileName,
+                            title = resolvedAnchors[i].entry.label,
+                            cameFromTocSplit = true,
+                            blocks = sliceInputs.toMutableList(),
+                            rawBytes = null,
+                            hardWrapProfile = hardWrapProfile,
+                        )
+                    }
+                }
+            }
+
+            val rawCandidates = mutableListOf<RoleAndSplit.RawChapterCandidate>()
+            val htmlIdMap = linkedMapOf<Int, Map<String, Set<String>>>()
+            val totalChapters = pendingChapters.size
+            pendingChapters.forEachIndexed { idx, pending ->
+                val stitched = HardWrapStitcher.stitch(
+                    inputs = pending.blocks,
+                    profile = pending.hardWrapProfile,
+                    chapterTitle = pending.title,
                 )
-                val numberedBlocks = RoleAndSplit.renumberBlocks(extracted.blocks)
-                // Remap extracted HTML IDs according to renumbered block IDs
+                val preNumberedBlocks = stitched.map { it.block }
+                val numberedBlocks = RoleAndSplit.renumberBlocks(preNumberedBlocks)
                 val remappedHtmlIds = linkedMapOf<String, Set<String>>()
-                extracted.blocks.forEachIndexed { bIdx, oldBlk ->
+                stitched.forEachIndexed { bIdx, item ->
                     val newId = numberedBlocks[bIdx].id
-                    val ids = extracted.blockIndexToHtmlIds[bIdx]
-                    if (!ids.isNullOrEmpty()) remappedHtmlIds[newId] = ids
+                    if (item.htmlIds.isNotEmpty()) {
+                        remappedHtmlIds[newId] = item.htmlIds
+                    }
                 }
+                val bodyTextForRole = numberedBlocks.joinToString("\n\n") { it.cleanText }
+                val role = RoleAndSplit.classifyChapterRole(
+                    title = pending.title,
+                    body = bodyTextForRole,
+                    fileName = pending.fileName,
+                    bookTitle = opf.title,
+                    isOnlyChapter = totalChapters == 1,
+                )
+                val effectiveRawBytes = pending.rawBytes
+                    ?: "${pending.fileName}#${pending.title}\n$bodyTextForRole".toByteArray(Charsets.UTF_8)
 
                 val candidateIdx = rawCandidates.size
                 htmlIdMap[candidateIdx] = remappedHtmlIds
                 val nStr = (idx + 1).toString().padStart(2, '0')
-                val fileName = resolvedPath.substringAfterLast('/')
                 rawCandidates += RoleAndSplit.RawChapterCandidate(
                     n = nStr,
-                    stem = fileName.substringBeforeLast('.'),
-                    fileName = fileName,
-                    title = title,
+                    stem = pending.fileName.substringBeforeLast('.'),
+                    fileName = pending.fileName,
+                    title = pending.title,
                     role = role,
                     chars = numberedBlocks.sumOf { TextSanitizer.nonSpaceCount(it.cleanText) },
                     blocks = numberedBlocks,
                     rawMarkdown = bodyTextForRole,
-                    rawContentBytes = rawBytes,
+                    rawContentBytes = effectiveRawBytes,
                     blockIdToHtmlIds = remappedHtmlIds,
                 )
             }
@@ -403,6 +564,7 @@ internal object LocalBookInspector {
         val manifestById: Map<String, OpfManifestItem>,
         val spineIdRefs: List<String>,
         val metaCoverId: String? = null,
+        val spineTocId: String? = null,
     )
 
     private fun parseOpf(input: InputStream): ParsedOpf {
@@ -413,6 +575,7 @@ internal object LocalBookInspector {
         val manifest = linkedMapOf<String, OpfManifestItem>()
         val spine = mutableListOf<String>()
         var metaCoverId: String? = null
+        var spineTocId: String? = null
 
         var event = parser.eventType
         while (event != XmlPullParser.END_DOCUMENT) {
@@ -447,6 +610,10 @@ internal object LocalBookInspector {
                             manifest[id] = OpfManifestItem(id, href, mediaType, properties)
                         }
                     }
+                    "spine" -> {
+                        val toc = parser.getAttributeValue(null, "toc").orEmpty().trim()
+                        if (toc.isNotEmpty()) spineTocId = toc
+                    }
                     "itemref" -> {
                         val idref = parser.getAttributeValue(null, "idref").orEmpty()
                         if (idref.isNotEmpty()) spine += idref
@@ -462,6 +629,7 @@ internal object LocalBookInspector {
             manifestById = manifest,
             spineIdRefs = spine,
             metaCoverId = metaCoverId,
+            spineTocId = spineTocId,
         )
     }
 
@@ -481,6 +649,7 @@ internal object LocalBookInspector {
 
     private data class XhtmlExtractionResult(
         val title: String,
+        val hasBodyHeading: Boolean,
         val blocks: List<ParsedBlock>,
         val blockIndexToHtmlIds: Map<Int, Set<String>>,
     )
@@ -488,7 +657,9 @@ internal object LocalBookInspector {
     private fun extractBlocksFromXhtml(xhtml: String, chapterPath: String): XhtmlExtractionResult {
         val blocks = mutableListOf<ParsedBlock>()
         val htmlIdsByBlockIdx = linkedMapOf<Int, MutableSet<String>>()
-        var docTitle = ""
+        var headTitle = ""
+        var bodyHeadingTitle = ""
+        var hasBodyHeading = false
 
         val cleanedXml = TextSanitizer.sanitizeRawPreservingMath(xhtml)
         try {
@@ -496,6 +667,9 @@ internal object LocalBookInspector {
             var inBody = false
             var inHeadTitle = false
             val headTitleBuf = StringBuilder()
+
+            // Pending IDs on wrapper elements (<div id="...">, <section id="...">, sibling <a id="...">)
+            val pendingHtmlIds = mutableSetOf<String>()
 
             // Block capture state
             var blockTag: String? = null
@@ -505,6 +679,9 @@ internal object LocalBookInspector {
             var currentBlockHtmlIds = mutableSetOf<String>()
             val blockTextBuf = StringBuilder()
             val blockRefs = mutableListOf<InlineFnRef>()
+            var boldDepth = 0
+            var hasBoldText = false
+            var hasNonBoldText = false
             var listItems = mutableListOf<String>()
             var listItemRefs = mutableListOf<List<InlineFnRef>>()
             var inLi = false
@@ -519,6 +696,64 @@ internal object LocalBookInspector {
             var supAnchorHref: String? = null
 
             val chapterDir = chapterPath.substringBeforeLast('/', "")
+
+            fun flushTextSegmentOnly() {
+                val tag = blockTag ?: return
+                val clean = TextSanitizer.cleanInline(blockTextBuf.toString())
+                if (clean.isNotEmpty() || blockRefs.isNotEmpty()) {
+                    val idx = blocks.size
+                    val kind = when {
+                        blockIsFootnote -> "footnote"
+                        tag in setOf("h1", "h2", "h3", "h4", "h5", "h6") -> "heading"
+                        tag == "blockquote" -> "quote"
+                        tag == "pre" -> "code"
+                        else -> "paragraph"
+                    }
+                    if (kind == "heading") {
+                        hasBodyHeading = true
+                        if (bodyHeadingTitle.isBlank()) bodyHeadingTitle = clean
+                    }
+                    val (fnDisp, fnKey) = if (kind == "footnote") {
+                        val firstId = currentBlockHtmlIds.firstOrNull().orEmpty()
+                        val m = Regex("""^\[?(\d{1,4}|[^\]\s]{1,12})\]?(?:[.。、:：]|\s)+(.*)$""").matchEntire(clean)
+                        if (m != null) {
+                            MarkdownBlockParser.normalizeMarker(m.groupValues[1])
+                        } else {
+                            MarkdownBlockParser.normalizeMarker(firstId.ifBlank { (idx + 1).toString() })
+                        }
+                    } else {
+                        "" to ""
+                    }
+                    val finalClean = if (kind == "footnote") {
+                        clean.replaceFirst(Regex("""^\[?(\d{1,4})\]?(?:[.。、:：]|\s)+"""), "").ifBlank { clean }
+                    } else {
+                        clean
+                    }
+                    val isBoldOnly = kind == "paragraph" && hasBoldText && !hasNonBoldText && finalClean.isNotEmpty()
+                    blocks += ParsedBlock(
+                        id = "B${(idx + 1).toString().padStart(2, '0')}",
+                        blockIndex = idx,
+                        kind = kind,
+                        headingPath = "",
+                        cleanText = finalClean,
+                        charStart = 0,
+                        charEnd = finalClean.length,
+                        level = blockHeadingLevel,
+                        fnRefs = blockRefs.toList(),
+                        fnMarkerDisplay = fnDisp,
+                        fnMarkerKey = fnKey,
+                        isBoldOnly = isBoldOnly,
+                    )
+                    if (currentBlockHtmlIds.isNotEmpty()) {
+                        htmlIdsByBlockIdx[idx] = currentBlockHtmlIds.toMutableSet()
+                    }
+                    currentBlockHtmlIds = mutableSetOf()
+                }
+                blockTextBuf.clear()
+                blockRefs.clear()
+                hasBoldText = false
+                hasNonBoldText = false
+            }
 
             fun flushBlock() {
                 val tag = blockTag ?: return
@@ -543,53 +778,7 @@ internal object LocalBookInspector {
                             }
                         }
                     }
-                    else -> {
-                        val clean = TextSanitizer.cleanInline(blockTextBuf.toString())
-                        if (clean.isNotEmpty() || blockRefs.isNotEmpty()) {
-                            val kind = when {
-                                blockIsFootnote -> "footnote"
-                                tag in setOf("h1", "h2", "h3", "h4", "h5", "h6") -> "heading"
-                                tag == "blockquote" -> "quote"
-                                tag == "pre" -> "code"
-                                else -> "paragraph"
-                            }
-                            if (kind == "heading" && docTitle.isBlank()) {
-                                docTitle = clean
-                            }
-                            val (fnDisp, fnKey) = if (kind == "footnote") {
-                                val firstId = currentBlockHtmlIds.firstOrNull().orEmpty()
-                                val m = Regex("""^\[?(\d{1,4}|[^\]\s]{1,12})\]?(?:[.。、:：]|\s)+(.*)$""").matchEntire(clean)
-                                if (m != null) {
-                                    MarkdownBlockParser.normalizeMarker(m.groupValues[1])
-                                } else {
-                                    MarkdownBlockParser.normalizeMarker(firstId.ifBlank { (idx + 1).toString() })
-                                }
-                            } else {
-                                "" to ""
-                            }
-                            val finalClean = if (kind == "footnote") {
-                                clean.replaceFirst(Regex("""^\[?(\d{1,4})\]?(?:[.。、:：]|\s)+"""), "").ifBlank { clean }
-                            } else {
-                                clean
-                            }
-                            blocks += ParsedBlock(
-                                id = "B${(idx + 1).toString().padStart(2, '0')}",
-                                blockIndex = idx,
-                                kind = kind,
-                                headingPath = "",
-                                cleanText = finalClean,
-                                charStart = 0,
-                                charEnd = finalClean.length,
-                                level = blockHeadingLevel,
-                                fnRefs = blockRefs.toList(),
-                                fnMarkerDisplay = fnDisp,
-                                fnMarkerKey = fnKey,
-                            )
-                            if (currentBlockHtmlIds.isNotEmpty()) {
-                                htmlIdsByBlockIdx[idx] = currentBlockHtmlIds.toMutableSet()
-                            }
-                        }
-                    }
+                    else -> flushTextSegmentOnly()
                 }
                 blockTag = null
                 blockTagDepth = 0
@@ -598,6 +787,9 @@ internal object LocalBookInspector {
                 currentBlockHtmlIds = mutableSetOf()
                 blockTextBuf.clear()
                 blockRefs.clear()
+                boldDepth = 0
+                hasBoldText = false
+                hasNonBoldText = false
                 listItems = mutableListOf()
                 listItemRefs = mutableListOf()
                 inLi = false
@@ -610,7 +802,8 @@ internal object LocalBookInspector {
                 when (event) {
                     XmlPullParser.START_TAG -> {
                         val tag = parser.name.substringAfter(':').lowercase()
-                        val elemId = parser.getAttributeValue(null, "id")
+                        val elemId = parser.getAttributeValue(null, "id")?.takeIf { it.isNotBlank() }
+                            ?: if (tag == "a") parser.getAttributeValue(null, "name")?.takeIf { it.isNotBlank() } else null
                         if (!inBody && tag == "title") {
                             inHeadTitle = true
                         } else if (tag == "body") {
@@ -629,7 +822,11 @@ internal object LocalBookInspector {
                                         roleAttr?.contains("doc-footnote") == true ||
                                         clsAttr.contains("footnote")
                                     blockHeadingLevel = if (tag.startsWith("h") && tag.length == 2) tag[1].digitToIntOrNull() else null
-                                    if (!elemId.isNullOrBlank()) currentBlockHtmlIds += elemId
+                                    if (pendingHtmlIds.isNotEmpty()) {
+                                        currentBlockHtmlIds.addAll(pendingHtmlIds)
+                                        pendingHtmlIds.clear()
+                                    }
+                                    if (elemId != null) currentBlockHtmlIds += elemId
                                 } else if (tag == "img") {
                                     val src = parser.getAttributeValue(null, "src").orEmpty()
                                     val alt = parser.getAttributeValue(null, "alt").orEmpty()
@@ -647,12 +844,62 @@ internal object LocalBookInspector {
                                             imageRel = rel,
                                             imageAlt = alt,
                                         )
-                                        if (!elemId.isNullOrBlank()) htmlIdsByBlockIdx[idx] = mutableSetOf(elemId)
+                                        val imgIds = mutableSetOf<String>()
+                                        if (pendingHtmlIds.isNotEmpty()) {
+                                            imgIds.addAll(pendingHtmlIds)
+                                            pendingHtmlIds.clear()
+                                        }
+                                        if (elemId != null) imgIds += elemId
+                                        if (imgIds.isNotEmpty()) htmlIdsByBlockIdx[idx] = imgIds
+                                    } else if (elemId != null) {
+                                        pendingHtmlIds += elemId
                                     }
+                                } else if (elemId != null) {
+                                    pendingHtmlIds += elemId
                                 }
                             } else {
+                                // Handle malformed Calibre HTML where <p> wraps block-level <h1>..<h6>/<ul>/<ol>
+                                if (blockTag == "p" && tag in setOf("h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol")) {
+                                    if (blockTextBuf.isNotEmpty() || blockRefs.isNotEmpty()) {
+                                        flushTextSegmentOnly()
+                                    }
+                                    blockTag = tag
+                                    blockTagDepth = 1
+                                    blockHeadingLevel = if (tag.startsWith("h") && tag.length == 2) tag[1].digitToIntOrNull() else null
+                                    if (elemId != null) currentBlockHtmlIds += elemId
+                                    event = parser.next()
+                                    continue
+                                }
                                 if (tag == blockTag) blockTagDepth++
-                                if (!elemId.isNullOrBlank()) currentBlockHtmlIds += elemId
+                                if (elemId != null) currentBlockHtmlIds += elemId
+                                if (tag == "b" || tag == "strong") boldDepth++
+                                if (tag == "br" && blockTag != "pre") {
+                                    if (inLi) liTextBuf.append(' ') else blockTextBuf.append(' ')
+                                }
+                                if (tag == "img" && blockTag !in setOf("ul", "ol", "pre")) {
+                                    val src = parser.getAttributeValue(null, "src").orEmpty()
+                                    val alt = parser.getAttributeValue(null, "alt").orEmpty()
+                                    if (src.isNotBlank()) {
+                                        flushTextSegmentOnly()
+                                        val idx = blocks.size
+                                        val rel = resolveRelativePath(chapterDir, src)
+                                        blocks += ParsedBlock(
+                                            id = "B${(idx + 1).toString().padStart(2, '0')}",
+                                            blockIndex = idx,
+                                            kind = "image",
+                                            headingPath = "",
+                                            cleanText = alt,
+                                            charStart = 0,
+                                            charEnd = alt.length,
+                                            imageRel = rel,
+                                            imageAlt = alt,
+                                        )
+                                        if (currentBlockHtmlIds.isNotEmpty()) {
+                                            htmlIdsByBlockIdx[idx] = currentBlockHtmlIds.toMutableSet()
+                                            currentBlockHtmlIds = mutableSetOf()
+                                        }
+                                    }
+                                }
                                 if ((blockTag == "ul" || blockTag == "ol") && tag == "li") {
                                     inLi = true
                                     liTextBuf.clear()
@@ -686,6 +933,9 @@ internal object LocalBookInspector {
                         if (inHeadTitle) {
                             headTitleBuf.append(txt)
                         } else if (inBody && blockTag != null) {
+                            if (txt.any { !it.isWhitespace() }) {
+                                if (boldDepth > 0) hasBoldText = true else hasNonBoldText = true
+                            }
                             if (inNoteref) {
                                 noterefLabelBuf.append(txt)
                             } else if (inLi) {
@@ -699,11 +949,14 @@ internal object LocalBookInspector {
                         val tag = parser.name.substringAfter(':').lowercase()
                         if (!inBody && tag == "title") {
                             inHeadTitle = false
-                            if (docTitle.isBlank()) docTitle = headTitleBuf.toString().trim()
+                            if (headTitle.isBlank()) headTitle = headTitleBuf.toString().trim()
                         } else if (tag == "body") {
                             flushBlock()
                             inBody = false
                         } else if (inBody && blockTag != null) {
+                            if ((tag == "b" || tag == "strong") && boldDepth > 0) {
+                                boldDepth--
+                            }
                             if (tag == "a" && inNoteref) {
                                 val rawLabel = noterefLabelBuf.toString().trim()
                                 val (display, key) = MarkdownBlockParser.normalizeMarker(rawLabel.ifBlank { "1" })
@@ -767,7 +1020,8 @@ internal object LocalBookInspector {
             }
         }
         return XhtmlExtractionResult(
-            title = docTitle,
+            title = bodyHeadingTitle.ifBlank { headTitle },
+            hasBodyHeading = hasBodyHeading,
             blocks = blocks,
             blockIndexToHtmlIds = htmlIdsByBlockIdx,
         )
@@ -999,7 +1253,7 @@ internal object LocalBookInspector {
         return false
     }
 
-    private fun newSafeXmlParser(input: InputStream): XmlPullParser {
+    internal fun newSafeXmlParser(input: InputStream): XmlPullParser {
         val factory = XmlPullParserFactory.newInstance().apply {
             isNamespaceAware = true
         }
@@ -1009,7 +1263,8 @@ internal object LocalBookInspector {
     }
 
     private fun resolveRelativePath(baseDir: String, rel: String): String {
-        val cleanRel = rel.substringBefore('#').trim()
+        val rawNoFrag = rel.substringBefore('#').substringBefore('?').trim()
+        val cleanRel = decodeUriPath(rawNoFrag) ?: rawNoFrag
         val combined = if (baseDir.isEmpty()) cleanRel else "$baseDir/$cleanRel"
         val parts = mutableListOf<String>()
         for (seg in combined.split('/')) {
