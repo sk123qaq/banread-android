@@ -76,6 +76,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import app.banread.app.ui.components.BanReadSurfaceCard
 import app.banread.app.ui.components.CompactActionButton
+import app.banread.app.ui.components.RemoteCursorBannerCard
 import app.banread.app.ui.components.SingleLinePill
 import app.banread.app.ui.theme.BanReadPalettes
 import app.banread.app.ui.theme.BanReadTheme
@@ -303,6 +304,20 @@ fun ReflowReaderScreen(
                     )
                 }
             }
+        }
+
+        // Non-intrusive RemoteCursorBanner (never force-jumps user's reader)
+        val remoteBanner = state.remoteCursorBanner
+        if (remoteBanner != null) {
+            RemoteCursorBannerCard(
+                message = remoteBanner.message,
+                onJump = viewModel::jumpToRemoteCursor,
+                onIgnore = viewModel::dismissRemoteCursorBanner,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = if (state.hudVisible) 56.dp else 30.dp, start = 12.dp, end = 12.dp),
+            )
         }
 
         // Text selection floating action bar

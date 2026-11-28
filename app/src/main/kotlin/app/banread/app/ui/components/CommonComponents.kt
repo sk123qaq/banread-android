@@ -730,3 +730,52 @@ internal val IconAdd = Icons.Filled.Add
 internal val IconCheck = Icons.Filled.Check
 internal val IconClose = Icons.Filled.Close
 internal val IconLock = Icons.Filled.Lock
+
+@Composable
+fun RemoteCursorBannerCard(
+    message: String,
+    onJump: () -> Unit,
+    onIgnore: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val palette = BanReadTheme.palette
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = palette.surface,
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(palette.borderWidth, palette.pine),
+        shadowElevation = palette.cardElevation,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = message,
+                color = palette.ink,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            SingleLinePill(
+                text = "跳转",
+                containerColor = palette.cinnabar,
+                contentColor = Color.White,
+                borderColor = palette.cinnabar,
+                onClick = onJump,
+            )
+            SingleLinePill(
+                text = "忽略",
+                containerColor = palette.surfaceSubtle,
+                contentColor = palette.ink2,
+                borderColor = palette.lineStrong,
+                onClick = onIgnore,
+            )
+        }
+    }
+}

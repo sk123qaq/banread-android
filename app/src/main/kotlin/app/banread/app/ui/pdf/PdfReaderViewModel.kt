@@ -13,6 +13,8 @@ import app.banread.model.LibraryVault
 import app.banread.model.NormalizedRect
 import app.banread.model.ReaderEngine
 import app.banread.model.ReadingSurfaceMode
+import app.banread.model.RemoteCursorBanner
+import app.banread.model.SyncCoordinator
 import app.banread.model.WorkId
 import app.banread.reader.PdfViewportState
 import app.banread.reader.RenderedPdfPage
@@ -38,6 +40,7 @@ data class PdfReaderUiState(
     val vlmAnswerMarkdown: String = "",
     val vlmFailure: AppFailure? = null,
     val showVlmResultSheet: Boolean = false,
+    val remoteCursorBanner: RemoteCursorBanner? = null,
     val statusBanner: String? = null,
     val shouldSwitchToReflowScreen: Boolean = false,
 )
@@ -49,6 +52,7 @@ class PdfReaderViewModel(
     private val pdfSurfaceController: PdfSurfaceController,
     private val companionEngine: CompanionEngine,
     private val appPreferences: AppPreferencesPort,
+    private val syncCoordinator: SyncCoordinator? = null,
 ) : ViewModel() {
 
     private var lastTargetWidthPx: Int = 1080
@@ -87,7 +91,33 @@ class PdfReaderViewModel(
                 canReflow = summary != null && !summary.isScannedPdf,
                 renderedPage = page,
             )
+            reconcileRemoteProgress()
         }
+    }
+
+    fun reconcileRemoteProgress() {
+        val coord = syncCoordinator ?: return
+        viewModelScope.launch {
+            coord.reconcileWork(workId).onSuccess { outcome ->
+                if (outcome.remoteCursorBanner != null) {
+                    _uiState.value = _uiState.value.copy(remoteCursorBanner = outcome.remoteCursorBanner)
+                }
+            }
+        }
+    }
+
+    fun jumpToRemoteCursor() {
+        val banner = _uiState.value.remoteCursorBanner ?: return
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(remoteCursorBanner = null)
+            readerEngine.goTo(banner.remoteCursor, highlightPulseMs = 1_500L)
+            val page = pdfSurfaceController.renderCurrentPage(lastTargetWidthPx)
+            _uiState.value = _uiState.value.copy(renderedPage = page)
+        }
+    }
+
+    fun dismissRemoteCursorBanner() {
+        _uiState.value = _uiState.value.copy(remoteCursorBanner = null)
     }
 
     fun onRenderViewportWidth(widthPx: Int) {
@@ -280,6 +310,7 @@ class PdfReaderViewModel(
             pdfSurfaceController: PdfSurfaceController,
             companionEngine: CompanionEngine,
             appPreferences: AppPreferencesPort,
+            syncCoordinator: SyncCoordinator? = null,
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T =
@@ -290,6 +321,7 @@ class PdfReaderViewModel(
                     pdfSurfaceController = pdfSurfaceController,
                     companionEngine = companionEngine,
                     appPreferences = appPreferences,
+                    syncCoordinator = syncCoordinator,
                 ) as T
         }
     }

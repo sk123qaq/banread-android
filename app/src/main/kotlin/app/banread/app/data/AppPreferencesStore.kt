@@ -2,12 +2,14 @@ package app.banread.app.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import app.banread.model.DeviceId
 import app.banread.model.ReaderTheme
 import app.banread.model.TypographyProfile
 import app.banread.reader.PaginationMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.util.UUID
 
 data class AppPreferencesState(
     val theme: ReaderTheme = ReaderTheme.SEPIA_WARM,
@@ -22,6 +24,7 @@ data class AppPreferencesState(
         horizontalMarginDp = 20f,
         squeezeChinesePunctuation = true,
     ),
+    val deviceId: DeviceId = DeviceId("local-android"),
 )
 
 interface AppPreferencesPort {
@@ -125,12 +128,17 @@ class SharedPrefsAppPreferencesStore(
                 defaults.typography.squeezeChinesePunctuation,
             ),
         )
+        val storedDeviceId = prefs.getString(KEY_DEVICE_ID, null)?.takeIf { it.isNotBlank() }
+            ?: "android-${UUID.randomUUID().toString().replace("-", "").take(10)}".also { generated ->
+                prefs.edit().putString(KEY_DEVICE_ID, generated).apply()
+            }
         return AppPreferencesState(
             theme = theme,
             volumeKeyPageTurn = prefs.getBoolean(KEY_VOLUME_TURN, defaults.volumeKeyPageTurn),
             paginationMode = pagination,
             defaultSpoilerLock = prefs.getBoolean(KEY_SPOILER_LOCK, defaults.defaultSpoilerLock),
             typography = typography,
+            deviceId = DeviceId(storedDeviceId),
         )
     }
 
@@ -140,6 +148,7 @@ class SharedPrefsAppPreferencesStore(
         const val KEY_VOLUME_TURN = "volume_key_turn"
         const val KEY_PAGINATION = "pagination_mode"
         const val KEY_SPOILER_LOCK = "default_spoiler_lock"
+        const val KEY_DEVICE_ID = "device_id"
         const val KEY_FONT_FAMILY = "typo_font_family"
         const val KEY_FONT_SIZE = "typo_font_size"
         const val KEY_LINE_HEIGHT = "typo_line_height"

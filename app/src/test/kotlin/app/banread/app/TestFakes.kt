@@ -17,11 +17,14 @@ import app.banread.model.CompanionEngine
 import app.banread.model.CompanionEvent
 import app.banread.model.CompanionRequest
 import app.banread.model.CoverDisplayMode
+import app.banread.model.DeviceId
+import app.banread.model.DeviceProgressShard
 import app.banread.model.FootnoteDetail
 import app.banread.model.FootnoteLink
 import app.banread.model.GatedBookSlice
 import app.banread.model.ImportedWork
 import app.banread.model.LibraryVault
+import app.banread.model.NoteLogEntry
 import app.banread.model.ProfileToolbox
 import app.banread.model.ReadProfileId
 import app.banread.model.ReaderEngine
@@ -244,6 +247,29 @@ internal class FakeReaderEngine : ReaderEngine {
 
     override suspend fun raiseWatermarkFromRemote(workId: WorkId, remoteMaxOrdinal: ChapterOrdinal) {
         confirmWatermarkAdvance(workId, remoteMaxOrdinal)
+    }
+
+    val mergedRemoteNotes = mutableListOf<NoteLogEntry>()
+
+    override suspend fun snapshotProgress(workId: WorkId): DeviceProgressShard? {
+        val state = _activeState.value
+        val cursor = state.takeIf { it.workId == workId }?.currentCursor ?: return null
+        val wm = state.spoilerWatermark ?: watermarkByWork[workId.raw] ?: ChapterOrdinal(1)
+        return DeviceProgressShard(
+            workId = workId,
+            deviceId = DeviceId("fake-android"),
+            cursor = cursor,
+            watermark = wm,
+            updatedAtEpochMs = 1_000L,
+        )
+    }
+
+    override suspend fun listNoteLogEntries(workId: WorkId, includeDeleted: Boolean): List<NoteLogEntry> =
+        mergedRemoteNotes.filter { it.workId == workId && (includeDeleted || it.deletedAtEpochMs == null) }
+
+    override suspend fun mergeRemoteAnnotations(workId: WorkId, entries: List<NoteLogEntry>): Int {
+        mergedRemoteNotes += entries
+        return mergedRemoteNotes.count { it.workId == workId && it.deletedAtEpochMs == null }
     }
 }
 
