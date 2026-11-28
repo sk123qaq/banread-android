@@ -109,7 +109,6 @@ class ShareCoordinator internal constructor(
         return prepared.manifest
     }
 
-    // ==================== Channel 1: Cross-Network R2 / Worker 24h E2EE Relay ====================
 
     suspend fun sendViaR2Relay(
         workId: WorkId,
@@ -159,7 +158,6 @@ class ShareCoordinator internal constructor(
         }
     }
 
-    // ==================== Channel 2: LAN Direct Transfer ====================
 
     suspend fun startLanShareServer(
         workId: WorkId,
@@ -203,7 +201,6 @@ class ShareCoordinator internal constructor(
         activeLanSession = null
     }
 
-    // ==================== Channel 3: Offline Package (.bcnote / .bcshare) ====================
 
     suspend fun exportOfflinePackage(
         workId: WorkId,
@@ -268,7 +265,6 @@ class ShareCoordinator internal constructor(
         }
     }
 
-    // ==================== Unified Receiver (Preview & Lossless Confirm Import) ====================
 
     suspend fun previewIncomingShare(
         sourceInput: String,
@@ -334,7 +330,6 @@ class ShareCoordinator internal constructor(
                     )
                 }
 
-                // Determine target WorkId: existing local match skips book import completely!
                 val targetWorkId: WorkId = if (preview.matchedLocalWorkId != null) {
                     preview.matchedLocalWorkId
                 } else {
@@ -354,7 +349,6 @@ class ShareCoordinator internal constructor(
                     imported.workId
                 }
 
-                // Merge companion artifacts & Q&A losslessly
                 val companionResult = companionEngine.importShareCompanionData(
                     workId = targetWorkId,
                     payload = SharedCompanionPayload(
@@ -363,7 +357,6 @@ class ShareCoordinator internal constructor(
                     ),
                 )
 
-                // Merge notes losslessly (preserving existing local notes)
                 val normalizedNotes = bundle.notes.map { it.copy(workId = targetWorkId) }
                 readerEngine.mergeRemoteAnnotations(targetWorkId, normalizedNotes)
 
@@ -391,7 +384,6 @@ class ShareCoordinator internal constructor(
         stopLanShareServer()
     }
 
-    // ==================== Internal Helpers ====================
 
     private suspend fun prepareShareData(
         workId: WorkId,

@@ -196,10 +196,6 @@ class PdfiumPageAdapter : BookRendererPort, Closeable {
     }
 
     companion object {
-        /**
-         * Scans a rendered PDF page bitmap to find the normalized `0f..1f` bounding box
-         * enclosing non-whitespace content for automatic margin cropping.
-         */
         fun detectContentBoundingBox(
             bitmap: Bitmap,
             backgroundLumaThreshold: Int = 245,

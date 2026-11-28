@@ -112,7 +112,6 @@ fun SettingsScreen(
         }
     }
 
-    // 5-second Undo Snackbar on right-swipe delete or standard status snackbar
     LaunchedEffect(state.pendingUndoSnapshot, state.snackbarMessage) {
         val undoSnap = state.pendingUndoSnapshot
         val msg = state.snackbarMessage ?: return@LaunchedEffect
@@ -171,7 +170,6 @@ fun SettingsScreen(
             contentPadding = PaddingValues(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // Section 1: BYOK Providers
             item(key = "byok_header") {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -239,7 +237,6 @@ fun SettingsScreen(
                 }
             }
 
-            // Section 2: App preferences (5 themes, volume key, custom fonts)
             item(key = "prefs_section") {
                 BanReadSurfaceCard {
                     Row(
@@ -306,7 +303,6 @@ fun SettingsScreen(
                 }
             }
 
-            // Section 3: Desktop Gateway & Cloud Light-State Shard Sync
             item(key = "desktop_cloud_sync") {
                 val sync = state.syncStatus
                 val panel = state.desktopSync
@@ -446,7 +442,6 @@ fun SettingsScreen(
                 }
             }
 
-            // Section 4: 3-Channel SHA-256 Share Card matching Demo v5
             item(key = "three_channel_share") {
                 val r2Configured = state.syncStatus?.r2RelayConfig != null
                 BanReadSurfaceCard {
@@ -472,7 +467,6 @@ fun SettingsScreen(
                     }
                     Spacer(Modifier.height(8.dp))
 
-                    // 3-column compact action grid (zero horizontal overflow at 360dp)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -685,7 +679,6 @@ private fun SwipeToDeleteProviderCard(
     ) {
         val (presetBadge, cleanTitle) = SettingsViewModel.formatProviderCardTitle(summary)
         BanReadSurfaceCard(highlighted = summary.isDefaultCompanion) {
-            // Title row + preset badge
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -710,7 +703,6 @@ private fun SwipeToDeleteProviderCard(
 
             Spacer(Modifier.height(6.dp))
 
-            // Single-line capability pills (wrapped cleanly on 360dp phones via FlowRow)
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -737,7 +729,6 @@ private fun SwipeToDeleteProviderCard(
 
             Spacer(Modifier.height(6.dp))
 
-            // Endpoint, modelId, maskedApiKey (NEVER plaintext!)
             Text(
                 text = "${summary.endpoint} · ${summary.modelId}",
                 color = palette.ink2,
@@ -766,7 +757,6 @@ private fun SwipeToDeleteProviderCard(
 
             Spacer(Modifier.height(8.dp))
 
-            // Default companion / vision controls + Edit & Test buttons
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,

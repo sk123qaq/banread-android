@@ -83,7 +83,6 @@ fun ByokEditorDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                // 9 grouped presets (AGGREGATOR / OFFICIAL_OR_LOCAL)
                 Text("服务商预设", color = palette.ink2, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 listOf(ProviderPresetGroup.AGGREGATOR, ProviderPresetGroup.OFFICIAL_OR_LOCAL).forEach { grp ->
                     Text(grp.displayLabel, color = palette.ink3, fontSize = 11.sp)
@@ -104,7 +103,6 @@ fun ByokEditorDialog(
                     }
                 }
 
-                // 4-protocol switcher
                 Text("API 协议", color = palette.ink2, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -127,7 +125,6 @@ fun ByokEditorDialog(
                     }
                 }
 
-                // Base URL + live resolveModelsEndpoint preview
                 OutlinedTextField(
                     value = editor.endpoint,
                     onValueChange = onEndpointChange,
@@ -142,7 +139,6 @@ fun ByokEditorDialog(
                     fontSize = 10.5.sp,
                 )
 
-                // API Key with visibility toggle & Edit blank-preserves-secret hint
                 OutlinedTextField(
                     value = editor.apiKeyInput,
                     onValueChange = onApiKeyChange,
@@ -175,7 +171,6 @@ fun ByokEditorDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
 
-                // Model ID + online "查询可用模型"
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -262,7 +257,6 @@ fun ByokEditorDialog(
                     }
                 }
 
-                // 5-level ThinkingLevel selector + mapping hint
                 Text("思考等级（Thinking Level）", color = palette.ink2, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -286,7 +280,6 @@ fun ByokEditorDialog(
                     fontSize = 10.5.sp,
                 )
 
-                // Display name
                 OutlinedTextField(
                     value = editor.displayName,
                     onValueChange = onDisplayNameChange,
@@ -295,7 +288,6 @@ fun ByokEditorDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
 
-                // Vision toggle
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,

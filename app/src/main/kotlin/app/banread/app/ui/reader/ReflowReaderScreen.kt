@@ -127,9 +127,7 @@ fun ReflowReaderScreen(
             .fillMaxSize()
             .background(palette.paperReading),
     ) {
-        // 持有 factory 创建的 WebView：用 remember 保存，避免重组后局部变量被重置、onRelease 拿不到实例
         val readerWebViewRef = remember { java.util.concurrent.atomic.AtomicReference<WebView?>(null) }
-        // Real FoliateWebAdapter WebView with 3x3 single-tap zone detector (preserves scroll/selection/links)
         AndroidView(
             modifier = Modifier
                 .fillMaxSize()
@@ -189,7 +187,6 @@ fun ReflowReaderScreen(
             },
         )
 
-        // Running top status bar & bottom quick-access pill (when HUD is hidden)
         if (!state.hudVisible) {
             Row(
                 modifier = Modifier
@@ -210,7 +207,6 @@ fun ReflowReaderScreen(
                 )
             }
 
-            // Bottom quick-access "✦ 伴读" pill
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
@@ -243,7 +239,6 @@ fun ReflowReaderScreen(
             }
         }
 
-        // Return pills ("↩ 返回原阅读处" / "↩ 返回伴读图谱")
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
@@ -294,7 +289,6 @@ fun ReflowReaderScreen(
             }
         }
 
-        // Non-intrusive RemoteCursorBanner (never force-jumps user's reader)
         val remoteBanner = state.remoteCursorBanner
         if (remoteBanner != null) {
             RemoteCursorBannerCard(
@@ -308,7 +302,6 @@ fun ReflowReaderScreen(
             )
         }
 
-        // Text selection floating action bar
         val activeSel = state.activeSelection
         if (activeSel != null) {
             SelectionFloatingActionBar(
@@ -334,7 +327,6 @@ fun ReflowReaderScreen(
             )
         }
 
-        // In-place FootnotePopoverCard
         val activeFn = state.activeFootnote
         if (activeFn != null) {
             FootnotePopoverCard(
@@ -354,7 +346,6 @@ fun ReflowReaderScreen(
             )
         }
 
-        // Immersive HUD top & bottom bars
         AnimatedVisibility(
             visible = state.hudVisible,
             enter = fadeIn(animationSpec = palette.tweenSpec()),
@@ -413,7 +404,6 @@ fun ReflowReaderScreen(
                 .padding(bottom = 68.dp),
         )
 
-        // CompanionSheet overlay (rendered on top when opened)
         companionOverlay()
     }
 
@@ -560,7 +550,6 @@ private fun TypographySheet(
                 }
             }
 
-            // 5 ReaderTheme selector
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -601,28 +590,24 @@ private fun TypographySheet(
                 }
             }
 
-            // Font size 12-36sp
             TypoSliderRow(
                 label = "字号 ${typo.fontSizeSp.toInt()}sp",
                 value = typo.fontSizeSp,
                 range = 12f..36f,
                 onValueChange = { onUpdateTypography(typo.copy(fontSizeSp = it)) },
             )
-            // Line height 1.2-2.4
             TypoSliderRow(
                 label = "行高 ${"%.2f".format(typo.lineHeightMultiplier)}",
                 value = typo.lineHeightMultiplier,
                 range = 1.2f..2.4f,
                 onValueChange = { onUpdateTypography(typo.copy(lineHeightMultiplier = it)) },
             )
-            // Paragraph spacing
             TypoSliderRow(
                 label = "段距 ${typo.paragraphSpacingDp.toInt()}dp",
                 value = typo.paragraphSpacingDp,
                 range = 0f..28f,
                 onValueChange = { onUpdateTypography(typo.copy(paragraphSpacingDp = it)) },
             )
-            // Horizontal margin
             TypoSliderRow(
                 label = "页边距 ${typo.horizontalMarginDp.toInt()}dp",
                 value = typo.horizontalMarginDp,
@@ -630,7 +615,6 @@ private fun TypographySheet(
                 onValueChange = { onUpdateTypography(typo.copy(horizontalMarginDp = it)) },
             )
 
-            // Font selector & custom TTF/OTF import
             Text("字体", color = palette.ink2, fontSize = 12.sp, fontWeight = FontWeight.Medium)
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -670,7 +654,6 @@ private fun TypographySheet(
                 )
             }
 
-            // CJK punctuation squeeze + volume key turn
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -695,7 +678,6 @@ private fun TypographySheet(
                 )
             }
 
-            // Pagination mode
             Text("翻页动画", color = palette.ink2, fontSize = 12.sp, fontWeight = FontWeight.Medium)
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),

@@ -21,10 +21,6 @@ import kotlinx.coroutines.flow.StateFlow
 import java.io.ByteArrayOutputStream
 import kotlin.math.roundToInt
 
-/**
- * Pure-Kotlin abstraction over [FoliateWebAdapter] events and paging commands
- * so ViewModels remain 100% unit-testable on the JVM.
- */
 interface ReflowSurfaceController {
     val footnoteEvents: Flow<FootnoteClickEvent>
     val selectionEvents: Flow<TextSelectionEvent>
@@ -43,9 +39,6 @@ class FoliateReflowSurfaceController(
     override fun setPaginationMode(mode: PaginationMode) = adapter.setPaginationMode(mode)
 }
 
-/**
- * Pure-Kotlin abstraction over [PdfiumPageAdapter] viewport and rendering calls.
- */
 interface PdfSurfaceController {
     val viewportState: StateFlow<PdfViewportState>
     fun setZoomAndPan(scale: Float, panX: Float, panY: Float)
@@ -71,9 +64,6 @@ class PdfiumSurfaceController(
         adapter.annotationsForPage(pageIndex)
 }
 
-/**
- * Pure-Kotlin abstraction over [WebViewVizHost] so [CompanionViewModel] is testable on JVM.
- */
 interface VizHostController {
     fun attachWebView(hostCallback: (VizHostEvent) -> Unit)
     suspend fun renderArtifact(artifact: AuditedArtifact, theme: ReaderTheme)
@@ -129,9 +119,6 @@ fun computeNormalizedCropRect(
     return NormalizedRect(left = left, top = top, right = right, bottom = bottom)
 }
 
-/**
- * Pure pixel-coordinate crop box mapping for a bitmap of size [bitmapWidth] x [bitmapHeight].
- */
 data class PixelCropBounds(
     val x: Int,
     val y: Int,

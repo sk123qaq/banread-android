@@ -112,7 +112,6 @@ class ByokEnhancementsTest {
 
         val runtime = AiRuntimeFactory.createInMemory(configDir = tempFolder.newFolder("ai_disc"))
 
-        // 1. OpenAI-compat (trailing slash normalized without double /v1)
         val openaiModels = runtime.listAvailableModels(
             kind = ProviderKind.OPENAI_COMPAT,
             endpoint = "${baseUrl()}/openai/v1/",
@@ -121,7 +120,6 @@ class ByokEnhancementsTest {
         assertEquals(listOf("gpt-4.1", "deepseek-reasoner"), openaiModels.map { it.id })
         assertEquals("openai", openaiModels[0].ownedBy)
 
-        // 2. Gemini (x-goog-api-key header, NOT query string; strips models/; filters to generateContent)
         val geminiModels = runtime.listAvailableModels(
             kind = ProviderKind.GEMINI,
             endpoint = "${baseUrl()}/v1beta",
@@ -133,7 +131,6 @@ class ByokEnhancementsTest {
         val geminiHeaders = capturedHeaders.first { it.first == "/v1beta/models" }.second
         assertEquals("AIzaTestKey1234567", geminiHeaders["x-goog-api-key"])
 
-        // 3. Anthropic (without /v1 suffix -> adds /v1/models; x-api-key + anthropic-version)
         val anthropicModels = runtime.listAvailableModels(
             kind = ProviderKind.ANTHROPIC,
             endpoint = "${baseUrl()}/anthropic",
@@ -145,7 +142,6 @@ class ByokEnhancementsTest {
         assertEquals("sk-ant-test-key-8888", antHeaders["x-api-key"])
         assertEquals("2023-06-01", antHeaders["anthropic-version"])
 
-        // 4. Ollama (/api/tags)
         val ollamaModels = runtime.listAvailableModels(
             kind = ProviderKind.OLLAMA,
             endpoint = baseUrl(),
@@ -153,7 +149,6 @@ class ByokEnhancementsTest {
         ).getOrThrow()
         assertEquals(listOf("qwen3:14b", "deepseek-r1:14b"), ollamaModels.map { it.id })
 
-        // 5. Connection test using existing saved provider without retyping secret
         runtime.saveProviderConfig(
             ProviderConfig(
                 id = "saved-openai",
@@ -169,7 +164,6 @@ class ByokEnhancementsTest {
         assertTrue(connStatus.ok)
         assertEquals(2, connStatus.modelCount)
 
-        // 6. Auth / quota failures (401 / 403 / 429) map cleanly to ProviderAuthOrQuota with redaction
         for ((path, expectedCode) in listOf("/auth-err" to 401, "/forbidden" to 403, "/quota-err" to 429)) {
             val res = runtime.listAvailableModels(
                 kind = ProviderKind.OPENAI_COMPAT,
@@ -183,7 +177,6 @@ class ByokEnhancementsTest {
             assertFalse(failure.message.contains("sk-secret-999999"))
         }
 
-        // 7. Network failure maps to ProviderAuthOrQuota
         server.close()
         val netRes = runtime.listAvailableModels(
             kind = ProviderKind.OPENAI_COMPAT,
@@ -241,7 +234,6 @@ class ByokEnhancementsTest {
         val anthropic = AnthropicAdapter(retryDelayBaseMs = 1L, maxRetries = 0)
         val ollama = OllamaAdapter(retryDelayBaseMs = 1L, maxRetries = 0)
 
-        // OpenAI: OFF omits reasoning_effort; LOW/MEDIUM/HIGH/MAX include it; reasoning delta isolated
         for (level in ThinkingLevel.entries) {
             val ev = openai.stream(baseUrl(), "sk-test", LlmPromptRequest(systemPrompt = "s", userPrompt = "u", thinkingLevel = level)).toList()
             assertEquals("思路", ev.filterIsInstance<LlmStreamEvent.ThinkingDelta>().single().delta)
@@ -254,7 +246,6 @@ class ByokEnhancementsTest {
         assertEquals("high", oaObjs[3]["reasoning_effort"]?.jsonPrimitive?.content)
         assertEquals("high", oaObjs[4]["reasoning_effort"]?.jsonPrimitive?.content)
 
-        // Gemini: OFF omits thinkingConfig; LOW/MEDIUM/HIGH/MAX emit 1024/4096/10240/24576; thought part isolated
         for (level in ThinkingLevel.entries) {
             val ev = gemini.stream(baseUrl(), "AIza-test", LlmPromptRequest(systemPrompt = "s", userPrompt = "u", thinkingLevel = level)).toList()
             assertEquals("推理", ev.filterIsInstance<LlmStreamEvent.ThinkingDelta>().single().delta)
@@ -269,7 +260,6 @@ class ByokEnhancementsTest {
             assertEquals(budget, tc["thinkingBudget"]?.jsonPrimitive?.intOrNull)
         }
 
-        // Anthropic: OFF omits thinking; LOW..MAX set budget_tokens and guarantee max_tokens >= budget + 1024
         for (level in ThinkingLevel.entries) {
             val ev = anthropic.stream(baseUrl(), "sk-ant-test", LlmPromptRequest(systemPrompt = "s", userPrompt = "u", maxOutputTokens = 512, thinkingLevel = level)).toList()
             assertEquals("深思", ev.filterIsInstance<LlmStreamEvent.ThinkingDelta>().single().delta)
@@ -286,7 +276,6 @@ class ByokEnhancementsTest {
             assertTrue("Expected max_tokens >= ${budget + 1024}, got $maxTok", maxTok >= budget + 1024)
         }
 
-        // Ollama: OFF omits think; non-OFF sends think: true; message.thinking isolated
         ollama.stream(baseUrl(), "", LlmPromptRequest(systemPrompt = "s", userPrompt = "u", thinkingLevel = ThinkingLevel.OFF)).toList()
         val olEvents = ollama.stream(baseUrl(), "", LlmPromptRequest(systemPrompt = "s", userPrompt = "u", thinkingLevel = ThinkingLevel.MEDIUM)).toList()
         assertEquals("本地思考", olEvents.filterIsInstance<LlmStreamEvent.ThinkingDelta>().single().delta)
@@ -306,7 +295,6 @@ class ByokEnhancementsTest {
         val deepseekKey = "sk-deepseek-plain-9876"
         val geminiKey = "AIzaSyGeminiSecretKey5432"
 
-        // 1. Add non-vision first -> auto-becomes default companion
         runtime.saveProviderConfig(
             ProviderConfig(
                 id = "deepseek",
@@ -320,7 +308,6 @@ class ByokEnhancementsTest {
             ),
             rawApiKey = deepseekKey,
         )
-        // 2. Add vision second -> auto-becomes default vision
         runtime.saveProviderConfig(
             ProviderConfig(
                 id = "gemini",
@@ -334,7 +321,6 @@ class ByokEnhancementsTest {
             ),
             rawApiKey = geminiKey,
         )
-        // 3. Add Ollama (requiresApiKey = false, blank key, vision=true)
         runtime.saveProviderConfig(
             ProviderConfig(
                 id = "ollama",
@@ -350,7 +336,6 @@ class ByokEnhancementsTest {
             rawApiKey = null,
         )
 
-        // Verify zero plaintext secret leakage in ProviderSummary / listProviderProfiles / disk json
         val profiles = runtime.listProviderProfiles()
         assertEquals(3, profiles.size)
         val dsSummary = runtime.getProviderSummary("deepseek")!!
@@ -367,11 +352,9 @@ class ByokEnhancementsTest {
         assertEquals("本地免 Key", olSummary.maskedApiKey)
         assertFalse(olSummary.hasApiKey)
 
-        // Reject setting non-vision provider as default vision
         val rejectNonVision = runCatching { runtime.setDefaultVision("deepseek") }
         assertTrue(rejectNonVision.isFailure)
 
-        // In-place edit of deepseek with blank rawApiKey preserves Tink/vault secret
         runtime.saveProviderConfig(
             ProviderConfig(
                 id = "deepseek",
@@ -389,20 +372,17 @@ class ByokEnhancementsTest {
         assertEquals("DeepSeek Renamed", runtime.getProviderSummary("deepseek")!!.displayName)
         assertTrue(runtime.getProviderSummary("deepseek")!!.isDefaultCompanion)
 
-        // Delete default companion (deepseek) -> removes secret + promotes gemini to default companion
         val deletedDs = runtime.deleteProviderConfig("deepseek")!!
         assertNull(vault.getSecret("provider_api_key_deepseek"))
         assertNull(runtime.getProviderSummary("deepseek"))
         assertFalse(deletedDs.toString().contains(deepseekKey))
         assertTrue(runtime.getProviderSummary("gemini")!!.isDefaultCompanion)
 
-        // Delete default vision (gemini) -> removes secret + promotes ollama (vision=true) to both defaults
         val deletedGm = runtime.deleteProviderConfig("gemini")!!
         assertNull(vault.getSecret("provider_api_key_gemini"))
         assertTrue(runtime.getProviderSummary("ollama")!!.isDefaultCompanion)
         assertTrue(runtime.getProviderSummary("ollama")!!.isDefaultVision)
 
-        // Restore deleted providers -> restores configs, secrets, and previous default flags atomically
         assertTrue(runtime.restoreDeletedProvider(deletedGm))
         assertEquals(geminiKey, vault.getSecret("provider_api_key_gemini"))
         assertTrue(runtime.getProviderSummary("gemini")!!.isDefaultVision)
@@ -410,7 +390,7 @@ class ByokEnhancementsTest {
         assertTrue(runtime.restoreDeletedProvider(deletedDs))
         assertEquals(deepseekKey, vault.getSecret("provider_api_key_deepseek"))
         assertTrue(runtime.getProviderSummary("deepseek")!!.isDefaultCompanion)
-        assertFalse(runtime.restoreDeletedProvider(deletedDs)) // one-shot token consumed
+        assertFalse(runtime.restoreDeletedProvider(deletedDs))
     }
 
     @Test
@@ -468,7 +448,6 @@ class ByokEnhancementsTest {
             while (!stallServer.isClosed) {
                 val sock = runCatching { stallServer.accept() }.getOrNull() ?: break
                 heldSockets += sock
-                // Intentionally accept TCP and never write HTTP headers/body.
             }
         }.apply {
             isDaemon = true
@@ -476,12 +455,10 @@ class ByokEnhancementsTest {
         }
 
         try {
-            // 1. Default streaming client indeed has infinite readTimeout=0 / callTimeout=0.
             val infiniteStreamClient = app.banread.ai.internal.HttpStreamingSupport.defaultClient()
             assertEquals(0, infiniteStreamClient.readTimeoutMillis)
             assertEquals(0, infiniteStreamClient.callTimeoutMillis)
 
-            // 2. Bounded client fails fast on stalled socket into ProviderAuthOrQuota(httpCode=null).
             val shortTimeoutClient = OkHttpClient.Builder()
                 .connectTimeout(1, TimeUnit.SECONDS)
                 .readTimeout(250, TimeUnit.MILLISECONDS)

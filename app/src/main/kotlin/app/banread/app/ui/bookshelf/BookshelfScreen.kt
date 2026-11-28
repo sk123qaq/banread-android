@@ -167,7 +167,6 @@ fun BookshelfScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            // Search bar
             SearchBarField(
                 query = state.searchQuery,
                 onQueryChange = viewModel::updateSearchQuery,
@@ -176,7 +175,6 @@ fun BookshelfScreen(
                     .padding(horizontal = 12.dp, vertical = 8.dp),
             )
 
-            // Deduplicated 6+1 reading profile filter chips
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -265,7 +263,6 @@ fun BookshelfScreen(
         }
     }
 
-    // DRM / Unsupported format dialog
     val errTitle = state.importErrorTitle
     val errDetail = state.importErrorDetail
     if (errTitle != null && errDetail != null) {
@@ -282,7 +279,6 @@ fun BookshelfScreen(
         )
     }
 
-    // Delete confirmation dialog
     val deleteTarget = state.pendingDeleteWork
     if (deleteTarget != null) {
         AlertDialog(
@@ -405,7 +401,6 @@ private fun BookshelfCoverCard(
         shadowElevation = palette.cardElevation,
     ) {
         Column(modifier = Modifier.padding(8.dp)) {
-            // Uniform 2:3 cover artwork slot
             AdaptiveBookCover(
                 work = work,
                 modifier = Modifier
@@ -415,7 +410,6 @@ private fun BookshelfCoverCard(
 
             Spacer(Modifier.height(8.dp))
 
-            // Title & Author cleanly BELOW cover artwork
             Text(
                 text = work.title,
                 color = palette.ink,
@@ -542,7 +536,6 @@ fun AdaptiveBookCover(
                         .fillMaxSize()
                         .background(cloth),
                 ) {
-                    // Left spine crease
                     Box(
                         modifier = Modifier
                             .fillMaxHeight()
@@ -588,7 +581,6 @@ fun AdaptiveBookCover(
             }
         }
 
-        // Format stamp in bottom-right corner
         Surface(
             modifier = Modifier
                 .align(Alignment.BottomEnd)

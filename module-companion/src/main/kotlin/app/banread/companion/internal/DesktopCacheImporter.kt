@@ -47,13 +47,11 @@ internal class DesktopCacheImporter(
             val chapterSha = chSlice?.contentHash?.sha256Hex.orEmpty()
             val scopeKey = "chapter:${ordinal.twoDigit()}"
 
-            // 1. chapter_map.json
             val mapFile = File(chDir, "chapter_map.json")
             if (mapFile.isFile) {
                 importChapterMap(workId, scopeKey, chapterSha, mapFile, validBlockIds, fallbackBlocks)
             }
 
-            // 2. chapter_tools/<readType>_<action>_<bp>.json
             val toolsDir = File(chDir, "chapter_tools")
             if (toolsDir.isDirectory) {
                 toolsDir.listFiles()
@@ -64,7 +62,6 @@ internal class DesktopCacheImporter(
                     }
             }
 
-            // 3. assist_notes.json (pinned notes, exempt from 200MB LRU)
             val notesFile = File(chDir, "assist_notes.json")
             if (notesFile.isFile) {
                 importAssistNotes(workId, ordinal, chapterSha, notesFile, validBlockIds, fallbackBlocks)

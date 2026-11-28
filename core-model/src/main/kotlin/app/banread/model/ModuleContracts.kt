@@ -5,7 +5,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.Serializable
 import java.io.File
 
-// ==================== Deep Module 1: :module-library ====================
 
 interface LibraryVault {
     suspend fun importLocalBook(sourceUri: String): Result<ImportedWork>
@@ -91,7 +90,6 @@ data class BookSlice(
     val footnotes: List<FootnoteLink>,
 )
 
-// ==================== Deep Module 2: :module-reader & Seam 1 ====================
 
 interface ReaderEngine {
     val activeState: StateFlow<ReaderSessionState>
@@ -108,7 +106,6 @@ interface ReaderEngine {
     suspend fun migrateWorkState(fromWorkId: WorkId, toWorkId: WorkId) {}
 }
 
-/** Seam 1: FoliateWebAdapter / PdfiumPageAdapter / FakeRendererAdapter */
 interface BookRendererPort {
     val locationEvents: Flow<ReadingAnchor>
     suspend fun load(compiledAssetRoot: String, initialAnchor: ReadingAnchor?)
@@ -146,7 +143,6 @@ enum class ReaderTheme {
     EINK_HIGH_CONTRAST,
 }
 
-// ==================== Deep Module 3: :module-companion ====================
 
 interface CompanionEngine {
     suspend fun recommendedTools(workId: WorkId): ProfileToolbox
@@ -209,7 +205,6 @@ data class TokenEstimate(
     val withinContextWindow: Boolean,
 )
 
-// ==================== Deep Module 4: :module-ai & Seams 2, 3 ====================
 
 interface AiRuntime {
     fun streamCompletion(request: LlmPromptRequest): Flow<LlmStreamEvent>
@@ -237,7 +232,6 @@ interface AiRuntime {
     suspend fun testProviderConnection(providerId: String): Result<ProviderConnectionStatus>
 }
 
-/** Seam 2: OpenAiCompatAdapter / GeminiAdapter / AnthropicAdapter / OllamaAdapter / ScriptedLlmFakeAdapter */
 interface LlmProviderPort {
     val capabilities: ProviderCapabilities
     fun stream(endpoint: String, apiKey: String, payload: LlmPromptRequest): Flow<LlmStreamEvent>
@@ -266,7 +260,6 @@ interface LlmProviderPort {
     }
 }
 
-/** Seam 3: TinkKeystoreVaultAdapter / InMemorySecretVaultAdapter */
 interface SecretVaultPort {
     suspend fun putSecret(alias: String, plaintext: String)
     suspend fun getSecret(alias: String): String?
@@ -370,7 +363,6 @@ sealed interface LlmStreamEvent {
     data class Failed(val failure: AppFailure) : LlmStreamEvent
 }
 
-// ==================== Deep Module 5: :module-viz ====================
 
 interface VizHost {
     fun attachWebView(hostCallback: (VizHostEvent) -> Unit)
@@ -383,7 +375,6 @@ sealed interface VizHostEvent {
     data class Error(val message: String) : VizHostEvent
 }
 
-// ==================== Deep Module 6: :module-sync & Seams 4, 5 ====================
 
 interface SyncCoordinator {
     suspend fun pairDesktopViaQr(qrPayload: String): Result<DesktopEndpointInfo>
@@ -398,7 +389,6 @@ interface SyncCoordinator {
     ): Result<List<CrossBookHit>>
 }
 
-/** Seam 4: HttpDesktopGatewayAdapter / InMemoryDesktopGatewayAdapter */
 interface DesktopBridgePort {
     suspend fun checkHealth(token: String, baseUrl: String): Boolean = true
     suspend fun fetchCatalog(token: String, baseUrl: String, query: String?): List<DesktopBookSummary>
@@ -432,7 +422,6 @@ interface DesktopBridgePort {
     ): List<DeviceProgressShard> = emptyList()
 }
 
-/** Seam 5: WebDavShardAdapter / S3R2ShardAdapter / InMemoryStateSyncAdapter */
 interface StateSyncPort {
     suspend fun putShard(relativePath: String, contentBytes: ByteArray)
     suspend fun listShards(prefix: String): List<String>

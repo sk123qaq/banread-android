@@ -142,7 +142,6 @@ class SyncEndpointUrlPolicyTest {
             putSecret("s3_secret", "secret")
         }
 
-        // 1. PairingUriParser: allows LAN/Tailscale HTTP & public HTTPS, rejects public HTTP
         assertEquals(
             "http://192.168.1.10:8780",
             PairingUriParser.parse("bc-pair://v1?base=http://192.168.1.10:8780&token=tok1").baseUrl,
@@ -162,13 +161,11 @@ class SyncEndpointUrlPolicyTest {
             PairingUriParser.parse("bc-pair://v1?base=http://8.8.8.8:8780&token=tok5")
         }.isFailure)
 
-        // 2. HttpDesktopGatewayAdapter direct calls reject public HTTP before network IO
         val gateway = HttpDesktopGatewayAdapter()
         val gwErr = runCatching { gateway.checkHealth("tok", "http://public.example.com:8780") }
         assertTrue(gwErr.isFailure)
         assertTrue(gwErr.exceptionOrNull()!!.message!!.contains("https://"))
 
-        // 3. WebDavShardAdapter rejects public HTTP, allows LAN/Tailscale HTTP & public HTTPS
         assertTrue(runCatching {
             WebDavShardAdapter(WebDavConfig("http://dav.example.com/banread", "u"), vault, "dav_secret")
         }.isFailure)
@@ -176,7 +173,6 @@ class SyncEndpointUrlPolicyTest {
         WebDavShardAdapter(WebDavConfig("http://100.64.2.3:5005/dav", "u"), vault, "dav_secret")
         WebDavShardAdapter(WebDavConfig("https://dav.example.com/banread", "u"), vault, "dav_secret")
 
-        // 4. S3R2ShardAdapter rejects public HTTP, allows LAN/Tailscale HTTP & public HTTPS
         assertTrue(runCatching {
             S3R2ShardAdapter(S3R2Config("http://r2.example.com", "bkt", "auto", "AKIA"), vault, "s3_secret")
         }.isFailure)
@@ -184,7 +180,6 @@ class SyncEndpointUrlPolicyTest {
         S3R2ShardAdapter(S3R2Config("http://100.127.0.1:9000", "bkt", "auto", "AKIA"), vault, "s3_secret")
         S3R2ShardAdapter(S3R2Config("https://r2.example.com", "bkt", "auto", "AKIA"), vault, "s3_secret")
 
-        // 5. ShareCoordinator & ShareAesGcmCrypto reject public HTTP on both R2 relay and LAN receive links
         val context: Context = ApplicationProvider.getApplicationContext()
         val root = tempFolder.newFolder("policy_share")
         val registry = ProfileRegistry.loadFromClasspath()

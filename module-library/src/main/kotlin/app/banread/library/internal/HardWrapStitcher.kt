@@ -71,8 +71,6 @@ internal object HardWrapStitcher {
     ): List<StitchInputBlock> {
         if (inputs.size < 2) return inputs
 
-        // First stitch wrapped bold-only title lines (e.g., long bold heading split across 2 <p><b>...</b></p> lines,
-        // or bold heading containing an unclosed inline note bracket).
         val afterBoldTitles = stitchWrappedBoldTitles(inputs, chapterTitle)
         if (!profile.isHardWrapped || afterBoldTitles.size < 2) {
             return afterBoldTitles
@@ -150,26 +148,20 @@ internal object HardWrapStitcher {
         val nextText = next.cleanText.trim()
         if (prevText.isEmpty() || nextText.isEmpty()) return false
 
-        // 1. If next starts with closing/trailing punctuation (e.g., orphan "。"), always attach it.
         if (LEADING_CONTINUATION_PUNCT_RE.containsMatchIn(nextText)) {
             return true
         }
 
-        // 2. Unclosed inline-note / parenthetical bracket across the accumulated paragraph or tail line.
         if (hasUnclosedDelimiter(accBlock.cleanText, includeQuotes = false)) {
-            // Avoid swallowing unrelated metadata/headings even if a paren was left dangling across chapters
             if (!NUMBERED_HEADING_RE.containsMatchIn(nextText) && !METADATA_KV_RE.containsMatchIn(nextText)) {
                 return true
             }
         }
 
-        // 3. Do not merge if previous tail ended a sentence with terminal punctuation,
-        //    or ended with a colon introducing a list/quote/metadata field.
         if (endsWithTerminalSentence(prevText) || endsWithColon(prevText)) {
             return false
         }
 
-        // 4. Structural exclusions on next line (start of a distinct block element).
         if (METADATA_KV_RE.containsMatchIn(nextText) ||
             DATE_LINE_RE.matches(nextText) ||
             LIST_LIKE_START_RE.containsMatchIn(nextText) ||
@@ -179,8 +171,6 @@ internal object HardWrapStitcher {
             return false
         }
 
-        // Epigraph attribution line (——Author) after a complete quote or closing quote should never merge.
-        // Mid-sentence em-dash continuations (e.g. "发出了指示" + "——让他们最为痛苦的指示。") do merge when prevTail is wrapped.
         if (EPIGRAPH_ATTR_RE.matches(nextText)) {
             val endsWithQuoteOrClose = prevText.last() in CLOSING_QUOTES_BRACKETS
             if (endsWithQuoteOrClose || visualWidth(prevText) < wrapMinWidth(profile)) {
@@ -188,7 +178,6 @@ internal object HardWrapStitcher {
             }
         }
 
-        // 5. Structural exclusions on previous tail line.
         if (METADATA_KV_RE.containsMatchIn(prevText) ||
             DATE_LINE_RE.matches(prevText) ||
             CAPTION_OR_SOURCE_RE.containsMatchIn(prevText)
@@ -201,35 +190,29 @@ internal object HardWrapStitcher {
             return false
         }
         if (EPIGRAPH_ATTR_RE.matches(prevText)) {
-            // Only stitch an epigraph attribution if it hit the right margin and next is a short wrapped name tail.
             val hitMargin = visualWidth(prevText) >= maxOf(24.0, profile.medianLineWidth * 0.78)
             val shortNameTail = TextSanitizer.nonSpaceCount(nextText) <= 8 && !endsWithTerminalSentence(nextText)
             return hitMargin && shortNameTail
         }
 
-        // 6. Continuation punctuation at end of prevText (comma, pause mark, semicolon, dash).
         if (prevText.last() in CONTINUATION_PUNCT) {
-            // Guard against short date/title fragments ending with '-' or similar; require reasonable line width or non-heading next
             val prevW = visualWidth(prevText)
             if (prevW >= maxOf(12.0, profile.medianLineWidth * 0.40)) {
                 return true
             }
         }
 
-        // 7. Width-based wrap detection: did prevText reach the column wrap margin?
         val prevWidth = visualWidth(prevText)
         val wrapThreshold = wrapMinWidth(profile)
         if (prevWidth >= wrapThreshold) {
             return true
         }
 
-        // Also handle lines that wrapped slightly early before a wide/unbreakable Latin token or parenthetical.
         val nextLeadWidth = leadingTokenVisualWidth(nextText)
         if (nextLeadWidth >= 2.0 && prevWidth >= wrapThreshold * 0.75 && prevWidth + nextLeadWidth >= wrapThreshold) {
             return true
         }
 
-        // Handle short wrapped English lines (like copyright block or Latin citations) where words don't hyphenate.
         if (isPredominantlyAscii(prevText) && prevWidth >= 14.0 && nextLeadWidth >= 2.0 &&
             (isPredominantlyAscii(nextText) || nextText.first().isLowerCase())
         ) {
@@ -278,7 +261,6 @@ internal object HardWrapStitcher {
         val last = prev.last()
         val first = next.first()
 
-        // De-hyphenate ASCII word split across line break (e.g. "inter-" + "national")
         if (last == '-' && prev.length >= 2 && prev[prev.length - 2] in 'A'..'z' &&
             prev[prev.length - 2].isLetter() && first in 'a'..'z'
         ) {
@@ -311,7 +293,6 @@ internal object HardWrapStitcher {
         val ch = text[idx]
         if (ch in TERMINAL_PUNCT) return true
         if (ch == '.') {
-            // Avoid treating abbreviations like "A." or "U.S." or decimal numbers "1.5" as sentence end unless preceded by 2+ lowercase letters
             val prev = if (idx > 0) text[idx - 1] else ' '
             val prev2 = if (idx > 1) text[idx - 2] else ' '
             return prev in 'a'..'z' && prev2 in 'a'..'z'

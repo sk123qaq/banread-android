@@ -420,7 +420,6 @@ internal object PromptCatalog {
             return BuiltPrompt(system, user, expectJson = true, effectiveAction = effectiveAction, effectiveBlueprint = spec.blueprint)
         }
 
-        // Universal Markdown actions: explain | translate | critique | ask
         val actionSystem = when (effectiveAction) {
             "explain" ->
                 "你是耐心的伴读老师。读者选中了一段觉得抽象或不好懂的文字。请用大白话拆解它到底在说什么，并举一个具体例子。\n" +

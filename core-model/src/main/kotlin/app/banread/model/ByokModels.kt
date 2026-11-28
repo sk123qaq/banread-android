@@ -39,7 +39,6 @@ data class ProviderPreset(
 
 object ProviderPresetCatalog {
     val presets: List<ProviderPreset> = listOf(
-        // 聚合 / 代理 (4)
         ProviderPreset(
             id = "opencode",
             displayName = "OpenCode Zen",
@@ -94,7 +93,6 @@ object ProviderPresetCatalog {
             requiresApiKey = true,
             defaultModelId = "",
         ),
-        // 官方直连 / 本地 (5)
         ProviderPreset(
             id = "deepseek",
             displayName = "DeepSeek",

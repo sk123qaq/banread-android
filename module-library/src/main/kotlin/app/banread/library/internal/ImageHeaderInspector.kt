@@ -3,15 +3,11 @@ package app.banread.library.internal
 import java.io.File
 
 internal data class InspectedImage(
-    val format: String, // "png" | "jpg" | "webp" | "gif"
+    val format: String,
     val width: Int,
     val height: Int,
 )
 
-/**
- * Pure-Kotlin magic-byte and dimension parser for PNG, JPEG, WebP, and GIF images.
- * Has zero Android `Bitmap` dependency so it executes identically on JVM unit tests and Android.
- */
 internal object ImageHeaderInspector {
 
     const val MAX_COVER_BYTES: Long = 10L * 1024L * 1024L
@@ -34,7 +30,6 @@ internal object ImageHeaderInspector {
 
     private fun parsePng(bytes: ByteArray): InspectedImage? {
         if (bytes.size < 24) return null
-        // PNG signature: 89 50 4E 47 0D 0A 1A 0A
         if (bytes[0] != 0x89.toByte() ||
             bytes[1] != 0x50.toByte() ||
             bytes[2] != 0x4E.toByte() ||
@@ -116,7 +111,6 @@ internal object ImageHeaderInspector {
         }
         var pos = 2
         while (pos < bytes.size) {
-            // Find next 0xFF marker prefix
             if ((bytes[pos].toInt() and 0xFF) != 0xFF) {
                 return null
             }

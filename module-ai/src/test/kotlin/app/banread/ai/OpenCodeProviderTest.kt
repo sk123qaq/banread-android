@@ -21,11 +21,6 @@ import java.net.ServerSocket
 import java.net.Socket
 import kotlin.concurrent.thread
 
-/**
- * Regression coverage for the OpenCode Go HTTP 400 `MissingSessionID` failure: every
- * inference request to opencode.ai must carry a stable `x-opencode-session` header, and
- * gateway error bodies must reach the UI as readable sentences instead of raw JSON.
- */
 class OpenCodeProviderTest {
 
     private val payload = LlmPromptRequest(

@@ -43,7 +43,6 @@ internal object LocalBookInspector {
             while (entry != null) {
                 val entryName = entry.name
                 if (entryName.startsWith("/") || entryName.startsWith("\\") || entryName.contains("..")) {
-                    // Canonical check below is authoritative, and reject obvious traversal patterns early
                     val candidate = File(destRoot, entryName).canonicalFile.toPath()
                     if (!candidate.startsWith(destCanonical) || candidate == destCanonical) {
                         throw AppFailureException(
@@ -78,19 +77,16 @@ internal object LocalBookInspector {
         if (read <= 0) return DetectedFormat.UNKNOWN
         val slice = header.copyOf(read)
 
-        // KFX / DRMION magic
         if (containsBytes(slice, KFX_MAGIC, maxOffset = 64) ||
             (slice.size >= 4 && slice[0] == 'C'.code.toByte() && slice[1] == 'O'.code.toByte() && slice[2] == 'N'.code.toByte() && slice[3] == 'T'.code.toByte())
         ) {
             return DetectedFormat.KFX_DRM
         }
 
-        // PDF
         if (containsBytes(slice, PDF_MAGIC, maxOffset = 1024)) {
             return DetectedFormat.PDF
         }
 
-        // ZIP / EPUB
         if (slice.size >= 4 && slice[0] == 'P'.code.toByte() && slice[1] == 'K'.code.toByte() &&
             ((slice[2] == 0x03.toByte() && slice[3] == 0x04.toByte()) || (slice[2] == 0x05.toByte() && slice[3] == 0x06.toByte()))
         ) {
@@ -108,7 +104,6 @@ internal object LocalBookInspector {
         return DetectedFormat.UNKNOWN
     }
 
-    // ==================== EPUB ====================
 
     data class ExtractedEpubCover(
         val formatExt: String,
@@ -122,14 +117,13 @@ internal object LocalBookInspector {
         val author: String,
         val subjects: List<String>,
         val chapters: List<RoleAndSplit.RawChapterCandidate>,
-        val blockIdToHtmlIds: Map<Int, Map<String, Set<String>>>, // pre-merge candidate index -> blockId -> htmlIds
+        val blockIdToHtmlIds: Map<Int, Map<String, Set<String>>>,
         val images: Map<String, ByteArray>,
         val cover: ExtractedEpubCover? = null,
     )
 
     fun parseEpub(epubFile: File): ParsedEpubBook {
         ZipFile(epubFile).use { zip ->
-            // 1) Zip Slip check across all entries
             val entries = zip.entries().asSequence().toList()
             val entryMap = linkedMapOf<String, ZipEntry>()
             for (e in entries) {
@@ -140,7 +134,6 @@ internal object LocalBookInspector {
                 entryMap[normalized] = e
             }
 
-            // 2) DRM fail-fast check on META-INF/encryption.xml & rights.xml
             entryMap["META-INF/encryption.xml"]?.let { encEntry ->
                 val encXml = zip.getInputStream(encEntry).readBytes().toString(Charsets.UTF_8)
                 checkEpubEncryptionXml(encXml)
@@ -149,7 +142,6 @@ internal object LocalBookInspector {
                 throw AppFailureException(AppFailure.UnsupportedDrmOrFormat("EPUB contains DRM rights.xml"))
             }
 
-            // 3) Parse META-INF/container.xml
             val containerEntry = entryMap["META-INF/container.xml"]
                 ?: throw AppFailureException(AppFailure.UnsupportedDrmOrFormat("Invalid EPUB: missing META-INF/container.xml"))
             val opfPath = parseContainerOpfPath(zip.getInputStream(containerEntry))
@@ -668,10 +660,8 @@ internal object LocalBookInspector {
             var inHeadTitle = false
             val headTitleBuf = StringBuilder()
 
-            // Pending IDs on wrapper elements (<div id="...">, <section id="...">, sibling <a id="...">)
             val pendingHtmlIds = mutableSetOf<String>()
 
-            // Block capture state
             var blockTag: String? = null
             var blockTagDepth = 0
             var blockIsFootnote = false
@@ -688,7 +678,6 @@ internal object LocalBookInspector {
             val liTextBuf = StringBuilder()
             val liRefs = mutableListOf<InlineFnRef>()
 
-            // Link/noteref state inside block
             var inNoteref = false
             var noterefHref = ""
             val noterefLabelBuf = StringBuilder()
@@ -1005,7 +994,6 @@ internal object LocalBookInspector {
             }
             flushBlock()
         } catch (_: Exception) {
-            // Fallback plain-text strip if malformed HTML
             val stripped = TextSanitizer.cleanInline(cleanedXml.replace(Regex("<[^>]+>"), " "))
             if (stripped.isNotBlank() && blocks.isEmpty()) {
                 blocks += ParsedBlock(
@@ -1027,10 +1015,9 @@ internal object LocalBookInspector {
         )
     }
 
-    // ==================== MOBI / AZW3 ====================
 
     data class ParsedMobiResult(
-        val formatName: String, // "MOBI" or "AZW3"
+        val formatName: String,
         val title: String,
         val author: String,
         val subjects: List<String>,
@@ -1215,7 +1202,6 @@ internal object LocalBookInspector {
         return out.toByteArray()
     }
 
-    // ==================== PDF ====================
 
     fun probeIsScannedPdf(pdfFile: File): Boolean {
         val sampleLimit = minOf(pdfFile.length(), 2L * 1024 * 1024).toInt()
@@ -1235,7 +1221,6 @@ internal object LocalBookInspector {
         return hasImages && !hasTextOps && !hasFont
     }
 
-    // ==================== Helpers ====================
 
     private fun containsBytes(haystack: ByteArray, needle: ByteArray, maxOffset: Int): Boolean {
         val limit = minOf(haystack.size, maxOffset) - needle.size

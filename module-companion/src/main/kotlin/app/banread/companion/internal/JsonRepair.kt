@@ -49,10 +49,6 @@ internal object JsonRepair {
         }.getOrNull()
     }
 
-    /**
-     * Repairs single-quoted strings/keys, raw unescaped control chars inside strings,
-     * and trailing commas before `}` or `]`.
-     */
     internal fun repairJsonText(input: String): String {
         val convertedQuotes = convertSingleQuotesOutsideDoubleStrings(input)
         val escapedNewlines = escapeControlCharsInStrings(convertedQuotes)
@@ -202,9 +198,6 @@ internal object JsonRepair {
         return out.toString()
     }
 
-    /**
-     * Auto-closes truncated JSON objects/arrays/strings cleanly.
-     */
     internal fun closeTruncatedJson(input: String): String {
         val trimmed = input.trimEnd()
         if (trimmed.isEmpty()) return trimmed
@@ -239,7 +232,6 @@ internal object JsonRepair {
             out.append('"')
         }
 
-        // Remove dangling comma or complete dangling key-colon before closing containers
         while (out.isNotEmpty() && out.last().isWhitespace()) {
             out.setLength(out.length - 1)
         }

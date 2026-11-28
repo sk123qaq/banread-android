@@ -14,9 +14,9 @@ internal data class SfntFontMetadata(
 internal object SfntFontParser {
 
     private const val TAG_TRUE_TYPE = 0x00010000
-    private const val TAG_OTTO = 0x4F54544F // "OTTO"
-    private const val TAG_TTCF = 0x74746366 // "ttcf"
-    private const val TAG_NAME = 0x6E616D65 // "name"
+    private const val TAG_OTTO = 0x4F54544F
+    private const val TAG_TTCF = 0x74746366
+    private const val TAG_NAME = 0x6E616D65
 
     fun parse(file: File, fallbackName: String): SfntFontMetadata {
         if (!file.isFile || file.length() < 12L) {

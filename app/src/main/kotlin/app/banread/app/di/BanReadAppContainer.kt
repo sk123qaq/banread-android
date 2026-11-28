@@ -31,11 +31,6 @@ import app.banread.viz.WebViewVizHost
 import java.io.Closeable
 import java.io.File
 
-/**
- * Production dependency container for `:app`.
- * Wires real implementations from `:core-model`, `:module-library`, `:module-reader`,
- * `:module-ai`, `:module-companion`, `:module-sync`, and `:module-viz`.
- */
 class BanReadAppContainer(context: Context) : Closeable {
     private val appContext: Context = context.applicationContext ?: context
     val filesRoot: File = File(appContext.filesDir, "banread").apply { mkdirs() }

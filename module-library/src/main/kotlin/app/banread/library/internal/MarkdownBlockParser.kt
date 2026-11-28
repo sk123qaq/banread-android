@@ -14,7 +14,7 @@ internal data class InlineFnRef(
 internal data class ParsedBlock(
     val id: String,
     val blockIndex: Int,
-    val kind: String, // heading | paragraph | quote | list | table | code | image | footnote
+    val kind: String,
     val headingPath: String,
     val cleanText: String,
     val charStart: Int,
@@ -234,7 +234,7 @@ internal object MarkdownBlockParser {
                     codeBuf += lines[i]
                     i++
                 }
-                i++ // skip closing fence
+                i++
                 out += Segment.Code(lang, codeBuf.joinToString("\n").trim('\n'))
             } else {
                 mdBuf += lines[i]
@@ -269,7 +269,6 @@ internal object MarkdownBlockParser {
         if (lines.isEmpty()) return
         if (lines.all { HR_RE.matches(it.trim()) }) return
 
-        // Heading (single line)
         val heading = HEADING_RE.matchEntire(lines[0].trim())
         if (heading != null && lines.size == 1) {
             val level = heading.groupValues[1].length
@@ -284,7 +283,6 @@ internal object MarkdownBlockParser {
             return
         }
 
-        // Standard Markdown footnote definition: [^1]: ...
         val stdDef = FOOTNOTE_DEF_STD_RE.matchEntire(lines[0].trim())
         if (stdDef != null) {
             val rawLabel = stdDef.groupValues[1]
@@ -320,7 +318,6 @@ internal object MarkdownBlockParser {
             return
         }
 
-        // Blockquote
         if (lines.all { QUOTE_RE.matches(it.trim()) }) {
             val quoteText = lines.joinToString(" ") { ln ->
                 QUOTE_RE.matchEntire(ln.trim())?.groupValues?.get(1)?.trim().orEmpty()
@@ -345,7 +342,6 @@ internal object MarkdownBlockParser {
             return
         }
 
-        // List
         if (lines.all { LIST_RE.matches(it.trim()) }) {
             val items = mutableListOf<String>()
             val itemRefs = mutableListOf<List<InlineFnRef>>()
@@ -366,7 +362,6 @@ internal object MarkdownBlockParser {
             return
         }
 
-        // Markdown table
         if (lines.all { TABLE_ROW_RE.matches(it.trim()) }) {
             val grid = lines.map { row -> row.trim().trim('|').split('|').map { it.trim() } }
             val hasHeader = grid.size >= 2 && grid[1].isNotEmpty() && grid[1].all { TABLE_ALIGN_RE.matches(it) }
@@ -403,7 +398,6 @@ internal object MarkdownBlockParser {
             return
         }
 
-        // Standalone image
         val onlyImg = IMAGE_RE.matchEntire(chunk.trim())
         if (onlyImg != null) {
             val alt = onlyImg.groupValues[1]
@@ -420,7 +414,6 @@ internal object MarkdownBlockParser {
             return
         }
 
-        // Paragraph (possibly splitting out non-icon inline images)
         emitInlineParagraphsAndImages(out, joined)
     }
 
@@ -571,7 +564,6 @@ internal object MarkdownBlockParser {
     private fun extractMatchFields(match: MatchResult): Triple<String, String, Boolean>? {
         val groups = match.groups
         groups["stdMd"]?.let {
-            // Find the sub-group inside stdMd
             val inner = Regex("""\[\^([0-9A-Za-z_-]{1,20})\]""").find(it.value)
             if (inner != null) return Triple(inner.groupValues[1], "", false)
         }
@@ -583,7 +575,6 @@ internal object MarkdownBlockParser {
         for (name in linkGroupNames) {
             val g = groups[name] ?: continue
             val raw = g.value
-            // Extract [label](target) from the matched group
             val linkRegex = Regex("""\[+(?:\^)?(?:\*\*|\*)?([^\[\]\n]+?)(?:\*\*|\*)?(?:\^)?\.?\]+\(([^)\n]*)\)""")
             val inner = linkRegex.find(raw)
             if (inner != null) {

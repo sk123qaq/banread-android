@@ -85,7 +85,6 @@ class LibraryVaultContractTest {
         assertEquals(setOf(ReadingSurfaceMode.REFLOWABLE), imported.supportedModes)
         assertFalse(imported.isScannedPdf)
 
-        // 1. Outline verification: ordinal=1 merged title page, ordinal=2..19 body, ordinal=20 notes
         val outline = vault.getWorkOutline(imported.workId)
         assertEquals(18, outline.bodyChapters.size)
         assertEquals(1, outline.notesChapters.size)
@@ -101,7 +100,6 @@ class LibraryVaultContractTest {
         assertEquals(ChapterOrdinal(20), notesCh.ordinal)
         assertEquals(ChapterRole.NOTES, notesCh.role)
 
-        // 2. Compiled XHTML + OPF + container + images + companion_cache on disk
         val compiledDir = File(filesRoot, "compiled/B0042")
         assertTrue(File(compiledDir, "META-INF/container.xml").isFile)
         val opfText = File(compiledDir, "OEBPS/content.opf").readText()
@@ -113,14 +111,12 @@ class LibraryVaultContractTest {
         assertTrue(ch03Html.contains("data-block-id=\"B01\""))
         assertTrue(ch03Html.contains("epub:type=\"noteref\""))
         assertTrue(ch03Html.contains("data-fn-marker=\"45\""))
-        // PUA \uE005 stripped while math span $E = mc^2$ preserved
         assertFalse(ch03Html.contains("\uE005"))
         assertTrue(ch03Html.contains("\$E = mc^2\$"))
 
         val copiedCache = File(filesRoot, "study_packs/B0042/companion_cache/ch_02/chapter_map.json")
         assertTrue(copiedCache.isFile)
 
-        // 3. resolveAnchor returns ReflowCfi pointing to compiled chapter & block
         val anchor = vault.resolveAnchor(imported.workId, ChapterOrdinal(3), BlockId("B01"))
         assertTrue(anchor is ReadingAnchor.ReflowCfi)
         val reflowAnchor = anchor as ReadingAnchor.ReflowCfi
@@ -128,7 +124,6 @@ class LibraryVaultContractTest {
         assertEquals(BlockId("B01"), reflowAnchor.blockId)
         assertTrue(reflowAnchor.textQuote.exact.contains("红蜡封缄"))
 
-        // 4. resolveFootnote resolves Ch 3 -> Ch 20 cross-chapter note by marker and by href
         val fnByMarker = vault.resolveFootnote(imported.workId, ChapterOrdinal(3), "[45]")
         assertNotNull(fnByMarker)
         assertEquals(ChapterOrdinal(3), fnByMarker!!.link.sourceChapterOrdinal)
@@ -141,12 +136,11 @@ class LibraryVaultContractTest {
         assertNotNull(fnByHref)
         assertEquals(fnByMarker.link.id, fnByHref!!.link.id)
 
-        // 5. loadBookInputs includes all 18 BODY chapters (excludes FRONT_BACK and NOTES) and excludes translator/bib boilerplate
         val sliceFull = vault.loadBookInputs(imported.workId)
         assertEquals(18, sliceFull.chapters.size)
         assertTrue(sliceFull.chapters.none { it.role != ChapterRole.BODY })
         assertEquals(setOf("45", "102"), sliceFull.footnotes.map { it.marker }.toSet())
-        assertTrue(sliceFull.footnotes.none { it.marker == "999" }) // translator note filtered out
+        assertTrue(sliceFull.footnotes.none { it.marker == "999" })
     }
 
     @Test
@@ -155,7 +149,6 @@ class LibraryVaultContractTest {
         val venvPython = File(slice1Repo, ".venv/bin/python")
         assumeTrue(slice1Repo.isDirectory && venvPython.isFile)
 
-        // Build a minimal synthetic book-corpus directory in tempFolder and run bundler.py
         val corpusRoot = tempFolder.newFolder("synthetic_corpus")
         File(corpusRoot, "books.toml").writeText("schema = 2\n")
         val mdDir = File(corpusRoot, "books/B0001/md").apply { mkdirs() }
@@ -198,7 +191,6 @@ class LibraryVaultContractTest {
         assertEquals(ReadProfileId("history"), imported.readProfileId)
 
         val outline = vault.getWorkOutline(WorkId("B0001"))
-        // 00_扉页 + 01_前置页 merged into ordinal 1, 02_第一章 -> ordinal 2, 03_注释 -> ordinal 3
         assertEquals(2, outline.bodyChapters.size)
         assertEquals(1, outline.notesChapters.size)
         assertTrue(outline.bodyChapters[0].merged)
@@ -237,7 +229,6 @@ class LibraryVaultContractTest {
         assertEquals(ChapterOrdinal(2), fn!!.link.targetChapterOrdinal)
         assertTrue(fn.fullNoteText.contains("一条鞭法"))
 
-        // Re-importing identical file deduplicates to the exact same WorkId
         val copyFile = tempFolder.newFile("history_book_copy.epub").apply {
             writeBytes(epubFile.readBytes())
         }
@@ -277,7 +268,6 @@ class LibraryVaultContractTest {
 
     @Test
     fun `fail-fast rejects DRM EPUB, encrypted MOBI, KFX magic, and Zip-Slip bcbook`() = runTest {
-        // 1. DRM EPUB
         val drmEpub = buildMinimalEpub(
             dest = tempFolder.newFile("drm.epub"),
             title = "Locked EPUB",
@@ -287,7 +277,6 @@ class LibraryVaultContractTest {
         )
         assertUnsupportedFailure(vault.importLocalBook(drmEpub.absolutePath))
 
-        // 2. Encrypted MOBI (encryption_type = 2)
         val drmMobi = buildMinimalMobi(
             dest = tempFolder.newFile("drm.mobi"),
             title = "Locked MOBI",
@@ -296,13 +285,11 @@ class LibraryVaultContractTest {
         )
         assertUnsupportedFailure(vault.importLocalBook(drmMobi.absolutePath))
 
-        // 3. KFX magic bytes
         val kfxFile = tempFolder.newFile("locked.kfx").apply {
             writeBytes(byteArrayOf(0xEA.toByte(), 'D'.code.toByte(), 'R'.code.toByte(), 'M'.code.toByte(), 'I'.code.toByte(), 'O'.code.toByte(), 'N'.code.toByte(), 0xEE.toByte(), 1, 2, 3, 4))
         }
         assertUnsupportedFailure(vault.importLocalBook(kfxFile.absolutePath))
 
-        // 4. Zip-Slip malicious .bcbook
         val zipSlipPack = tempFolder.newFile("evil.bcbook")
         ZipOutputStream(FileOutputStream(zipSlipPack)).use { zos ->
             zos.putNextEntry(ZipEntry("../../evil.txt"))
@@ -315,7 +302,7 @@ class LibraryVaultContractTest {
 
     @Test
     fun `giant single-chapter over 24k chars splits into 8k-18k virtual logical chapters`() = runTest {
-        val giantParagraph = "这是一段用于测试超长单章虚拟切分边界的长文本段落，确保切分严格落在八千到一万八千字区间。" // 44 chars
+        val giantParagraph = "这是一段用于测试超长单章虚拟切分边界的长文本段落，确保切分严格落在八千到一万八千字区间。"
         val giantBody = buildString {
             appendLine("# 巨型单章")
             appendLine()
@@ -381,7 +368,6 @@ class LibraryVaultContractTest {
         assertEquals(ReadProfileId("literature"), imported.readProfileId)
 
         vault.overrideProfile(imported.workId, ReadProfileId("history"), null)
-        // Re-ingesting the same study pack preserves the user's override
         val reIngested = vault.ingestStudyPack(zipFile.absolutePath).getOrThrow()
         assertEquals(ReadProfileId("history"), reIngested.readProfileId)
         assertNull(reIngested.literatureSubKind)
@@ -476,7 +462,6 @@ class LibraryVaultContractTest {
         assertFalse(File(filesRoot, "books/${localImported.workId.raw}.epub").exists())
         assertTrue(File(filesRoot, "compiled/B0042").isDirectory)
 
-        // Re-importing the original EPUB deduplicates to the superseding B0042 work (only 1 work exists)
         val reimported = vault.importLocalBook(epubFile.absolutePath).getOrThrow()
         assertEquals(WorkId("B0042"), reimported.workId)
     }

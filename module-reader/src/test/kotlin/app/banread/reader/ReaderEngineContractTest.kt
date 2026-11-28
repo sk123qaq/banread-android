@@ -127,10 +127,9 @@ class ReaderEngineContractTest {
         val handle = readerEngine.open(imported.workId, ReadingSurfaceMode.REFLOWABLE)
         assertEquals(WorkId("B0100"), handle.workId)
         assertEquals(ReadingSurfaceMode.REFLOWABLE, handle.mode)
-        assertEquals(ChapterOrdinal(2), handle.initialAnchor.ordinal) // ch 1 is FRONT_BACK, ch 2 is first BODY
+        assertEquals(ChapterOrdinal(2), handle.initialAnchor.ordinal)
         assertEquals("https://appassets.androidplatform.net/books/B0100/", fakeRenderer.loadedAssetRoot)
 
-        // Also verify EPUB open
         val epubFile = buildMinimalEpub(tempFolder.newFile("sample.epub"))
         val importedEpub = vault.importLocalBook(epubFile.absolutePath).getOrThrow()
         val epubHandle = readerEngine.open(importedEpub.workId, ReadingSurfaceMode.REFLOWABLE)
@@ -144,19 +143,16 @@ class ReaderEngineContractTest {
         val imported = vault.ingestStudyPack(bcBook.absolutePath).getOrThrow()
         readerEngine.open(imported.workId, ReadingSurfaceMode.REFLOWABLE)
 
-        // Advance sequentially from ch 2 -> ch 5
         for (ord in 3..5) {
             val anchor = vault.resolveAnchor(imported.workId, ChapterOrdinal(ord), BlockId("B01"))
             fakeRenderer.emitLocation(anchor)
         }
         assertEquals(ChapterOrdinal(5), readerEngine.activeState.value.currentCursor?.ordinal)
 
-        // Flip backward to chapter 2
         val ch2Anchor = vault.resolveAnchor(imported.workId, ChapterOrdinal(2), BlockId("B01"))
         fakeRenderer.emitLocation(ch2Anchor)
         assertEquals(ChapterOrdinal(2), readerEngine.activeState.value.currentCursor?.ordinal)
 
-        // Direct forward TOC jump to ch 10 updates currentCursor immediately without any confirmation gate
         val ch10Anchor = vault.resolveAnchor(imported.workId, ChapterOrdinal(10), BlockId("B01"))
         readerEngine.goTo(ch10Anchor, highlightPulseMs = 500L)
         assertEquals(ChapterOrdinal(10), readerEngine.activeState.value.currentCursor?.ordinal)
@@ -253,7 +249,6 @@ class ReaderEngineContractTest {
         assertEquals("WAVY_UNDERLINE:BLUE", immediate[0].colorToken)
         assertEquals("关键伏笔段落", immediate[0].comment)
 
-        // Reopen on a fresh FakeRendererAdapter sharing the same Room DB -> persisted notes load from Room
         val freshRenderer = FakeRendererAdapter()
         val reopenedEngine = ReaderEngineFactory.create(
             context = context,
@@ -310,7 +305,6 @@ class ReaderEngineContractTest {
             assertFalse("CSS must not emit halt (collapses CJK punctuation when combined)", css.contains(""""halt""""))
             assertTrue(css.contains("p:not(.no-indent)"))
 
-            // Bug 2 regression: NOTES chapter footnotes must NOT be hidden unconditionally
             assertTrue(
                 "Missing body:not([data-chapter-role=\"notes\"]) footnote rule",
                 css.contains("""body:not([data-chapter-role="notes"]) aside[epub|type~="footnote"]"""),
@@ -320,7 +314,6 @@ class ReaderEngineContractTest {
                 Regex("""(?m)^\s*aside\[epub\|type~="footnote"\]""").containsMatchIn(css),
             )
 
-            // Bug 3 regression: html, body must not apply horizontal padding (column gap owns margins)
             assertFalse("CSS must not set padding-left on html, body", css.contains("padding-left:"))
             assertFalse("CSS must not set padding-right on html, body", css.contains("padding-right:"))
 
@@ -380,7 +373,6 @@ class ReaderEngineContractTest {
         assertTrue(bridgeText.contains("BanReadBridge"))
         assertTrue(bridgeText.contains("BanReadNative"))
 
-        // Run `node --check` on both bundled JS assets on disk
         val assetsDir = File("src/main/assets/reader")
         assumeTrue("src/main/assets/reader not found from CWD", assetsDir.isDirectory)
         for (jsName in listOf("foliate-bundle.js", "reader_bridge.js")) {
@@ -396,7 +388,6 @@ class ReaderEngineContractTest {
 
     @Test
     fun `auxiliary public adapters - PdfiumPageAdapter bbox & overlays, VolumeKeyPager, FoliateWebAdapter compat`() = runTest {
-        // 1. PdfiumPageAdapter auto-margin bbox detection & normalized overlay mapping
         val bmp = Bitmap.createBitmap(200, 300, Bitmap.Config.ARGB_8888)
         bmp.eraseColor(Color.WHITE)
         val rectPixels = IntArray(120 * 180) { Color.BLACK }
@@ -431,7 +422,6 @@ class ReaderEngineContractTest {
         assertEquals(1, pdfAdapter.annotationsForPage(0).size)
         pdfAdapter.close()
 
-        // 2. VolumeKeyPager gating
         var prevCount = 0
         var nextCount = 0
         val pager = VolumeKeyPager(
@@ -447,7 +437,6 @@ class ReaderEngineContractTest {
         assertEquals(1, prevCount)
         assertEquals(1, nextCount)
 
-        // 3. FoliateWebAdapter WebViewCompat graceful probe
         val webAdapter = FoliateWebAdapter(context, filesRoot)
         val pkgStatus = webAdapter.checkWebViewPackage()
         assertNotNull(pkgStatus)
@@ -458,7 +447,6 @@ class ReaderEngineContractTest {
         val bcBook = buildMultiChapterBcBook(tempFolder.newFile("B0201.bcbook"), chapterCount = 4)
         val imported = vault.ingestStudyPack(bcBook.absolutePath).getOrThrow()
 
-        // 1. FakeRendererAdapter counts exactly 1 navigate per goTo
         readerEngine.open(imported.workId, ReadingSurfaceMode.REFLOWABLE)
         fakeRenderer.navigateCount = 0
         val anchor = vault.resolveAnchor(imported.workId, ChapterOrdinal(3), BlockId("B01"))
@@ -467,7 +455,6 @@ class ReaderEngineContractTest {
         readerEngine.goTo(anchor, highlightPulseMs = 0L)
         assertEquals(2, fakeRenderer.navigateCount)
 
-        // 2. FoliateWebAdapter + WebView dispatches BanReadBridge.goToAnchor exactly once per goTo
         val recordedScripts = mutableListOf<String>()
         val recordingWebView = object : WebView(context) {
             override fun evaluateJavascript(script: String, resultCallback: ValueCallback<String>?) {
@@ -508,7 +495,6 @@ class ReaderEngineContractTest {
             assertEquals("Expected single goToAnchor call for pulse == 0", 1, zeroCalls.size)
             assertTrue(zeroCalls.single().endsWith(", 0);"))
 
-            // Bug 3 regression: horizontalMarginDp forwarded in updateStyles bridge call
             recordedScripts.clear()
             webEngine.applyTypography(
                 TypographyProfile(
@@ -552,7 +538,6 @@ class ReaderEngineContractTest {
             recordedScripts.any { it.contains("BanReadBridge.updateStyles") },
         )
 
-        // 阅读器退出：旧 WebView 已 detach/destroy，后续 bridge 调用不得再打到它
         recordedScripts.clear()
         webAdapter.detachWebView()
         webAdapter.setHorizontalMarginDp(19f)
@@ -560,7 +545,6 @@ class ReaderEngineContractTest {
         Shadows.shadowOf(Looper.getMainLooper()).idle()
         assertTrue("Scripts leaked to released webview: $recordedScripts", recordedScripts.isEmpty())
 
-        // 重进阅读器：新 WebView attach + bridge ready 后才补执行排队脚本
         val secondWebView = recordingWebView(recordedScripts)
         webAdapter.attachWebView(secondWebView)
         assertTrue("Queued script must wait for bridge ready: $recordedScripts", recordedScripts.isEmpty())
@@ -578,7 +562,6 @@ class ReaderEngineContractTest {
         val bridgeFile = File("src/main/assets/reader/reader_bridge.js")
         assumeTrue("reader_bridge.js not found from CWD", bridgeFile.isFile)
 
-        // Also check Kotlin-side FoliateWebAdapter.onRelocated accepts finite progress and BlockOffset decorations
         val webAdapter = FoliateWebAdapter(context, filesRoot)
         val recordedScripts = mutableListOf<String>()
         val recordingWebView = object : WebView(context) {
@@ -629,7 +612,6 @@ class ReaderEngineContractTest {
         assertTrue(decCall.contains("B01"))
         assertTrue(decCall.contains("B02"))
 
-        // Run Node verification directly against reader_bridge.js
         val nodeTestScript = tempFolder.newFile("verify_bridge.js")
         nodeTestScript.writeText(
             """
@@ -835,7 +817,6 @@ class ReaderEngineContractTest {
         val bridgeFile = File("src/main/assets/reader/reader_bridge.js")
         assumeTrue("reader_bridge.js not found from CWD", bridgeFile.isFile)
 
-        // 1. Kotlin FoliateWebAdapter queues load + navigate before onBridgeReady and flushes in strict FIFO order
         val recordedScripts = mutableListOf<String>()
         val recordingWebView = object : WebView(context) {
             override fun evaluateJavascript(script: String, resultCallback: ValueCallback<String>?) {
@@ -872,7 +853,6 @@ class ReaderEngineContractTest {
             (engine as? Closeable)?.close()
         }
 
-        // 2. JS bridge: openBook (pending EPUB.init/view.open) + immediate goToAnchor jumps directly to target chapter without TypeError
         val nodeTestScript = tempFolder.newFile("verify_toc_jump.js")
         nodeTestScript.writeText(
             """

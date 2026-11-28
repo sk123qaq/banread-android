@@ -13,10 +13,6 @@ import app.banread.model.WorkId
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 
-/**
- * Offline desktop bridge stub used until Slice 6 desktop gateway integration lands.
- * Consistently fails with [AppFailure.DesktopConnectionRequired] while consuming zero LLM tokens.
- */
 class OfflineDesktopSyncCoordinator : SyncCoordinator {
 
     override suspend fun pairDesktopViaQr(qrPayload: String): Result<DesktopEndpointInfo> =

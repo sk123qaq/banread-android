@@ -60,7 +60,6 @@ class VizBridgeMessageParserTest {
             assertTrue("Expected Ignored for input=$raw, got $signal", signal is VizBridgeSignal.Ignored)
         }
 
-        // Blank error message still parses safely to Error with fallback text
         val blankError = VizBridgeMessageParser.parse("""{"type":"error","message":"  "}""")
         assertTrue(blankError is VizBridgeSignal.Event && blankError.hostEvent is VizHostEvent.Error)
     }

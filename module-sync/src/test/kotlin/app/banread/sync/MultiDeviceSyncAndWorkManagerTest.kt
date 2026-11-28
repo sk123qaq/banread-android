@@ -87,7 +87,6 @@ class MultiDeviceSyncAndWorkManagerTest {
         val workId = WorkId("B0001")
         val bcBookFile = writeMultiChapterBcBook(tempFolder.newFile("B0001.bcbook"), "B0001", "明史纪事")
 
-        // Phone A setup
         val rootA = tempFolder.newFolder("phone_a")
         val vaultA = LibraryVaultFactory.create(context, rootA, registry, allowInMemory = true).also { closeables += it as Closeable }
         vaultA.ingestStudyPack(bcBookFile.absolutePath).getOrThrow()
@@ -95,7 +94,6 @@ class MultiDeviceSyncAndWorkManagerTest {
             context, rootA, vaultA, NoOpRenderer(), DeviceId("phone-a"), allowInMemory = true,
         ).also { closeables += it as Closeable }
 
-        // Phone B setup
         val rootB = tempFolder.newFolder("phone_b")
         val vaultB = LibraryVaultFactory.create(context, rootB, registry, allowInMemory = true).also { closeables += it as Closeable }
         vaultB.ingestStudyPack(bcBookFile.absolutePath).getOrThrow()
@@ -103,7 +101,6 @@ class MultiDeviceSyncAndWorkManagerTest {
             context, rootB, vaultB, NoOpRenderer(), DeviceId("phone-b"), allowInMemory = true,
         ).also { closeables += it as Closeable }
 
-        // Shared cloud StateSyncPort + Desktop gateway
         val cloudSync = InMemoryStateSyncAdapter()
         val desktopGw = InMemoryDesktopGatewayAdapter(expectedToken = "tok-sync", isOnline = true)
 
@@ -115,38 +112,31 @@ class MultiDeviceSyncAndWorkManagerTest {
             rootB, vaultB, readerB, null, InMemorySecretVaultAdapter(), DeviceId("phone-b"), desktopGw, cloudSync,
         ).also { it.pairDesktopViaQr("bc-pair://v1?base=http://127.0.0.1:8780&token=tok-sync") }
 
-        // Phone A opens and advances to chapter 12 + saves a note
         readerA.open(workId, ReadingSurfaceMode.REFLOWABLE)
         val anchorA12 = vaultA.resolveAnchor(workId, ChapterOrdinal(12), BlockId("B01"))
         readerA.goTo(anchorA12)
         readerA.saveAnnotation(workId, anchorA12, "YELLOW", "Phone A 第12章批注")
 
-        // Phone B opens at chapter 3 + creates 2 notes (one will be soft-deleted later by Phone A)
         readerB.open(workId, ReadingSurfaceMode.REFLOWABLE)
         val anchorB3 = vaultB.resolveAnchor(workId, ChapterOrdinal(3), BlockId("B01"))
         readerB.goTo(anchorB3)
         readerB.saveAnnotation(workId, anchorB3, "BLUE", "Phone B 保留批注")
         readerB.saveAnnotation(workId, anchorB3, "PINK", "Phone B 待删批注")
 
-        // Both reconcile to push their isolated shards
         coordA.reconcileWork(workId).getOrThrow()
         coordB.reconcileWork(workId).getOrThrow()
 
-        // Verify strict single-writer shard isolation (no phone overwrote the other)
         val progressKeys = cloudSync.listShards("progress/B0001/")
         assertEquals(listOf("progress/B0001/phone-a.json", "progress/B0001/phone-b.json"), progressKeys)
 
-        // Phone B's cursor stays at Chapter 3 (never force-jumped by Phone A)
         assertEquals(ChapterOrdinal(3), readerB.activeState.value.currentCursor?.ordinal)
 
-        // Phone A reconciles to pull Phone B's 2 notes, then soft-deletes "Phone B 待删批注"
         coordA.reconcileWork(workId).getOrThrow()
         val notesOnA = readerA.listNoteLogEntries(workId, includeDeleted = false)
         assertEquals(3, notesOnA.size)
         val targetToDelete = notesOnA.first { it.comment == "Phone B 待删批注" }
         readerA.deleteAnnotation(workId, targetToDelete.noteId)
 
-        // Desktop flips back to Chapter 2 B01 with a newer timestamp
         val desktopNewerTs = System.currentTimeMillis() + 60_000L
         desktopGw.pushProgressShard(
             "tok-sync",
@@ -159,20 +149,17 @@ class MultiDeviceSyncAndWorkManagerTest {
             ),
         )
 
-        // Phone A reconciles: gets non-intrusive RemoteCursorBanner for desktop Ch 2 WITHOUT force-jumping from Ch 12!
         val outcomeA = coordA.reconcileWork(workId).getOrThrow()
         assertEquals(ChapterOrdinal(12), readerA.activeState.value.currentCursor?.ordinal)
         assertNotNull(outcomeA.remoteCursorBanner)
         assertEquals(DeviceId("desktop-linux"), outcomeA.remoteCursorBanner!!.sourceDeviceId)
         assertEquals(ChapterOrdinal(2), outcomeA.remoteCursorBanner!!.remoteCursor.ordinal)
 
-        // Phone B reconciles: tombstone from Phone A propagates and deletes "Phone B 待删批注"
         val outcomeB = coordB.reconcileWork(workId).getOrThrow()
         assertEquals(2, outcomeB.mergedNoteCount)
         val activeOnB = readerB.listNoteLogEntries(workId, includeDeleted = false)
         assertEquals(setOf("Phone A 第12章批注", "Phone B 保留批注"), activeOnB.map { it.comment }.toSet())
 
-        // Stale shard re-injection with older timestamp CANNOT resurrect the soft-deleted note!
         val staleNote = targetToDelete.copy(
             deviceId = DeviceId("stale-tablet"),
             updatedAtEpochMs = targetToDelete.updatedAtEpochMs,
@@ -227,18 +214,15 @@ class MultiDeviceSyncAndWorkManagerTest {
         )
         coord.pairDesktopViaQr("bc-pair://v1?base=http://127.0.0.1:8780&token=tok-wm")
 
-        // Offline reconcile fails and persists pending op
         val offlineAttempt = coord.reconcileWork(workId)
         assertTrue(offlineAttempt.isFailure)
         assertEquals(1, coord.getSyncStatus().pendingOpCount)
 
-        // Register provider & verify WorkManager SyncPendingWorker returns retry() while still offline
         SyncCoordinatorFactory.registerBackgroundSyncProvider { coord }
         val offlineWorker = TestListenableWorkerBuilder<SyncPendingWorker>(context).build()
         assertEquals(ListenableWorker.Result.retry(), offlineWorker.doWork())
         assertEquals(1, coord.getSyncStatus().pendingOpCount)
 
-        // Back online -> WorkManager SyncPendingWorker drains queue cleanly with zero packet loss
         cloudDown.online = true
         desktopGw.isOnline = true
         val onlineWorker = TestListenableWorkerBuilder<SyncPendingWorker>(context).build()
@@ -266,7 +250,6 @@ class MultiDeviceSyncAndWorkManagerTest {
         val localAnchor = vault.resolveAnchor(localImported.workId, ChapterOrdinal(1), BlockId("B01"))
         reader.saveAnnotation(localImported.workId, localAnchor, "YELLOW", "本地EPUB旧高亮")
 
-        // Pull desktop .bcbook with matching bookSourceSha256
         val bcBookFile = writeMultiChapterBcBook(
             tempFolder.newFile("B0777.bcbook"),
             uid = "B0777",
@@ -285,7 +268,6 @@ class MultiDeviceSyncAndWorkManagerTest {
         coord.pullStudyPacks(listOf(WorkId("B0777"))).collect { pullStates += it }
         assertTrue(pullStates.last() is BundleTransferState.Ingested)
 
-        // Must NOT duplicate work; local_... replaced by B0777, while progress & annotation are preserved!
         val allWorks = vault.listWorks()
         assertEquals(1, allWorks.size)
         assertEquals(WorkId("B0777"), allWorks.single().workId)
