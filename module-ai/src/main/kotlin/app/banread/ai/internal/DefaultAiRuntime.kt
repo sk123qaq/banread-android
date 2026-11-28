@@ -8,6 +8,7 @@ import app.banread.model.DiscoveredModel
 import app.banread.model.LlmPromptRequest
 import app.banread.model.LlmProviderPort
 import app.banread.model.LlmStreamEvent
+import app.banread.model.MaskedSecret
 import app.banread.model.ProviderCapabilities
 import app.banread.model.ProviderConfig
 import app.banread.model.ProviderConnectionStatus
@@ -15,7 +16,6 @@ import app.banread.model.ProviderKind
 import app.banread.model.ProviderSummary
 import app.banread.model.SecretVaultPort
 import app.banread.model.ThinkingLevel
-import app.banread.model.maskApiKey
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -519,7 +519,7 @@ internal class DefaultAiRuntime(
             thinkingLevel = cfg.thinkingLevel,
             isDefaultCompanion = isDefaultCompanion,
             isDefaultVision = isDefaultVision,
-            maskedApiKey = maskApiKey(rawSecret, cfg.requiresApiKey),
+            maskedApiKey = MaskedSecret.fromRaw(rawSecret, cfg.requiresApiKey),
             requiresApiKey = cfg.requiresApiKey,
         )
     }

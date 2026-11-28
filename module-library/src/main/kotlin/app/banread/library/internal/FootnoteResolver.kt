@@ -65,7 +65,7 @@ internal object FootnoteResolver {
                 listOf(File(ch.compiledHref).name.lowercase())
             for (blk in ch.blocks) {
                 val htmlIds = ch.blockIdToHtmlIds[blk.id].orEmpty()
-                if (blk.kind == "footnote" && blk.fnMarkerKey.isNotEmpty()) {
+                if (blk.kind == MarkdownBlockKind.FOOTNOTE && blk.fnMarkerKey.isNotEmpty()) {
                     val isBoilerplate = MarkdownBlockParser.isTranslatorOrBibNote(
                         marker = blk.fnMarkerDisplay,
                         noteText = blk.cleanText,

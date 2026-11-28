@@ -35,6 +35,21 @@ class SettingsViewModelTest {
     val mainRule = MainDispatcherRule()
 
     @Test
+    fun `editor state redacts plaintext api keys and only exposes masked summaries`() = runTest {
+        val runtime = AiRuntimeFactory.createInMemory()
+        val vm = SettingsViewModel(runtime, null, InMemoryAppPreferencesStore())
+        vm.openAddByokDialog()
+
+        val plaintext = "sk-live-1234567890"
+        vm.updateEditorApiKey(plaintext)
+
+        assertEquals(plaintext, vm.uiState.value.editor.apiKeyInput.raw)
+        assertFalse(vm.uiState.value.editor.toString().contains(plaintext))
+        assertFalse(vm.uiState.value.toString().contains(plaintext))
+        assertFalse(vm.uiState.value.editor.existingKey.isConfigured)
+    }
+
+    @Test
     fun `presets catalog exposes 9 grouped presets and live resolveModelsEndpoint preview`() = runTest {
         val grouped = SettingsViewModel.presetsByGroup()
         assertEquals(4, grouped[ProviderPresetGroup.AGGREGATOR]?.size)
@@ -133,13 +148,13 @@ class SettingsViewModelTest {
 
         val p1 = vm.uiState.value.providers.first { it.id == "p1" }
         vm.openEditByokDialog(p1)
-        assertEquals("", vm.uiState.value.editor.apiKeyInput)
+        assertEquals("", vm.uiState.value.editor.apiKeyInput.raw)
         vm.updateEditorThinkingLevel(ThinkingLevel.LOW)
         vm.saveByokEditor()
 
         val updatedP1 = runtime.getProviderSummary("p1")!!
         assertTrue(updatedP1.hasApiKey)
-        assertEquals("sk-s••••1234", updatedP1.maskedApiKey)
+        assertEquals("sk-s••••1234", updatedP1.maskedApiKey.display)
         assertEquals(ThinkingLevel.LOW, updatedP1.thinkingLevel)
 
         vm.deleteProvider("p1")

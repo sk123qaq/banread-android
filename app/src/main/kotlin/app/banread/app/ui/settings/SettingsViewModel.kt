@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import app.banread.app.data.AppPreferencesPort
 import app.banread.model.AiRuntime
+import app.banread.model.ApiKeyDraft
 import app.banread.model.AppFailure
 import app.banread.model.AppFailureException
 import app.banread.model.BundleTransferState
@@ -12,6 +13,7 @@ import app.banread.model.DeletedProviderSnapshot
 import app.banread.model.DesktopBookSummary
 import app.banread.model.DiscoveredModel
 import app.banread.model.LibraryVault
+import app.banread.model.MaskedSecret
 import app.banread.model.OutboxTicket
 import app.banread.model.ProviderCapabilities
 import app.banread.model.ProviderConfig
@@ -51,9 +53,9 @@ data class ByokEditorState(
     val selectedPresetId: String = "deepseek",
     val kind: ProviderKind = ProviderKind.OPENAI_COMPAT,
     val endpoint: String = "https://api.deepseek.com/v1",
-    val apiKeyInput: String = "",
+    val apiKeyInput: ApiKeyDraft = ApiKeyDraft.Empty,
     val apiKeyVisible: Boolean = false,
-    val hasExistingStoredKey: Boolean = false,
+    val existingKey: MaskedSecret = MaskedSecret.notConfigured(),
     val modelId: String = "deepseek-reasoner",
     val displayName: String = "DeepSeek Reasoner",
     val thinkingLevel: ThinkingLevel = ThinkingLevel.HIGH,
@@ -68,6 +70,8 @@ data class ByokEditorState(
     val isSaving: Boolean = false,
 ) {
     val isEditMode: Boolean get() = editingProviderId != null
+
+    val hasExistingStoredKey: Boolean get() = existingKey.isConfigured
 
     val modelsEndpointPreview: String
         get() = "模型查询：GET ${resolveModelsEndpoint(kind, endpoint.ifBlank { "https://api.openai.com/v1" })}"
@@ -331,8 +335,7 @@ class SettingsViewModel(
                 selectedPresetId = preset.id,
                 kind = preset.kind,
                 endpoint = preset.defaultEndpoint,
-                apiKeyInput = "",
-                hasExistingStoredKey = false,
+                apiKeyInput = ApiKeyDraft.Empty,
                 modelId = firstHint?.modelId ?: preset.defaultModelId,
                 displayName = firstHint?.displayName ?: preset.displayName,
                 thinkingLevel = firstHint?.defaultThinkingLevel ?: ThinkingLevel.OFF,
@@ -357,8 +360,8 @@ class SettingsViewModel(
                 selectedPresetId = preset?.id ?: "custom",
                 kind = summary.kind,
                 endpoint = summary.endpoint.ifBlank { preset?.defaultEndpoint.orEmpty() },
-                apiKeyInput = "",
-                hasExistingStoredKey = summary.hasApiKey,
+                apiKeyInput = ApiKeyDraft.Empty,
+                existingKey = summary.maskedApiKey,
                 modelId = summary.modelId,
                 displayName = summary.displayName,
                 thinkingLevel = summary.thinkingLevel,
@@ -416,7 +419,7 @@ class SettingsViewModel(
 
     fun updateEditorApiKey(apiKey: String) {
         _uiState.value = _uiState.value.copy(
-            editor = _uiState.value.editor.copy(apiKeyInput = apiKey, validationError = null),
+            editor = _uiState.value.editor.copy(apiKeyInput = ApiKeyDraft.of(apiKey), validationError = null),
         )
     }
 
@@ -498,7 +501,7 @@ class SettingsViewModel(
             val result = aiRuntime.listAvailableModels(
                 kind = cur.kind,
                 endpoint = cur.endpoint,
-                rawApiKey = cur.apiKeyInput.takeIf { it.isNotBlank() },
+                rawApiKey = cur.apiKeyInput.trimmedOrNull(),
                 existingProviderId = cur.editingProviderId,
             )
             result.fold(
@@ -577,7 +580,7 @@ class SettingsViewModel(
                 requiresApiKey = cur.requiresApiKey,
             )
 
-            val rawKeyToSave = cur.apiKeyInput.trim().takeIf { it.isNotEmpty() }
+            val rawKeyToSave = cur.apiKeyInput.trimmedOrNull()
             runCatching {
                 aiRuntime.saveProviderConfig(config, rawApiKey = rawKeyToSave)
             }.onSuccess {

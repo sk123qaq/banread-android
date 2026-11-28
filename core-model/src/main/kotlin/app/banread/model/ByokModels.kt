@@ -206,13 +206,8 @@ fun resolveModelsEndpoint(kind: ProviderKind, endpoint: String): String {
 /**
  * Masks an API key for UI display without exposing plaintext secrets.
  */
-fun maskApiKey(rawApiKey: String?, requiresApiKey: Boolean = true): String {
-    if (!requiresApiKey) return "本地免 Key"
-    val trimmed = rawApiKey?.trim().orEmpty()
-    if (trimmed.isEmpty()) return "未配置 Key"
-    if (trimmed.length < 8) return "••••"
-    return "${trimmed.take(4)}••••${trimmed.takeLast(4)}"
-}
+fun maskApiKey(rawApiKey: String?, requiresApiKey: Boolean = true): String =
+    MaskedSecret.fromRaw(rawApiKey, requiresApiKey).display
 
 data class DiscoveredModel(
     val id: String,

@@ -29,7 +29,6 @@ import kotlinx.serialization.json.Json
 import org.json.JSONObject
 import java.io.File
 import java.io.FileInputStream
-import java.util.concurrent.ConcurrentLinkedQueue
 
 /**
  * WebView-backed [BookRendererPort] driving the offline es2020-transpiled `foliate-js` bundle
@@ -56,17 +55,23 @@ class FoliateWebAdapter(
     private val _selectionEvents = MutableSharedFlow<TextSelectionEvent>(extraBufferCapacity = 16)
     val selectionEvents: Flow<TextSelectionEvent> = _selectionEvents.asSharedFlow()
 
-    private val pendingScripts = ConcurrentLinkedQueue<String>()
-    private val scriptLock = Any()
+    private val stateLock = Any()
 
-    @Volatile
-    private var attachedWebView: WebView? = null
+    private sealed interface RendererState {
+        val pendingScripts: List<String>
 
-    @Volatile
-    private var destroyed = false
+        data class Detached(
+            override val pendingScripts: List<String> = emptyList(),
+        ) : RendererState
 
-    @Volatile
-    private var bridgeReady = false
+        data class Attached(
+            val webView: WebView,
+            val bridgeReady: Boolean = false,
+            override val pendingScripts: List<String> = emptyList(),
+        ) : RendererState
+    }
+
+    private var rendererState: RendererState = RendererState.Detached()
 
     @Volatile
     private var requestedPaginationMode = PaginationMode.SLIDE
@@ -100,10 +105,11 @@ class FoliateWebAdapter(
 
     @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
     fun attachWebView(webView: WebView) {
-        synchronized(scriptLock) {
-            destroyed = false
-            attachedWebView = webView
-            bridgeReady = false
+        synchronized(stateLock) {
+            rendererState = RendererState.Attached(
+                webView = webView,
+                pendingScripts = rendererState.pendingScripts,
+            )
         }
 
         webView.settings.apply {
@@ -130,12 +136,9 @@ class FoliateWebAdapter(
 
     fun detachWebView() {
         val webView: WebView?
-        synchronized(scriptLock) {
-            destroyed = true
-            webView = attachedWebView
-            attachedWebView = null
-            bridgeReady = false
-            pendingScripts.clear()
+        synchronized(stateLock) {
+            webView = (rendererState as? RendererState.Attached)?.webView
+            rendererState = RendererState.Detached()
         }
         mainHandler.removeCallbacksAndMessages(null)
         webView?.removeJavascriptInterface("BanReadNative")
@@ -204,13 +207,20 @@ class FoliateWebAdapter(
     }
 
     private fun evaluateBridge(script: String) {
-        val webViewToRun: WebView? = synchronized(scriptLock) {
-            val webView = attachedWebView
-            if (webView == null || !bridgeReady) {
-                pendingScripts.add(script)
-                null
-            } else {
-                webView
+        val webViewToRun: WebView? = synchronized(stateLock) {
+            when (val state = rendererState) {
+                is RendererState.Detached -> {
+                    rendererState = state.copy(pendingScripts = state.pendingScripts + script)
+                    null
+                }
+                is RendererState.Attached -> {
+                    if (state.bridgeReady) {
+                        state.webView
+                    } else {
+                        rendererState = state.copy(pendingScripts = state.pendingScripts + script)
+                        null
+                    }
+                }
             }
         }
         if (webViewToRun != null) {
@@ -222,14 +232,11 @@ class FoliateWebAdapter(
     }
 
     private fun flushPendingScriptsOnMain(webView: WebView) {
-        val queued = synchronized(scriptLock) {
-            if (!isLive(webView)) return
-            bridgeReady = true
-            buildList {
-                while (true) {
-                    add(pendingScripts.poll() ?: break)
-                }
-            }
+        val queued = synchronized(stateLock) {
+            val state = rendererState as? RendererState.Attached ?: return
+            if (state.webView !== webView) return
+            rendererState = state.copy(bridgeReady = true, pendingScripts = emptyList())
+            state.pendingScripts
         }
         for (next in queued) {
             if (!isLive(webView)) return
@@ -237,15 +244,21 @@ class FoliateWebAdapter(
         }
     }
 
-    private fun isLive(webView: WebView): Boolean = !destroyed && attachedWebView === webView
+    private fun isLive(webView: WebView): Boolean = synchronized(stateLock) {
+        (rendererState as? RendererState.Attached)?.webView === webView
+    }
+
+    private fun isAttached(): Boolean = synchronized(stateLock) {
+        rendererState is RendererState.Attached
+    }
 
     private fun runOnMain(block: () -> Unit) {
-        if (destroyed) return
+        if (!isAttached()) return
         if (Looper.myLooper() == Looper.getMainLooper()) {
             block()
         } else {
             mainHandler.post {
-                if (destroyed) return@post
+                if (!isAttached()) return@post
                 block()
             }
         }

@@ -372,8 +372,8 @@ internal object PromptCatalog {
             val isLitSpatial = effectiveBlueprint == "spatial_route" && readType == "literature"
             val schemaHint = if (isLitSpatial) LITERATURE_SPATIAL_SCHEMA_HINT else BLUEPRINT_SCHEMA_HINTS[effectiveBlueprint] ?: BLUEPRINT_SCHEMA_HINTS.getValue("argument_map")
             val scopeHint = when (ctx.scopeKind) {
-                "chapter" -> "当前作用范围：整章全局（涵盖 ${ctx.coveredBlocks} 个正文段落${if (ctx.sampled) "，长章已连续场景窗口抽样覆盖" else ""}）。每个节点 blocks 必须引用真实块号。"
-                "full_book" -> "当前作用范围：全书全局（${ctx.chapterTitle}）。"
+                CompanionScopeKind.CHAPTER -> "当前作用范围：整章全局（涵盖 ${ctx.coveredBlocks} 个正文段落${if (ctx.sampled) "，长章已连续场景窗口抽样覆盖" else ""}）。每个节点 blocks 必须引用真实块号。"
+                CompanionScopeKind.FULL_BOOK -> "当前作用范围：全书全局（${ctx.chapterTitle}）。"
                 else -> "当前作用范围：读者选中的段落（${ctx.blockIds.joinToString(", ") { it.value }.ifBlank { "局部" }}）。"
             }
             val extraLines = buildList {
@@ -405,8 +405,8 @@ internal object PromptCatalog {
             val spec = EXTENSION_PROMPT_SPECS.getValue(effectiveAction)
             val subHint = literatureSubKind?.takeIf { it.isNotBlank() }?.let { "（文学子类侧重点：$it）" }.orEmpty()
             val scopeHint = when (ctx.scopeKind) {
-                "chapter" -> "作用范围：整章全局（涵盖 ${ctx.coveredBlocks} 个正文段落${if (ctx.sampled) "，已连续场景窗口覆盖" else ""}）。"
-                "full_book" -> "作用范围：全书全局（${ctx.chapterTitle}）。"
+                CompanionScopeKind.CHAPTER -> "作用范围：整章全局（涵盖 ${ctx.coveredBlocks} 个正文段落${if (ctx.sampled) "，已连续场景窗口覆盖" else ""}）。"
+                CompanionScopeKind.FULL_BOOK -> "作用范围：全书全局（${ctx.chapterTitle}）。"
                 else -> "作用范围：读者选中的段落（${ctx.blockIds.joinToString(", ") { it.value }.ifBlank { "局部" }}）。"
             }
             val system = buildString {
@@ -447,12 +447,12 @@ internal object PromptCatalog {
         crossHitsBlock: String,
     ): String = buildString {
         val scopeDesc = when (ctx.scopeKind) {
-            "chapter" -> "全章全局"
-            "full_book" -> "全书全局"
+            CompanionScopeKind.CHAPTER -> "全章全局"
+            CompanionScopeKind.FULL_BOOK -> "全书全局"
             else -> ctx.blockIds.joinToString(", ") { it.value }.ifBlank { "局部选段" }
         }
         append("《${ctx.workTitle}》· ${ctx.chapterTitle}（范围：$scopeDesc）\n")
-        if (ctx.scopeKind == "chapter" || ctx.scopeKind == "full_book") {
+        if (ctx.scopeKind == CompanionScopeKind.CHAPTER || ctx.scopeKind == CompanionScopeKind.FULL_BOOK) {
             append("\n全书/全章正文骨架（带真实块号）：\n")
             append(ctx.contextText.ifBlank { ctx.selectedText })
         } else {

@@ -2,8 +2,15 @@ package app.banread.library.internal
 
 import java.io.File
 
+internal enum class ImageFormat(val extension: String, val mimeType: String) {
+    PNG("png", "image/png"),
+    GIF("gif", "image/gif"),
+    WEBP("webp", "image/webp"),
+    JPEG("jpg", "image/jpeg"),
+}
+
 internal data class InspectedImage(
-    val format: String,
+    val format: ImageFormat,
     val width: Int,
     val height: Int,
 )
@@ -52,7 +59,7 @@ internal object ImageHeaderInspector {
         val width = readIntBE(bytes, 16)
         val height = readIntBE(bytes, 20)
         if (width <= 0 || height <= 0) return null
-        return InspectedImage(format = "png", width = width, height = height)
+        return InspectedImage(format = ImageFormat.PNG, width = width, height = height)
     }
 
     private fun parseGif(bytes: ByteArray): InspectedImage? {
@@ -62,7 +69,7 @@ internal object ImageHeaderInspector {
         val width = readUInt16LE(bytes, 6)
         val height = readUInt16LE(bytes, 8)
         if (width <= 0 || height <= 0) return null
-        return InspectedImage(format = "gif", width = width, height = height)
+        return InspectedImage(format = ImageFormat.GIF, width = width, height = height)
     }
 
     private fun parseWebp(bytes: ByteArray): InspectedImage? {
@@ -81,7 +88,7 @@ internal object ImageHeaderInspector {
                 }
                 val width = readUInt16LE(bytes, 26) and 0x3FFF
                 val height = readUInt16LE(bytes, 28) and 0x3FFF
-                if (width <= 0 || height <= 0) null else InspectedImage("webp", width, height)
+                if (width <= 0 || height <= 0) null else InspectedImage(ImageFormat.WEBP, width, height)
             }
             "VP8L" -> {
                 if (bytes[20] != 0x2F.toByte()) return null
@@ -92,13 +99,13 @@ internal object ImageHeaderInspector {
                 val packed = b0 or (b1 shl 8) or (b2 shl 16) or (b3 shl 24)
                 val width = (packed and 0x3FFF) + 1
                 val height = ((packed ushr 14) and 0x3FFF) + 1
-                if (width <= 0 || height <= 0) null else InspectedImage("webp", width, height)
+                if (width <= 0 || height <= 0) null else InspectedImage(ImageFormat.WEBP, width, height)
             }
             "VP8X" -> {
                 if (bytes.size < 30) return null
                 val width = readUInt24LE(bytes, 24) + 1
                 val height = readUInt24LE(bytes, 27) + 1
-                if (width <= 0 || height <= 0) null else InspectedImage("webp", width, height)
+                if (width <= 0 || height <= 0) null else InspectedImage(ImageFormat.WEBP, width, height)
             }
             else -> null
         }
@@ -139,7 +146,7 @@ internal object ImageHeaderInspector {
                 val height = readUInt16BE(bytes, pos + 3)
                 val width = readUInt16BE(bytes, pos + 5)
                 if (width <= 0 || height <= 0) return null
-                return InspectedImage(format = "jpg", width = width, height = height)
+                return InspectedImage(format = ImageFormat.JPEG, width = width, height = height)
             }
             pos += segLen
         }

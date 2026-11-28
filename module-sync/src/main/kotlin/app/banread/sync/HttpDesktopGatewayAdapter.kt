@@ -226,7 +226,7 @@ class HttpDesktopGatewayAdapter(
                                 ?: throw AppFailureException(AppFailure.NetworkOrSyncConflict("Empty bundle response"))
                             var totalWritten = effectiveOffset
                             body.byteStream().use { input ->
-                                FileOutputStream(partFile, true).use { out ->
+                                openPartStream(partFile, append = true).use { out ->
                                     val buf = ByteArray(16 * 1024)
                                     while (true) {
                                         val read = input.read(buf)
@@ -247,7 +247,7 @@ class HttpDesktopGatewayAdapter(
                             ?: throw AppFailureException(AppFailure.NetworkOrSyncConflict("Empty bundle response"))
                         var totalWritten = 0L
                         body.byteStream().use { input ->
-                            FileOutputStream(partFile, false).use { out ->
+                            openPartStream(partFile, append = false).use { out ->
                                 val buf = ByteArray(16 * 1024)
                                 while (true) {
                                     val read = input.read(buf)
@@ -307,7 +307,7 @@ class HttpDesktopGatewayAdapter(
                         ?: throw AppFailureException(AppFailure.NetworkOrSyncConflict("Empty bundle response"))
                     var totalWritten = 0L
                     body.byteStream().use { input ->
-                        FileOutputStream(partFile, false).use { out ->
+                        openPartStream(partFile, append = false).use { out ->
                             val buf = ByteArray(16 * 1024)
                             while (true) {
                                 val read = input.read(buf)
@@ -456,6 +456,8 @@ class HttpDesktopGatewayAdapter(
 
     private fun unauthorizedError(): AppFailureException =
         AppFailureException(AppFailure.NetworkOrSyncConflict("桌面网关鉴权失败 (HTTP 401)：请重新扫码配对"))
+
+    private fun openPartStream(file: File, append: Boolean): FileOutputStream = FileOutputStream(file, append)
 
     private fun normalizeBase(baseUrl: String): String =
         SyncEndpointUrlPolicy.normalizeHttpBaseUrl(baseUrl)

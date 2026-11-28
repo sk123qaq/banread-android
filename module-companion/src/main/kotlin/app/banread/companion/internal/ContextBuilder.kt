@@ -15,11 +15,17 @@ import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import kotlin.math.min
 
+internal enum class CompanionScopeKind {
+    SELECTION,
+    CHAPTER,
+    FULL_BOOK,
+}
+
 internal data class BuiltCompanionContext(
     val workTitle: String,
     val chapterTitle: String,
     val chapterContentSha256: String,
-    val scopeKind: String,
+    val scopeKind: CompanionScopeKind,
     val selectedText: String,
     val contextText: String,
     val blockIds: List<BlockId>,
@@ -117,7 +123,7 @@ internal class ContextBuilder(
                 workTitle = workTitle,
                 chapterTitle = ch.title,
                 chapterContentSha256 = ch.contentHash.sha256Hex,
-                scopeKind = "selection",
+                scopeKind = CompanionScopeKind.SELECTION,
                 selectedText = cleanSelected,
                 contextText = contextBuilder.toString(),
                 blockIds = selectedIds,
@@ -155,7 +161,7 @@ internal class ContextBuilder(
                 workTitle = workTitle,
                 chapterTitle = ch.title,
                 chapterContentSha256 = ch.contentHash.sha256Hex,
-                scopeKind = "chapter",
+                scopeKind = CompanionScopeKind.CHAPTER,
                 selectedText = "",
                 contextText = contextText,
                 blockIds = emptyList(),
@@ -231,7 +237,7 @@ internal class ContextBuilder(
                 workTitle = workTitle,
                 chapterTitle = "全书共 ${chapters.size} 章",
                 chapterContentSha256 = combinedHash,
-                scopeKind = "full_book",
+                scopeKind = CompanionScopeKind.FULL_BOOK,
                 selectedText = "",
                 contextText = parts.joinToString("\n"),
                 blockIds = emptyList(),

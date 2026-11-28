@@ -11,9 +11,60 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
+import androidx.room.TypeConverter
+import androidx.room.TypeConverters
+import app.banread.model.ChapterRole
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
+
+internal enum class WorkProfileSource(val storedValue: String) {
+    USER_OVERRIDE("USER_OVERRIDE"),
+    DESKTOP("DESKTOP"),
+    AUTO("AUTO"),
+    ;
+
+    companion object {
+        fun fromStored(value: String): WorkProfileSource =
+            entries.firstOrNull { it.storedValue == value }
+                ?: error("Unknown work profile source: $value")
+    }
+}
+
+internal enum class WorkFormat(val storedValue: String) {
+    EPUB("EPUB"),
+    MOBI("MOBI"),
+    AZW3("AZW3"),
+    PDF("PDF"),
+    BCBOOK("BCBOOK"),
+    ;
+
+    companion object {
+        fun fromStored(value: String): WorkFormat =
+            entries.firstOrNull { it.storedValue == value }
+                ?: error("Unknown work format: $value")
+    }
+}
+
+internal object LibraryConverters {
+    @TypeConverter
+    fun profileSourceToStored(value: WorkProfileSource): String = value.storedValue
+
+    @TypeConverter
+    fun storedToProfileSource(value: String): WorkProfileSource = WorkProfileSource.fromStored(value)
+
+    @TypeConverter
+    fun workFormatToStored(value: WorkFormat): String = value.storedValue
+
+    @TypeConverter
+    fun storedToWorkFormat(value: String): WorkFormat = WorkFormat.fromStored(value)
+
+    @TypeConverter
+    fun chapterRoleToStored(value: ChapterRole): String = value.name
+
+    @TypeConverter
+    fun storedToChapterRole(value: String): ChapterRole = ChapterRole.valueOf(value)
+}
 
 @Entity(
     tableName = "works",
@@ -28,14 +79,14 @@ internal data class WorkEntity(
     val subjectsJson: String,
     val readProfileId: String,
     val literatureSubKind: String?,
-    val profileSource: String,
+    val profileSource: WorkProfileSource,
     val clothColor: String,
     val coverRel: String?,
     val coverWidth: Int? = null,
     val coverHeight: Int? = null,
     val originalFilePath: String,
     val compiledRootPath: String,
-    val format: String,
+    val format: WorkFormat,
     val supportedModesJson: String,
     val isScannedPdf: Boolean,
     val blockVersion: Int,
@@ -53,7 +104,7 @@ internal data class ChapterEntity(
     val ordinal: Int,
     val n: String,
     val title: String,
-    val chapterRole: String,
+    val chapterRole: ChapterRole,
     val merged: Boolean,
     val sourceFilesJson: String,
     val chapterContentSha256: String,
@@ -123,7 +174,7 @@ internal interface LibraryDao {
         workId: String,
         readProfileId: String,
         literatureSubKind: String?,
-        profileSource: String,
+        profileSource: WorkProfileSource,
     )
 
     @Query("SELECT * FROM chapters WHERE workId = :workId ORDER BY ordinal ASC")
@@ -210,6 +261,7 @@ internal interface LibraryDao {
     version = 3,
     exportSchema = false,
 )
+@TypeConverters(LibraryConverters::class)
 internal abstract class LibraryDatabase : RoomDatabase() {
     abstract fun libraryDao(): LibraryDao
 

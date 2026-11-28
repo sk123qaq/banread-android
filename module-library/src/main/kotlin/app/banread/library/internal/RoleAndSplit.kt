@@ -299,7 +299,7 @@ internal object RoleAndSplit {
                 val sliceTitle = if (chunks.size == 1) {
                     ch.title
                 } else {
-                    val headingTitle = sliceBlocks.firstOrNull { it.kind == "heading" }?.cleanText?.takeIf { it.isNotBlank() }
+                    val headingTitle = sliceBlocks.firstOrNull { it.kind == MarkdownBlockKind.HEADING }?.cleanText?.takeIf { it.isNotBlank() }
                     if (idx == 0 && ch.title.isNotBlank()) {
                         "${ch.title}（第 1 节）"
                     } else if (headingTitle != null && headingTitle != ch.title) {
@@ -366,7 +366,7 @@ internal object RoleAndSplit {
 
         for (blk in blocks) {
             val blkChars = maxOf(1, TextSanitizer.nonSpaceCount(blk.cleanText))
-            val isHeading = blk.kind == "heading"
+            val isHeading = blk.kind == MarkdownBlockKind.HEADING
             val shouldCutForHeading = cur.isNotEmpty() && isHeading && curChars >= VIRTUAL_TARGET_MIN_CHARS
             val wouldExceed = cur.isNotEmpty() && (
                 (curChars >= VIRTUAL_TARGET_MIN_CHARS && curChars + blkChars > VIRTUAL_TARGET_MAX_CHARS) ||
@@ -434,8 +434,7 @@ internal object RoleAndSplit {
     ): List<ParsedBlock> {
         var charCursor = 0
         return blocks.mapIndexed { idx, blk ->
-            val newId = "B${(idx + 1).toString().padStart(2, '0')}"
-            BlockId(newId)
+            val newId = BlockId.validate("B${(idx + 1).toString().padStart(2, '0')}").value
             onRename?.invoke(blk.id, newId)
             val len = blk.cleanText.length
             val start = charCursor

@@ -6,6 +6,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
+import app.banread.library.internal.ImageFormat
 import app.banread.library.internal.ImageHeaderInspector
 import app.banread.library.internal.LibraryDatabase
 import app.banread.library.internal.PdfCoverRenderer
@@ -102,14 +103,15 @@ class LibraryVaultCoverAndBookshelfTest {
         val webpVp8x = buildWebpVp8xBytes(1024, 768)
         val gif = buildGifBytes(400, 600)
 
-        assertEquals("png", ImageHeaderInspector.inspect(png)?.format)
+        assertEquals(ImageFormat.PNG, ImageHeaderInspector.inspect(png)?.format)
+        assertEquals("png" to "image/png", ImageFormat.PNG.extension to ImageFormat.PNG.mimeType)
         assertEquals(240 to 360, ImageHeaderInspector.inspect(png)?.let { it.width to it.height })
-        assertEquals("jpg" to (800 to 500), ImageHeaderInspector.inspect(jpgSof0)?.let { it.format to (it.width to it.height) })
-        assertEquals("jpg" to (600 to 900), ImageHeaderInspector.inspect(jpgSof2)?.let { it.format to (it.width to it.height) })
-        assertEquals("webp" to (320 to 480), ImageHeaderInspector.inspect(webpVp8)?.let { it.format to (it.width to it.height) })
-        assertEquals("webp" to (512 to 512), ImageHeaderInspector.inspect(webpVp8l)?.let { it.format to (it.width to it.height) })
-        assertEquals("webp" to (1024 to 768), ImageHeaderInspector.inspect(webpVp8x)?.let { it.format to (it.width to it.height) })
-        assertEquals("gif" to (400 to 600), ImageHeaderInspector.inspect(gif)?.let { it.format to (it.width to it.height) })
+        assertEquals(ImageFormat.JPEG to (800 to 500), ImageHeaderInspector.inspect(jpgSof0)?.let { it.format to (it.width to it.height) })
+        assertEquals(ImageFormat.JPEG to (600 to 900), ImageHeaderInspector.inspect(jpgSof2)?.let { it.format to (it.width to it.height) })
+        assertEquals(ImageFormat.WEBP to (320 to 480), ImageHeaderInspector.inspect(webpVp8)?.let { it.format to (it.width to it.height) })
+        assertEquals(ImageFormat.WEBP to (512 to 512), ImageHeaderInspector.inspect(webpVp8l)?.let { it.format to (it.width to it.height) })
+        assertEquals(ImageFormat.WEBP to (1024 to 768), ImageHeaderInspector.inspect(webpVp8x)?.let { it.format to (it.width to it.height) })
+        assertEquals(ImageFormat.GIF to (400 to 600), ImageHeaderInspector.inspect(gif)?.let { it.format to (it.width to it.height) })
 
         assertNull(ImageHeaderInspector.inspect(byteArrayOf()))
         assertNull(ImageHeaderInspector.inspect("not an image".toByteArray()))

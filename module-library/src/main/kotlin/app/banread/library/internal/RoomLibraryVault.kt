@@ -165,10 +165,10 @@ internal class RoomLibraryVault private constructor(
                 unpackedCacheDir.copyRecursively(destCacheDir, overwrite = true)
             }
 
-            val preserveOverride = existing?.profileSource == "USER_OVERRIDE"
+            val preserveOverride = existing?.profileSource == WorkProfileSource.USER_OVERRIDE
             val effectiveProfileId = if (preserveOverride) existing!!.readProfileId else manifest.readType.raw
             val effectiveSubKind = if (preserveOverride) existing!!.literatureSubKind else manifest.subKind.ifBlank { null }
-            val effectiveProfileSource = if (preserveOverride) "USER_OVERRIDE" else "DESKTOP"
+            val effectiveProfileSource = if (preserveOverride) WorkProfileSource.USER_OVERRIDE else WorkProfileSource.DESKTOP
 
             val (validatedCoverRel, coverWidth, coverHeight) = extractAndPersistBcBookCover(
                 workIdRaw = manifest.uid.raw,
@@ -192,7 +192,7 @@ internal class RoomLibraryVault private constructor(
                 coverHeight = coverHeight,
                 originalFilePath = storedPackFile.absolutePath,
                 compiledRootPath = compiledRoot.absolutePath,
-                format = "BCBOOK",
+                format = WorkFormat.BCBOOK,
                 supportedModesJson = json.encodeToString(ListSerializer(ReadingSurfaceMode.serializer()), modes.toList()),
                 isScannedPdf = false,
                 blockVersion = manifest.blockVersion,
@@ -331,12 +331,12 @@ internal class RoomLibraryVault private constructor(
                         subjectsJson = json.encodeToString(ListSerializer(String.serializer()), parsed.subjects),
                         readProfileId = resolvedProfile.profile.readType.raw,
                         literatureSubKind = resolvedProfile.subKind.ifBlank { null },
-                        profileSource = "AUTO",
+                        profileSource = WorkProfileSource.AUTO,
                         clothColor = clothColor,
                         coverRel = null,
                         originalFilePath = destFile.absolutePath,
                         compiledRootPath = compiledRoot.absolutePath,
-                        format = parsed.formatName,
+                        format = WorkFormat.fromStored(parsed.formatName),
                         supportedModesJson = json.encodeToString(ListSerializer(ReadingSurfaceMode.serializer()), modes.toList()),
                         isScannedPdf = false,
                         blockVersion = 2,
@@ -367,14 +367,14 @@ internal class RoomLibraryVault private constructor(
                         subjectsJson = "[]",
                         readProfileId = resolvedProfile.profile.readType.raw,
                         literatureSubKind = resolvedProfile.subKind.ifBlank { null },
-                        profileSource = "AUTO",
+                        profileSource = WorkProfileSource.AUTO,
                         clothColor = clothColor,
                         coverRel = pdfCover?.first,
                         coverWidth = pdfCover?.second,
                         coverHeight = pdfCover?.third,
                         originalFilePath = destFile.absolutePath,
                         compiledRootPath = "",
-                        format = "PDF",
+                        format = WorkFormat.PDF,
                         supportedModesJson = json.encodeToString(ListSerializer(ReadingSurfaceMode.serializer()), modes.toList()),
                         isScannedPdf = isScanned,
                         blockVersion = 2,
@@ -386,7 +386,7 @@ internal class RoomLibraryVault private constructor(
                         ordinal = 1,
                         n = "01",
                         title = title,
-                        chapterRole = ChapterRole.BODY.name,
+                        chapterRole = ChapterRole.BODY,
                         merged = false,
                         sourceFilesJson = json.encodeToString(ListSerializer(String.serializer()), listOf(destFile.name)),
                         chapterContentSha256 = sourceHash.sha256Hex,
@@ -443,7 +443,7 @@ internal class RoomLibraryVault private constructor(
         val frontBack = mutableListOf<ChapterOutlineItem>()
 
         for (ch in chapters) {
-            val role = ChapterRole.valueOf(ch.chapterRole)
+            val role = ch.chapterRole
             val estMinutes = if (ch.chars <= 0) 0 else maxOf(1, ceil(ch.chars / 480.0).toInt())
             val item = ChapterOutlineItem(
                 ordinal = ChapterOrdinal(ch.ordinal),
@@ -604,7 +604,7 @@ internal class RoomLibraryVault private constructor(
             workId = existing.workId,
             readProfileId = profile.raw,
             literatureSubKind = literatureSubKind?.takeIf { it.isNotBlank() },
-            profileSource = "USER_OVERRIDE",
+            profileSource = WorkProfileSource.USER_OVERRIDE,
         )
     }
 
@@ -616,7 +616,7 @@ internal class RoomLibraryVault private constructor(
         ensureEpubUpToDate(rawWork)
 
         val chapters = dao.getChapters(workId.raw)
-        val bodyChapters = chapters.filter { it.chapterRole == ChapterRole.BODY.name }
+        val bodyChapters = chapters.filter { it.chapterRole == ChapterRole.BODY }
         val blocksByOrdinal = dao.getAllBlocksForWork(workId.raw).groupBy { it.ordinal }
 
         val chapterSlices = bodyChapters.map { ch ->
@@ -629,7 +629,7 @@ internal class RoomLibraryVault private constructor(
             ChapterSlice(
                 ordinal = ChapterOrdinal(ch.ordinal),
                 title = ch.title,
-                role = ChapterRole.valueOf(ch.chapterRole),
+                role = ch.chapterRole,
                 contentHash = ChapterContentHash(ch.chapterContentSha256),
                 blocks = blocks,
             )
@@ -740,7 +740,7 @@ internal class RoomLibraryVault private constructor(
         }.getOrNull() ?: return null
         if (pngBytes.isEmpty() || pngBytes.size.toLong() > ImageHeaderInspector.MAX_COVER_BYTES) return null
         val inspected = ImageHeaderInspector.inspect(pngBytes) ?: return null
-        val persisted = persistCoverBytes(workIdRaw, "cover.${inspected.format}", pngBytes) ?: return null
+        val persisted = persistCoverBytes(workIdRaw, "cover.${inspected.format.extension}", pngBytes) ?: return null
         return Triple(persisted.first, inspected.width, inspected.height)
     }
 
@@ -889,7 +889,7 @@ internal class RoomLibraryVault private constructor(
                 ordinal = ch.ordinal,
                 n = ch.n,
                 title = ch.title,
-                chapterRole = ch.role.name,
+                chapterRole = ch.role,
                 merged = ch.merged,
                 sourceFilesJson = json.encodeToString(ListSerializer(String.serializer()), ch.sourceFiles),
                 chapterContentSha256 = ch.contentSha256,
@@ -911,7 +911,7 @@ internal class RoomLibraryVault private constructor(
                     ordinal = ch.ordinal,
                     blockId = blk.id,
                     blockIndex = blk.blockIndex,
-                    kind = blk.kind,
+                    kind = blk.kind.persistedValue,
                     headingPath = blk.headingPath,
                     cleanText = blk.cleanText,
                     charStart = blk.charStart,
@@ -929,7 +929,7 @@ internal class RoomLibraryVault private constructor(
         if (normTitle.isEmpty() || normAuthor.isEmpty()) return null
         return dao.listAllWorks().firstOrNull { w ->
             w.workId.startsWith("local_") &&
-                w.format in setOf("EPUB", "MOBI", "AZW3") &&
+                w.format in setOf(WorkFormat.EPUB, WorkFormat.MOBI, WorkFormat.AZW3) &&
                 normalizeMatchKey(w.title) == normTitle &&
                 normalizeMatchKey(w.author) == normAuthor
         }
@@ -971,7 +971,7 @@ internal class RoomLibraryVault private constructor(
             readProfileId = ReadProfileId(readProfileId),
             literatureSubKind = literatureSubKind,
             clothColor = clothColor,
-            format = format,
+            format = format.storedValue,
             supportedModes = modes,
             isScannedPdf = isScannedPdf,
             coverRel = effectiveRel,
@@ -1001,13 +1001,13 @@ internal class RoomLibraryVault private constructor(
         work: WorkEntity,
         fallbackSourceFile: File? = null,
     ): WorkEntity {
-        if (work.format != "EPUB" || work.parserVersion >= CURRENT_EPUB_PARSER_VERSION) {
+        if (work.format != WorkFormat.EPUB || work.parserVersion >= CURRENT_EPUB_PARSER_VERSION) {
             return work
         }
         val mutex = recompileLocks.computeIfAbsent(work.workId) { Mutex() }
         return mutex.withLock {
             val latest = dao.findWorkById(work.workId) ?: return@withLock work
-            if (latest.format != "EPUB" || latest.parserVersion >= CURRENT_EPUB_PARSER_VERSION) {
+            if (latest.format != WorkFormat.EPUB || latest.parserVersion >= CURRENT_EPUB_PARSER_VERSION) {
                 return@withLock latest
             }
             val origFile = resolveSafeExistingFile(latest.originalFilePath)
@@ -1130,14 +1130,14 @@ internal class RoomLibraryVault private constructor(
             subjectsJson = json.encodeToString(ListSerializer(String.serializer()), parsed.subjects),
             readProfileId = existingWork?.readProfileId ?: resolvedProfile.profile.readType.raw,
             literatureSubKind = if (existingWork != null) existingWork.literatureSubKind else resolvedProfile.subKind.ifBlank { null },
-            profileSource = existingWork?.profileSource ?: "AUTO",
+            profileSource = existingWork?.profileSource ?: WorkProfileSource.AUTO,
             clothColor = clothColor,
             coverRel = coverRel,
             coverWidth = coverWidth,
             coverHeight = coverHeight,
             originalFilePath = epubFile.absolutePath,
             compiledRootPath = compiledRoot.absolutePath,
-            format = "EPUB",
+            format = WorkFormat.EPUB,
             supportedModesJson = json.encodeToString(ListSerializer(ReadingSurfaceMode.serializer()), modes.toList()),
             isScannedPdf = false,
             blockVersion = 2,

@@ -558,6 +558,65 @@ class ReaderEngineContractTest {
     }
 
     @Test
+    fun `queued scripts flush strictly FIFO after the active webview reports bridge ready`() = runTest {
+        val recordedScripts = mutableListOf<String>()
+        val webView = object : WebView(context) {
+            override fun evaluateJavascript(script: String, resultCallback: ValueCallback<String>?) {
+                recordedScripts += script
+                super.evaluateJavascript(script, resultCallback)
+            }
+        }
+        val webAdapter = FoliateWebAdapter(context, filesRoot)
+        webAdapter.attachWebView(webView)
+        webAdapter.setHorizontalMarginDp(11f)
+        webAdapter.updateStyles("body{--fifo:1}")
+        webAdapter.setHorizontalMarginDp(22f)
+        webAdapter.updateStyles("body{--fifo:2}")
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        assertTrue("Queued scripts must wait for bridge ready: $recordedScripts", recordedScripts.isEmpty())
+
+        val bridge = Shadows.shadowOf(webView).getJavascriptInterface("BanReadNative")
+        bridge.javaClass.getDeclaredMethod("onBridgeReady", String::class.java).invoke(bridge, "{}")
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+        val styleCalls = recordedScripts.filter { it.contains("BanReadBridge.updateStyles") }
+        assertEquals(2, styleCalls.size)
+        assertTrue("First queued script must flush first: $styleCalls", styleCalls[0].contains("11.0"))
+        assertTrue("Second queued script must flush second: $styleCalls", styleCalls[1].contains("22.0"))
+    }
+
+    @Test
+    fun `bridge ready from a detached webview cannot flush the replacement queue`() = runTest {
+        fun recordingWebView(recorded: MutableList<String>) = object : WebView(context) {
+            override fun evaluateJavascript(script: String, resultCallback: ValueCallback<String>?) {
+                recorded += script
+                super.evaluateJavascript(script, resultCallback)
+            }
+        }
+
+        val recordedScripts = mutableListOf<String>()
+        val webAdapter = FoliateWebAdapter(context, filesRoot)
+        val firstWebView = recordingWebView(recordedScripts)
+        webAdapter.attachWebView(firstWebView)
+        val firstBridge = Shadows.shadowOf(firstWebView).getJavascriptInterface("BanReadNative")
+        webAdapter.detachWebView()
+
+        val secondWebView = recordingWebView(recordedScripts)
+        webAdapter.attachWebView(secondWebView)
+        webAdapter.updateStyles("body{--next:1}")
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+        firstBridge.javaClass.getDeclaredMethod("onBridgeReady", String::class.java).invoke(firstBridge, "{}")
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        assertTrue("Detached bridge flushed replacement scripts: $recordedScripts", recordedScripts.isEmpty())
+
+        val secondBridge = Shadows.shadowOf(secondWebView).getJavascriptInterface("BanReadNative")
+        secondBridge.javaClass.getDeclaredMethod("onBridgeReady", String::class.java).invoke(secondBridge, "{}")
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(1, recordedScripts.count { it.contains("BanReadBridge.updateStyles") && it.contains("--next") })
+    }
+
+    @Test
     fun `regression - Bugs 3 4 5 reader_bridge JS finite progress, gap margin, BlockOffset overlays, openSeq guard`() = runTest {
         val bridgeFile = File("src/main/assets/reader/reader_bridge.js")
         assumeTrue("reader_bridge.js not found from CWD", bridgeFile.isFile)
