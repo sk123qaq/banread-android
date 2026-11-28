@@ -144,24 +144,52 @@ internal object XhtmlBookCompiler {
         appendLine("""<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="zh">""")
         appendLine("""<head><meta charset="utf-8"/><title>${xmlEscape(chTitle)}</title></head>""")
         appendLine("""<body data-chapter-ordinal="${chOrd.value}" data-chapter-role="${chapter.role.name.lowercase()}">""")
+        val leadingTitle = chapter.blocks.firstOrNull()?.takeIf { blk ->
+            chTitle.isNotBlank() &&
+                blk.kind == MarkdownBlockKind.HEADING &&
+                (blk.level ?: 0) == 1 &&
+                blk.cleanText.trim() == chTitle.trim()
+        }
         if (chTitle.isNotBlank()) {
-            appendLine("""  <h1>${xmlEscape(chTitle)}</h1>""")
+            val headerId = leadingTitle?.let {
+                """id="${xmlEscape(it.id)}" data-block-id="${xmlEscape(it.id)}" data-block-index="${it.blockIndex}""""
+            }.orEmpty()
+            val headerAttrs = if (headerId.isEmpty()) "" else " $headerId"
+            appendLine("""  <header class="book-chapter-head"$headerAttrs>""")
+            appendLine("""    <p class="chapter-kicker">第 ${chOrd.value} 章</p>""")
+            if (leadingTitle != null) {
+                val inner = renderTextWithNoterefs(
+                    chapter.ordinal,
+                    leadingTitle.id,
+                    leadingTitle.cleanText,
+                    leadingTitle.fnRefs,
+                    inlineTargets,
+                )
+                appendLine("""    <h1 class="book-chapter-title">$inner</h1>""")
+            } else {
+                appendLine("""    <h1 class="book-chapter-title">${xmlEscape(chTitle)}</h1>""")
+            }
+            appendLine("""    <p class="chapter-meta">${xmlEscape(bookTitle)} · 伴读排版</p>""")
+            appendLine("""  </header>""")
         }
 
+        appendLine("""  <div class="reader-body">""")
         for (blk in chapter.blocks) {
+            if (leadingTitle != null && blk.id == leadingTitle.id) continue
             val idAttr = """id="${xmlEscape(blk.id)}" data-block-id="${xmlEscape(blk.id)}" data-block-index="${blk.blockIndex}""""
             when (blk.kind) {
                 MarkdownBlockKind.HEADING -> {
                     val lvl = (blk.level ?: 2).coerceIn(1, 6)
                     val inner = renderTextWithNoterefs(chapter.ordinal, blk.id, blk.cleanText, blk.fnRefs, inlineTargets)
-                    appendLine("""  <h$lvl $idAttr>$inner</h$lvl>""")
+                    appendLine("""  <h$lvl class="reader-block reader-block-heading" $idAttr>$inner</h$lvl>""")
                 }
                 MarkdownBlockKind.QUOTE -> {
                     val inner = renderTextWithNoterefs(chapter.ordinal, blk.id, blk.cleanText, blk.fnRefs, inlineTargets)
-                    appendLine("""  <blockquote $idAttr><p>$inner</p></blockquote>""")
+                    appendLine("""  <blockquote class="reader-block reader-block-quote" $idAttr><p>$inner</p></blockquote>""")
                 }
-                MarkdownBlockKind.LIST -> {
-                    appendLine("""  <ul $idAttr>""")
+                MarkdownBlockKind.LIST, MarkdownBlockKind.ORDERED_LIST -> {
+                    val listTag = if (blk.kind == MarkdownBlockKind.ORDERED_LIST) "ol" else "ul"
+                    appendLine("""  <$listTag class="reader-block reader-block-list" $idAttr>""")
                     val items = blk.listItems.ifEmpty { blk.cleanText.split('\n') }
                     items.forEachIndexed { idx, itemText ->
                         val itemRefs = blk.listItemRefs.getOrNull(idx).orEmpty()
@@ -175,9 +203,10 @@ internal object XhtmlBookCompiler {
                         )
                         appendLine("""    <li>$inner</li>""")
                     }
-                    appendLine("""  </ul>""")
+                    appendLine("""  </$listTag>""")
                 }
                 MarkdownBlockKind.TABLE -> {
+                    appendLine("""  <div class="table-wrap reader-block">""")
                     appendLine("""  <table $idAttr>""")
                     if (blk.tableHead.isNotEmpty()) {
                         append("""    <thead><tr>""")
@@ -196,30 +225,40 @@ internal object XhtmlBookCompiler {
                     }
                     appendLine("""    </tbody>""")
                     appendLine("""  </table>""")
+                    appendLine("""  </div>""")
                 }
                 MarkdownBlockKind.CODE -> {
                     val langAttr = if (blk.lang.isNotBlank()) """ class="language-${xmlEscape(blk.lang)}"""" else ""
-                    appendLine("""  <pre $idAttr><code$langAttr>${xmlEscape(blk.cleanText)}</code></pre>""")
+                    appendLine("""  <pre class="reader-block reader-block-code" $idAttr><code$langAttr>${xmlEscape(blk.cleanText)}</code></pre>""")
                 }
                 MarkdownBlockKind.IMAGE -> {
                     val src = blk.imageRel.trimStart('/').let {
                         if (it.startsWith("images/") || it.startsWith("../")) it else "images/$it"
                     }
-                    appendLine("""  <figure $idAttr><img src="${xmlEscape(src)}" alt="${xmlEscape(blk.imageAlt)}"/></figure>""")
+                    val caption = if (blk.imageAlt.isNotBlank()) {
+                        """<figcaption>${xmlEscape(blk.imageAlt)}</figcaption>"""
+                    } else {
+                        ""
+                    }
+                    appendLine("""  <figure class="reader-block reader-block-figure" $idAttr><img src="${xmlEscape(src)}" alt="${xmlEscape(blk.imageAlt)}"/>$caption</figure>""")
                 }
                 MarkdownBlockKind.FOOTNOTE -> {
                     val marker = blk.fnMarkerDisplay.ifEmpty { blk.fnMarkerKey }
                     val inner = renderTextWithNoterefs(chapter.ordinal, blk.id, blk.cleanText, blk.fnRefs, inlineTargets)
                     appendLine(
-                        """  <aside $idAttr epub:type="footnote" role="doc-footnote" data-fn-marker="${xmlEscape(marker)}"><span class="fn-marker">[${xmlEscape(marker)}]</span> $inner</aside>""",
+                        """  <aside class="reader-block reader-block-footnote" $idAttr epub:type="footnote" role="doc-footnote" data-fn-marker="${xmlEscape(marker)}"><span class="fn-marker">[${xmlEscape(marker)}]</span> $inner</aside>""",
                     )
+                }
+                MarkdownBlockKind.HR -> {
+                    appendLine("""  <hr class="section-break" $idAttr/>""")
                 }
                 else -> {
                     val inner = renderTextWithNoterefs(chapter.ordinal, blk.id, blk.cleanText, blk.fnRefs, inlineTargets)
-                    appendLine("""  <p $idAttr>$inner</p>""")
+                    appendLine("""  <p class="reader-block reader-block-paragraph" $idAttr>$inner</p>""")
                 }
             }
         }
+        appendLine("""  </div>""")
         appendLine("""</body>""")
         appendLine("""</html>""")
     }

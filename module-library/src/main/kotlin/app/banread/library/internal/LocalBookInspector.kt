@@ -753,7 +753,7 @@ internal object LocalBookInspector {
                             blocks += ParsedBlock(
                                 id = "B${(idx + 1).toString().padStart(2, '0')}",
                                 blockIndex = idx,
-                                kind = MarkdownBlockKind.LIST,
+                                kind = if (tag == "ol") MarkdownBlockKind.ORDERED_LIST else MarkdownBlockKind.LIST,
                                 headingPath = "",
                                 cleanText = listItems.joinToString("\n"),
                                 charStart = 0,
@@ -816,6 +816,20 @@ internal object LocalBookInspector {
                                         pendingHtmlIds.clear()
                                     }
                                     if (elemId != null) currentBlockHtmlIds += elemId
+                                } else if (tag == "hr") {
+                                    val idx = blocks.size
+                                    blocks += ParsedBlock(
+                                        id = "B${(idx + 1).toString().padStart(2, '0')}",
+                                        blockIndex = idx,
+                                        kind = MarkdownBlockKind.HR,
+                                        headingPath = "",
+                                        cleanText = "",
+                                        charStart = 0,
+                                        charEnd = 0,
+                                    )
+                                    if (elemId != null) {
+                                        htmlIdsByBlockIdx[idx] = mutableSetOf(elemId)
+                                    }
                                 } else if (tag == "img") {
                                     val src = parser.getAttributeValue(null, "src").orEmpty()
                                     val alt = parser.getAttributeValue(null, "alt").orEmpty()

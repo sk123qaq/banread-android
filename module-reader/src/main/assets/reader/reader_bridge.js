@@ -350,6 +350,65 @@
         doc.addEventListener('selectionchange', scheduleSelectionEmit);
     }
 
+    function applyActiveBlock(doc, blockId) {
+        if (!doc || typeof doc.querySelectorAll !== 'function') return;
+        var marked = doc.querySelectorAll('.is-active');
+        for (var i = 0; i < marked.length; i++) marked[i].classList.remove('is-active');
+        if (!blockId) return;
+        var blocks = doc.querySelectorAll('[data-block-id]');
+        for (var j = 0; j < blocks.length; j++) {
+            if (blocks[j].getAttribute('data-block-id') === blockId) {
+                blocks[j].classList.add('is-active');
+                return;
+            }
+        }
+    }
+
+    function renderPinNotes(doc) {
+        if (!doc || typeof doc.querySelectorAll !== 'function') return;
+        var wanted = {};
+        for (var i = 0; i < state.annotations.length; i++) {
+            var item = state.annotations[i];
+            if (item && item.comment && item.blockId) wanted[item.noteId || item.blockId] = true;
+        }
+        var rendered = doc.querySelectorAll('details.pin-note[data-pin-for]');
+        var present = {};
+        for (var r = 0; r < rendered.length; r++) {
+            var renderedKey = rendered[r].getAttribute('data-pin-for');
+            if (!wanted[renderedKey] && rendered[r].parentNode) {
+                rendered[r].parentNode.removeChild(rendered[r]);
+            } else if (wanted[renderedKey]) {
+                present[renderedKey] = true;
+            }
+        }
+        for (var n = 0; n < state.annotations.length; n++) {
+            var note = state.annotations[n];
+            if (!note || !note.comment || !note.blockId) continue;
+            var key = note.noteId || note.blockId;
+            if (present[key]) continue;
+            var blocks = doc.querySelectorAll('[data-block-id]');
+            var target = null;
+            for (var k = 0; k < blocks.length; k++) {
+                if (blocks[k].getAttribute('data-block-id') === note.blockId) {
+                    target = blocks[k];
+                    break;
+                }
+            }
+            if (!target) continue;
+            var details = doc.createElement('details');
+            details.className = 'pin-note';
+            details.setAttribute('data-pin-for', key);
+            var summary = doc.createElement('summary');
+            summary.textContent = '眉批';
+            var body = doc.createElement('p');
+            body.textContent = note.comment;
+            details.appendChild(summary);
+            details.appendChild(body);
+            target.insertAdjacentElement('afterend', details);
+            present[key] = true;
+        }
+    }
+
     function applyAllAnnotationsToCurrentOverlay(index) {
         if (!state.view) return;
         for (var i = 0; i < state.annotations.length; i++) {
@@ -473,6 +532,9 @@
                     var section = view.book && view.book.sections ? view.book.sections[sectionIdx] : null;
                     var href = section ? section.id : ('OEBPS/ch_' + String(ordinal).padStart(2, '0') + '.xhtml');
                     var blockId = detail.range ? findBlockIdForNode(detail.range.startContainer) : null;
+                    state.currentBlockId = blockId || '';
+                    applyActiveBlock(doc, state.currentBlockId);
+                    renderPinNotes(doc);
                     var textQuote = extractTextQuoteFromRange(detail.range);
                     var totalProgression = finiteUnit(detail.fraction);
                     var renderer = view.renderer;
@@ -696,6 +758,7 @@
             var item = {
                 value: value,
                 noteId: entry.noteId,
+                blockId: anchor.blockId || '',
                 colorToken: entry.colorToken || 'YELLOW',
                 comment: entry.comment || ''
             };
@@ -705,6 +768,8 @@
                 try { await state.view.addAnnotation(item); } catch (_) {}
             }
         }
+        var current = resolveCurrentDoc();
+        renderPinNotes(current ? current.doc : null);
     }
 
     function prevPage() {

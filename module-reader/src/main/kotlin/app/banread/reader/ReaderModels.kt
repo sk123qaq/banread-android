@@ -23,6 +23,7 @@ data class ThemeColorSpec(
     val foregroundHex: String,
     val linkHex: String,
     val selectionHex: String,
+    val accentHex: String,
     val isDark: Boolean,
     val isEink: Boolean,
 )
@@ -34,6 +35,7 @@ object ThemePalette {
             foregroundHex = "#1E1E1E",
             linkHex = "#1D4ED8",
             selectionHex = "rgba(37, 99, 235, 0.22)",
+            accentHex = "#A8442F",
             isDark = false,
             isEink = false,
         )
@@ -42,6 +44,7 @@ object ThemePalette {
             foregroundHex = "#3B2F23",
             linkHex = "#7C4A1D",
             selectionHex = "rgba(180, 120, 40, 0.24)",
+            accentHex = "#A8442F",
             isDark = false,
             isEink = false,
         )
@@ -50,6 +53,7 @@ object ThemePalette {
             foregroundHex = "#D8DEE9",
             linkHex = "#7DD3FC",
             selectionHex = "rgba(125, 211, 252, 0.24)",
+            accentHex = "#DF745D",
             isDark = true,
             isEink = false,
         )
@@ -58,6 +62,7 @@ object ThemePalette {
             foregroundHex = "#E5E7EB",
             linkHex = "#60A5FA",
             selectionHex = "rgba(96, 165, 250, 0.26)",
+            accentHex = "#F87171",
             isDark = true,
             isEink = false,
         )
@@ -66,6 +71,7 @@ object ThemePalette {
             foregroundHex = "#000000",
             linkHex = "#000000",
             selectionHex = "rgba(0, 0, 0, 0.18)",
+            accentHex = "#000000",
             isDark = false,
             isEink = true,
         )

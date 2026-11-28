@@ -314,8 +314,14 @@ class ReaderEngineContractTest {
                 Regex("""(?m)^\s*aside\[epub\|type~="footnote"\]""").containsMatchIn(css),
             )
 
-            assertFalse("CSS must not set padding-left on html, body", css.contains("padding-left:"))
-            assertFalse("CSS must not set padding-right on html, body", css.contains("padding-right:"))
+            assertFalse(
+                "CSS must not set horizontal padding on body",
+                Regex("""body\s*\{[^}]*padding-(?:left|right)""").containsMatchIn(css),
+            )
+            assertTrue(css.contains("max-width: 680px"))
+            assertTrue(css.contains("text-indent: 0 !important"))
+            assertTrue(css.contains("hr.section-break"))
+            assertTrue(css.contains("details.pin-note"))
 
             if (theme == ReaderTheme.EINK_HIGH_CONTRAST) {
                 assertTrue(css.contains("transition: none !important;"))

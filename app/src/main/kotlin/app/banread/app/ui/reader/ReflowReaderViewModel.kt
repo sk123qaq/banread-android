@@ -33,7 +33,7 @@ data class ReflowReaderUiState(
     val currentChapterTitle: String = "",
     val sessionState: ReaderSessionState = ReaderSessionState(),
     val hudVisible: Boolean = false,
-    val typographySheetOpen: Boolean = false,
+    val activeSheet: ReaderSheet = ReaderSheet.NONE,
     val theme: ReaderTheme = ReaderTheme.SEPIA_WARM,
     val typography: TypographyProfile = TypographyProfile(
         fontFamily = "Noto Serif CJK SC",
@@ -111,7 +111,7 @@ class ReflowReaderViewModel(
                     _uiState.value = _uiState.value.copy(
                         activeFootnote = detail,
                         hudVisible = false,
-                        typographySheetOpen = false,
+                        activeSheet = ReaderSheet.NONE,
                         activeSelection = null,
                     )
                 }
@@ -122,7 +122,7 @@ class ReflowReaderViewModel(
                 _uiState.value = _uiState.value.copy(
                     activeSelection = sel,
                     hudVisible = false,
-                    typographySheetOpen = false,
+                    activeSheet = ReaderSheet.NONE,
                 )
             }
         }
@@ -223,10 +223,14 @@ class ReflowReaderViewModel(
             _uiState.value = _uiState.value.copy(activeFootnote = null)
             return
         }
+        if (_uiState.value.activeSheet != ReaderSheet.NONE) {
+            _uiState.value = _uiState.value.copy(activeSheet = ReaderSheet.NONE)
+            return
+        }
         val nextHud = !_uiState.value.hudVisible
         _uiState.value = _uiState.value.copy(
             hudVisible = nextHud,
-            typographySheetOpen = if (nextHud) _uiState.value.typographySheetOpen else false,
+            activeSheet = if (nextHud) _uiState.value.activeSheet else ReaderSheet.NONE,
         )
     }
 
@@ -238,15 +242,29 @@ class ReflowReaderViewModel(
         surfaceController.nextPage()
     }
 
-    fun toggleTypographySheet() {
-        _uiState.value = _uiState.value.copy(
-            hudVisible = true,
-            typographySheetOpen = !_uiState.value.typographySheetOpen,
-        )
+    fun openSheet(sheet: ReaderSheet) {
+        if (sheet == ReaderSheet.NONE) {
+            dismissSheet()
+            return
+        }
+        val next = if (_uiState.value.activeSheet == sheet) ReaderSheet.NONE else sheet
+        _uiState.value = _uiState.value.copy(hudVisible = true, activeSheet = next)
     }
 
-    fun dismissTypographySheet() {
-        _uiState.value = _uiState.value.copy(typographySheetOpen = false)
+    fun dismissSheet() {
+        _uiState.value = _uiState.value.copy(activeSheet = ReaderSheet.NONE)
+    }
+
+    fun toggleTypographySheet() {
+        openSheet(ReaderSheet.TYPOGRAPHY)
+    }
+
+    fun toggleThemeSheet() {
+        openSheet(ReaderSheet.THEME)
+    }
+
+    fun toggleMoreSheet() {
+        openSheet(ReaderSheet.MORE)
     }
 
     fun applyTheme(theme: ReaderTheme) {
@@ -260,8 +278,8 @@ class ReflowReaderViewModel(
         val clamped = profile.copy(
             fontSizeSp = profile.fontSizeSp.coerceIn(12f, 36f),
             lineHeightMultiplier = profile.lineHeightMultiplier.coerceIn(1.2f, 2.4f),
-            paragraphSpacingDp = profile.paragraphSpacingDp.coerceAtLeast(0f),
-            horizontalMarginDp = profile.horizontalMarginDp.coerceAtLeast(0f),
+            paragraphSpacingDp = profile.paragraphSpacingDp.coerceIn(0f, 28f),
+            horizontalMarginDp = profile.horizontalMarginDp.coerceIn(8f, 40f),
         )
         appPreferences.updateTypography(clamped)
         viewModelScope.launch {
