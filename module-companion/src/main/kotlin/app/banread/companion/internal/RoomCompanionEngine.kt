@@ -15,6 +15,10 @@ import app.banread.model.LlmStreamEvent
 import app.banread.model.ProfileToolbox
 import app.banread.model.ReadProfileId
 import app.banread.model.ReadingAnchor
+import app.banread.model.ShareCompanionMergeResult
+import app.banread.model.SharedCompanionArtifact
+import app.banread.model.SharedCompanionPayload
+import app.banread.model.SharedQaTurn
 import app.banread.model.SpoilerGate
 import app.banread.model.SyncCoordinator
 import app.banread.model.TokenEstimate
@@ -458,6 +462,119 @@ internal class RoomCompanionEngine(
         withContext(Dispatchers.IO) {
             cacheImporter.import(workId, bundleCacheDir)
         }
+    }
+
+    override suspend fun exportShareCompanionData(
+        workId: WorkId,
+        includeMaps: Boolean,
+        includeQa: Boolean,
+    ): SharedCompanionPayload = withContext(Dispatchers.IO) {
+        val artifacts = if (includeMaps) {
+            dao.getResultsForWork(workId.raw).mapNotNull { row ->
+                runCatching {
+                    val decoded = json.decodeFromString(AuditedArtifact.serializer(), row.artifactJson)
+                    SharedCompanionArtifact(
+                        scopeKey = row.scopeKey,
+                        progressGateKey = row.progressGateKey,
+                        toolId = row.toolId,
+                        promptVersion = row.promptVersion,
+                        chapterContentSha256 = row.chapterContentSha256,
+                        artifact = decoded,
+                        isPinned = row.isPinned,
+                        createdAtMs = row.createdAtMs,
+                    )
+                }.getOrNull()
+            }
+        } else {
+            emptyList()
+        }
+        val qaTurns = if (includeQa) {
+            dao.getAllQaTurnsForWork(workId.raw).map { turn ->
+                SharedQaTurn(
+                    threadId = turn.threadId,
+                    scopeKey = turn.scopeKey,
+                    gateOrdinal = turn.gateOrdinal,
+                    turnIndex = turn.turnIndex,
+                    role = turn.role,
+                    content = turn.content,
+                    createdAtMs = turn.createdAtMs,
+                )
+            }
+        } else {
+            emptyList()
+        }
+        SharedCompanionPayload(artifacts = artifacts, qaTurns = qaTurns)
+    }
+
+    override suspend fun importShareCompanionData(
+        workId: WorkId,
+        payload: SharedCompanionPayload,
+    ): ShareCompanionMergeResult = withContext(Dispatchers.IO) {
+        var importedArtifacts = 0
+        var importedQaTurns = 0
+        val now = System.currentTimeMillis()
+        for (item in payload.artifacts) {
+            val existing = dao.getExactResult(
+                workId = workId.raw,
+                scopeKey = item.scopeKey,
+                progressGateKey = item.progressGateKey,
+                toolId = item.toolId,
+                promptVersion = item.promptVersion,
+            )
+            if (existing == null) {
+                val serialized = json.encodeToString(AuditedArtifact.serializer(), item.artifact)
+                dao.upsertAndEnforceLru(
+                    CompanionResultEntity(
+                        workId = workId.raw,
+                        scopeKey = item.scopeKey,
+                        progressGateKey = item.progressGateKey,
+                        toolId = item.toolId,
+                        promptVersion = item.promptVersion,
+                        chapterContentSha256 = item.chapterContentSha256,
+                        artifactJson = serialized,
+                        tokenCost = 0L,
+                        byteSize = serialized.toByteArray(Charsets.UTF_8).size.toLong(),
+                        isPinned = item.isPinned,
+                        createdAtMs = item.createdAtMs.takeIf { it > 0L } ?: now,
+                        lastAccessedAtMs = now,
+                    ),
+                )
+                importedArtifacts++
+            }
+        }
+        val existingByThread = mutableMapOf<String, MutableList<QaThreadEntity>>()
+        for (turn in payload.qaTurns) {
+            val threadTurns = existingByThread.getOrPut(turn.threadId) {
+                dao.getQaTurns(workId.raw, turn.threadId).toMutableList()
+            }
+            val alreadyPresent = threadTurns.any {
+                it.turnIndex == turn.turnIndex && it.role == turn.role && it.content == turn.content
+            }
+            if (!alreadyPresent) {
+                val nextIndex = if (threadTurns.any { it.turnIndex == turn.turnIndex }) {
+                    (threadTurns.maxOfOrNull { it.turnIndex } ?: -1) + 1
+                } else {
+                    turn.turnIndex
+                }
+                val entity = QaThreadEntity(
+                    threadId = turn.threadId,
+                    workId = workId.raw,
+                    scopeKey = turn.scopeKey,
+                    gateOrdinal = turn.gateOrdinal,
+                    turnIndex = nextIndex,
+                    role = turn.role,
+                    content = turn.content,
+                    createdAtMs = turn.createdAtMs.takeIf { it > 0L } ?: now,
+                )
+                dao.insertQaTurn(entity)
+                threadTurns += entity
+                importedQaTurns++
+            }
+        }
+        ShareCompanionMergeResult(
+            importedArtifacts = importedArtifacts,
+            importedQaTurns = importedQaTurns,
+        )
     }
 
     private suspend fun resolveWorkProfile(workId: WorkId): Pair<ReadProfileId, String?> {

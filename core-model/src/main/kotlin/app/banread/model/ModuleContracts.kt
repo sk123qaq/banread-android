@@ -20,6 +20,7 @@ interface LibraryVault {
     fun observeWorks(): Flow<List<WorkSummary>>
     suspend fun getWorkSummary(workId: WorkId): WorkSummary?
     suspend fun resolveCoverFile(workId: WorkId): File?
+    suspend fun resolveOriginalBookFile(workId: WorkId): File? = null
     suspend fun deleteWork(workId: WorkId): Result<Unit>
 }
 
@@ -36,6 +37,8 @@ data class ImportedWork(
     val coverWidth: Int? = null,
     val coverHeight: Int? = null,
     val coverDisplayMode: CoverDisplayMode = classifyCoverDisplayMode(coverRel, coverWidth, coverHeight),
+    val bookSourceSha256: String? = null,
+    val supersededWorkId: WorkId? = null,
 )
 
 data class ReflowPrepProgress(
@@ -102,6 +105,11 @@ interface ReaderEngine {
     suspend fun saveAnnotation(workId: WorkId, anchor: ReadingAnchor, colorToken: String, comment: String)
     suspend fun currentSpoilerGate(workId: WorkId): SpoilerGate
     suspend fun raiseWatermarkFromRemote(workId: WorkId, remoteMaxOrdinal: ChapterOrdinal)
+    suspend fun snapshotProgress(workId: WorkId): DeviceProgressShard? = null
+    suspend fun listNoteLogEntries(workId: WorkId, includeDeleted: Boolean = true): List<NoteLogEntry> = emptyList()
+    suspend fun mergeRemoteAnnotations(workId: WorkId, entries: List<NoteLogEntry>): Int = 0
+    suspend fun deleteAnnotation(workId: WorkId, noteId: String) {}
+    suspend fun migrateWorkState(fromWorkId: WorkId, toWorkId: WorkId) {}
 }
 
 /** Seam 1: FoliateWebAdapter / PdfiumPageAdapter / FakeRendererAdapter */
@@ -165,6 +173,15 @@ interface CompanionEngine {
     ): Flow<CompanionEvent>
     suspend fun estimateTokenCost(request: CompanionRequest): TokenEstimate
     suspend fun importDesktopPrecomputedCache(workId: WorkId, bundleCacheDir: String)
+    suspend fun exportShareCompanionData(
+        workId: WorkId,
+        includeMaps: Boolean,
+        includeQa: Boolean,
+    ): SharedCompanionPayload = SharedCompanionPayload()
+    suspend fun importShareCompanionData(
+        workId: WorkId,
+        payload: SharedCompanionPayload,
+    ): ShareCompanionMergeResult = ShareCompanionMergeResult(0, 0)
 }
 
 data class ProfileToolbox(
@@ -392,7 +409,14 @@ interface SyncCoordinator {
 
 /** Seam 4: HttpDesktopGatewayAdapter / InMemoryDesktopGatewayAdapter */
 interface DesktopBridgePort {
+    suspend fun checkHealth(token: String, baseUrl: String): Boolean = true
     suspend fun fetchCatalog(token: String, baseUrl: String, query: String?): List<DesktopBookSummary>
+    suspend fun fetchCatalog(
+        token: String,
+        baseUrl: String,
+        query: String?,
+        onlyWithCache: Boolean,
+    ): List<DesktopBookSummary> = fetchCatalog(token, baseUrl, query)
     suspend fun fetchOutbox(token: String, baseUrl: String): List<OutboxTicket>
     suspend fun ackOutbox(token: String, baseUrl: String, ticketIds: List<String>)
     suspend fun downloadBundleStream(
@@ -410,6 +434,11 @@ interface DesktopBridgePort {
         sourceText: String?,
     ): List<CrossBookHit>
     suspend fun pushProgressShard(token: String, baseUrl: String, shard: DeviceProgressShard)
+    suspend fun fetchProgressShards(
+        token: String,
+        baseUrl: String,
+        workId: WorkId,
+    ): List<DeviceProgressShard> = emptyList()
 }
 
 /** Seam 5: WebDavShardAdapter / S3R2ShardAdapter / InMemoryStateSyncAdapter */

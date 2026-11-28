@@ -153,6 +153,12 @@ internal interface CompanionDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertChapterDigest(digest: ChapterDigestEntity)
 
+    @Query("SELECT * FROM companion_results WHERE workId = :workId ORDER BY createdAtMs ASC")
+    suspend fun getResultsForWork(workId: String): List<CompanionResultEntity>
+
+    @Query("SELECT * FROM qa_threads WHERE workId = :workId ORDER BY threadId ASC, turnIndex ASC")
+    suspend fun getAllQaTurnsForWork(workId: String): List<QaThreadEntity>
+
     @Query("SELECT * FROM qa_threads WHERE workId = :workId AND threadId = :threadId ORDER BY turnIndex ASC")
     suspend fun getQaTurns(workId: String, threadId: String): List<QaThreadEntity>
 

@@ -1,5 +1,8 @@
 package app.banread.app
 
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
@@ -12,6 +15,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.banread.app.di.BanReadAppContainer
@@ -46,6 +50,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var appContainer: BanReadAppContainer
     private var activePrevPageAction: (() -> Unit)? = null
     private var activeNextPageAction: (() -> Unit)? = null
+    private val pendingExternalPayload = mutableStateOf<String?>(null)
 
     private val volumeKeyPager = VolumeKeyPager(
         isReaderActive = false,
@@ -58,14 +63,18 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         appContainer = (application as BanReadApplication).container
+        extractIncomingShareOrPair(intent)?.let { pendingExternalPayload.value = it }
 
         setContent {
             val prefs by appContainer.appPreferences.state.collectAsState()
+            val incomingPayload by pendingExternalPayload
 
             BanReadTheme(readerTheme = prefs.theme) {
                 BanReadAppRoot(
                     container = appContainer,
                     volumeTurnEnabled = prefs.volumeKeyPageTurn,
+                    incomingExternalPayload = incomingPayload,
+                    onConsumeIncomingPayload = { pendingExternalPayload.value = null },
                     onBindReaderVolumePager = { isActive, isEnabled, prev, next ->
                         volumeKeyPager.isReaderActive = isActive
                         volumeKeyPager.isEnabled = isEnabled
@@ -75,6 +84,34 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        extractIncomingShareOrPair(intent)?.let { pendingExternalPayload.value = it }
+    }
+
+    private fun extractIncomingShareOrPair(intent: Intent?): String? {
+        if (intent == null) return null
+        when (intent.action) {
+            Intent.ACTION_VIEW -> {
+                val data = intent.data?.toString()?.trim()
+                if (!data.isNullOrEmpty()) return data
+            }
+            Intent.ACTION_SEND -> {
+                val streamUri: Uri? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableExtra(Intent.EXTRA_STREAM)
+                }
+                if (streamUri != null) return streamUri.toString()
+                val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)?.trim()
+                if (!sharedText.isNullOrEmpty()) return sharedText
+            }
+        }
+        return null
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
@@ -89,6 +126,8 @@ class MainActivity : ComponentActivity() {
 private fun BanReadAppRoot(
     container: BanReadAppContainer,
     volumeTurnEnabled: Boolean,
+    incomingExternalPayload: String?,
+    onConsumeIncomingPayload: () -> Unit,
     onBindReaderVolumePager: (
         isReaderActive: Boolean,
         isEnabled: Boolean,
@@ -98,6 +137,14 @@ private fun BanReadAppRoot(
 ) {
     val backStack = remember { mutableStateListOf<BanReadRoute>(BanReadRoute.Bookshelf) }
     val currentRoute = backStack.last()
+
+    LaunchedEffect(incomingExternalPayload) {
+        if (!incomingExternalPayload.isNullOrBlank()) {
+            if (backStack.lastOrNull() != BanReadRoute.Settings) {
+                backStack.add(BanReadRoute.Settings)
+            }
+        }
+    }
 
     val companionVm: CompanionViewModel = viewModel(
         key = "companion_shared",
@@ -182,8 +229,17 @@ private fun BanReadAppRoot(
                     aiRuntime = container.aiRuntime,
                     fontManager = container.fontManager,
                     appPreferences = container.appPreferences,
+                    syncCoordinator = container.syncCoordinator,
+                    shareCoordinator = container.shareCoordinator,
+                    libraryVault = container.libraryVault,
                 ),
             )
+            LaunchedEffect(incomingExternalPayload) {
+                if (!incomingExternalPayload.isNullOrBlank()) {
+                    settingsVm.handleIncomingExternalUri(incomingExternalPayload)
+                    onConsumeIncomingPayload()
+                }
+            }
             SettingsScreen(
                 viewModel = settingsVm,
                 onOpenBookshelf = { navigateTo(BanReadRoute.Bookshelf) },
@@ -223,6 +279,7 @@ private fun BanReadAppRoot(
                     surfaceController = container.reflowSurfaceController,
                     fontManager = container.fontManager,
                     appPreferences = container.appPreferences,
+                    syncCoordinator = container.syncCoordinator,
                 ),
             )
 
@@ -287,6 +344,7 @@ private fun BanReadAppRoot(
                     pdfSurfaceController = container.pdfSurfaceController,
                     companionEngine = container.companionEngine,
                     appPreferences = container.appPreferences,
+                    syncCoordinator = container.syncCoordinator,
                 ),
             )
 

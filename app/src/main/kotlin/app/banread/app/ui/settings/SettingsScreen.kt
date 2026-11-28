@@ -1,8 +1,13 @@
 package app.banread.app.ui.settings
 
+import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
+import app.banread.sync.CloudSyncBackend
+import app.banread.sync.ShareChannel
+import java.io.File
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -27,7 +32,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
@@ -48,6 +55,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -76,7 +84,25 @@ fun SettingsScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val palette = BanReadTheme.palette
+    val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(state.shareSend.pendingSystemSharePath) {
+        val path = state.shareSend.pendingSystemSharePath ?: return@LaunchedEffect
+        val file = File(path)
+        if (file.isFile) {
+            runCatching {
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/octet-stream"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(Intent.createChooser(sendIntent, "分享伴读资料包"))
+            }
+        }
+        viewModel.consumePendingSystemSharePath()
+    }
 
     val fontPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
@@ -280,8 +306,11 @@ fun SettingsScreen(
                 }
             }
 
-            // Section 3: Honest Slice 6 Preview Card (Zero fake simulation!)
-            item(key = "slice6_preview") {
+            // Section 3: Desktop Gateway & Cloud Light-State Shard Sync
+            item(key = "desktop_cloud_sync") {
+                val sync = state.syncStatus
+                val panel = state.desktopSync
+                val isPaired = sync?.desktop?.isPaired == true
                 BanReadSurfaceCard {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -289,7 +318,7 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            text = "手机互联 · 三通道分享与同步（Slice 6 待接入）",
+                            text = "桌面网关与云端分片同步",
                             color = palette.ink,
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.5.sp,
@@ -297,25 +326,203 @@ fun SettingsScreen(
                         )
                         Spacer(Modifier.width(6.dp))
                         SingleLinePill(
-                            text = "Slice 6 接入后启用",
-                            containerColor = palette.amberSoft,
-                            contentColor = palette.amber,
-                            borderColor = palette.amber,
+                            text = when {
+                                isPaired && sync?.desktop?.isReachable == true -> "桌面在线"
+                                isPaired -> "已配对"
+                                else -> "未配对"
+                            },
+                            containerColor = if (isPaired) palette.pineSoft else palette.surfaceSubtle,
+                            contentColor = if (isPaired) palette.pine else palette.ink2,
+                            borderColor = if (isPaired) palette.pine else palette.lineStrong,
                         )
                     }
                     Spacer(Modifier.height(6.dp))
-                    Text(
-                        text = "跨公网 R2 24h E2EE · 局域网直连 · 微信 .bcnote",
-                        color = palette.cinnabar,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
+
+                    if (!isPaired) {
+                        Text(
+                            text = "在桌面执行 python -m bookcorpus.mobile_gateway --bind 0.0.0.0 后粘贴 bc-pair://v1?... 配对，令牌由 Tink + Keystore 加密保管。",
+                            color = palette.ink2,
+                            fontSize = 11.5.sp,
+                            lineHeight = 16.5.sp,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        OutlinedTextField(
+                            value = panel.pairUriInput,
+                            onValueChange = viewModel::updatePairUriInput,
+                            label = { Text("bc-pair://v1?base=...&token=...") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        CompactActionButton(
+                            label = if (panel.isPairing) "配对中…" else "配对桌面网关",
+                            primary = true,
+                            enabled = !panel.isPairing,
+                            onClick = viewModel::pairDesktop,
+                        )
+                    } else {
+                        Text(
+                            text = "桌面网关：${sync?.desktop?.baseUrl.orEmpty()}",
+                            color = palette.ink2,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        panel.healthStatusText?.let { status ->
+                            Spacer(Modifier.height(3.dp))
+                            Text(status, color = palette.pine, fontSize = 11.5.sp)
+                        }
+                        panel.pullingStatusText?.let { pullMsg ->
+                            Spacer(Modifier.height(3.dp))
+                            Text(pullMsg, color = palette.cinnabar, fontSize = 11.5.sp)
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            CompactActionButton(
+                                label = if (panel.isPullingBundles) "拉取中…" else "拉取 Outbox",
+                                primary = true,
+                                enabled = !panel.isPullingBundles,
+                                onClick = viewModel::pullDesktopOutbox,
+                            )
+                            CompactActionButton(
+                                label = "浏览桌面书目",
+                                onClick = viewModel::openDesktopCatalogDialog,
+                            )
+                            CompactActionButton(
+                                label = if (panel.isCheckingHealth) "检测中…" else "健康检查",
+                                enabled = !panel.isCheckingHealth,
+                                onClick = viewModel::checkDesktopHealth,
+                            )
+                            CompactActionButton(
+                                label = "解除配对",
+                                onClick = viewModel::unpairDesktop,
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+                    val cloudLabel = when (sync?.cloudBackend ?: CloudSyncBackend.NONE) {
+                        CloudSyncBackend.NONE -> "云端分片：未配置"
+                        CloudSyncBackend.WEBDAV -> "云端分片：WebDAV"
+                        CloudSyncBackend.S3_R2 -> "云端分片：S3 / R2"
+                    }
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        SingleLinePill(
+                            text = cloudLabel,
+                            containerColor = if (sync?.cloudBackend != CloudSyncBackend.NONE) palette.pineSoft else palette.surfaceSubtle,
+                            contentColor = if (sync?.cloudBackend != CloudSyncBackend.NONE) palette.pine else palette.ink2,
+                            borderColor = if (sync?.cloudBackend != CloudSyncBackend.NONE) palette.pine else palette.lineStrong,
+                            onClick = viewModel::openCloudConfigDialog,
+                        )
+                        if ((sync?.pendingOpCount ?: 0) > 0) {
+                            SingleLinePill(
+                                text = "待联网重试：${sync?.pendingOpCount}",
+                                containerColor = palette.amberSoft,
+                                contentColor = palette.amber,
+                                borderColor = palette.amber,
+                            )
+                        }
+                        CompactActionButton(
+                            label = "配置云端分片",
+                            onClick = viewModel::openCloudConfigDialog,
+                        )
+                        CompactActionButton(
+                            label = if (panel.isSyncingAll) "同步中…" else "立即同步进度/批注",
+                            enabled = !panel.isSyncingAll,
+                            onClick = viewModel::syncAllBooksNow,
+                        )
+                    }
+                    sync?.lastSyncSummary?.let { summary ->
+                        Spacer(Modifier.height(4.dp))
+                        Text(summary, color = palette.ink3, fontSize = 11.sp)
+                    }
+                }
+            }
+
+            // Section 4: 3-Channel SHA-256 Share Card matching Demo v5
+            item(key = "three_channel_share") {
+                val r2Configured = state.syncStatus?.r2RelayConfig != null
+                BanReadSurfaceCard {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "手机互联 · 三通道分享",
+                            color = palette.ink,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.5.sp,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        SingleLinePill(
+                            text = "跨公网 · 局域网 · .bcnote",
+                            containerColor = palette.pineSoft,
+                            contentColor = palette.pine,
+                            borderColor = palette.pine,
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+
+                    // 3-column compact action grid (zero horizontal overflow at 360dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        ShareGridActionButton(
+                            label = "扫码连接",
+                            onClick = { viewModel.openShareReceiveDialog() },
+                            modifier = Modifier.weight(1f),
+                        )
+                        ShareGridActionButton(
+                            label = "生成二维码",
+                            onClick = { viewModel.openShareSendDialog(ShareChannel.R2_RELAY, SharePresentationMode.QR) },
+                            modifier = Modifier.weight(1f),
+                        )
+                        ShareGridActionButton(
+                            label = "生成分享链接",
+                            onClick = { viewModel.openShareSendDialog(ShareChannel.R2_RELAY, SharePresentationMode.LINK) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    CompactActionButton(
+                        label = "导出 .bcnote / .bcshare 离线包（发微信）",
+                        onClick = { viewModel.openShareSendDialog(ShareChannel.OFFLINE_PACKAGE, SharePresentationMode.LINK) },
+                        modifier = Modifier.fillMaxWidth(),
                     )
+
+                    Spacer(Modifier.height(8.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        SingleLinePill(
+                            text = "本机 ${state.shareWorks.size} 本书 SHA-256 已就绪",
+                        )
+                        SingleLinePill(
+                            text = if (r2Configured) "R2 加密中转：已配置 (24h TTL)" else "R2 未配置：引导 .bcnote 兜底",
+                            containerColor = if (r2Configured) palette.pineSoft else palette.amberSoft,
+                            contentColor = if (r2Configured) palette.pine else palette.amber,
+                            borderColor = if (r2Configured) palette.pine else palette.amber,
+                            onClick = { viewModel.openShareSendDialog(ShareChannel.R2_RELAY, SharePresentationMode.LINK) },
+                        )
+                    }
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        text = "当前版本尚未接入双机网络传输与桌面网关，跨书对照（compare_context / method_audit）与 R2 / 局域网 / .bcnote 分享通道将在 Slice 6 接入后启用。",
-                        color = palette.ink2,
-                        fontSize = 12.sp,
-                        lineHeight = 17.5.sp,
+                        text = state.lastShareLog,
+                        color = palette.ink3,
+                        fontSize = 11.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -340,6 +547,82 @@ fun SettingsScreen(
             onSave = viewModel::saveByokEditor,
             onDismiss = viewModel::dismissByokDialog,
         )
+    }
+
+    if (state.desktopSync.catalogDialogOpen) {
+        DesktopCatalogDialog(
+            panel = state.desktopSync,
+            onQueryChange = viewModel::updateDesktopCatalogQuery,
+            onToggleOnlyWithCache = viewModel::toggleDesktopCatalogOnlyWithCache,
+            onSearch = viewModel::loadDesktopCatalog,
+            onPullBook = viewModel::pullSingleStudyPack,
+            onDismiss = viewModel::dismissDesktopCatalogDialog,
+        )
+    }
+
+    if (state.desktopSync.cloudConfigDialogOpen) {
+        CloudShardConfigDialog(
+            panel = state.desktopSync,
+            hasStoredSecret = state.syncStatus?.hasCloudSecret == true,
+            onUpdateFields = viewModel::updateCloudConfigFields,
+            onSave = viewModel::saveCloudShardConfig,
+            onDismiss = viewModel::dismissCloudConfigDialog,
+        )
+    }
+
+    if (state.shareSend.isOpen) {
+        ShareSendDialog(
+            state = state.shareSend,
+            works = state.shareWorks,
+            r2RelayConfig = state.syncStatus?.r2RelayConfig,
+            onUpdateOptions = viewModel::updateShareSendOptions,
+            onSaveR2Config = viewModel::saveR2RelayConfig,
+            onSendR2 = viewModel::sendViaR2RelayNow,
+            onStartLan = viewModel::startLanDirectShareNow,
+            onStopLan = viewModel::stopLanDirectShare,
+            onExportOffline = viewModel::exportOfflinePackageNow,
+            onDismiss = viewModel::dismissShareSendDialog,
+        )
+    }
+
+    if (state.shareReceive.isOpen) {
+        ShareReceiveDialog(
+            state = state.shareReceive,
+            onUpdateInput = viewModel::updateReceiveInput,
+            onParse = viewModel::parseIncomingShare,
+            onConfirmImport = viewModel::confirmIncomingShareImport,
+            onDismiss = viewModel::dismissShareReceiveDialog,
+        )
+    }
+}
+
+@Composable
+private fun ShareGridActionButton(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val palette = BanReadTheme.palette
+    androidx.compose.material3.Surface(
+        modifier = modifier
+            .height(34.dp)
+            .clickable(onClick = onClick),
+        color = palette.surfaceSubtle,
+        shape = RoundedCornerShape(8.dp),
+        border = BorderStroke(1.dp, palette.lineStrong),
+        shadowElevation = 0.dp,
+    ) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 4.dp)) {
+            Text(
+                text = label,
+                color = palette.ink,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 

@@ -209,6 +209,17 @@ fun PdfReaderScreen(
                 }
             }
 
+            // Non-intrusive RemoteCursorBanner
+            val remoteBanner = state.remoteCursorBanner
+            if (remoteBanner != null) {
+                app.banread.app.ui.components.RemoteCursorBannerCard(
+                    message = remoteBanner.message,
+                    onJump = viewModel::jumpToRemoteCursor,
+                    onIgnore = viewModel::dismissRemoteCursorBanner,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+            }
+
             // PDF page stage with pinch-zoom OR live drag-to-crop overlay
             val rendered = state.renderedPage
             Box(

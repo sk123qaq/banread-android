@@ -13,6 +13,8 @@ import app.banread.model.ReaderSessionState
 import app.banread.model.ReaderTheme
 import app.banread.model.ReadingAnchor
 import app.banread.model.ReadingSurfaceMode
+import app.banread.model.RemoteCursorBanner
+import app.banread.model.SyncCoordinator
 import app.banread.model.TypographyProfile
 import app.banread.model.WorkId
 import app.banread.model.WorkOutline
@@ -50,6 +52,7 @@ data class ReflowReaderUiState(
     val preFootnoteReturnAnchor: ReadingAnchor? = null,
     val preFootnoteReturnLabel: String? = null,
     val showReturnToCompanionPill: Boolean = false,
+    val remoteCursorBanner: RemoteCursorBanner? = null,
     val statusBanner: String? = null,
 )
 
@@ -60,6 +63,7 @@ class ReflowReaderViewModel(
     private val surfaceController: ReflowSurfaceController,
     private val fontManager: FontManager?,
     private val appPreferences: AppPreferencesPort,
+    private val syncCoordinator: SyncCoordinator? = null,
 ) : ViewModel() {
 
     private var cachedOutline: WorkOutline? = null
@@ -157,6 +161,30 @@ class ReflowReaderViewModel(
             currentChapterTitle = chTitle,
             registeredFonts = fonts,
         )
+        reconcileRemoteProgress()
+    }
+
+    fun reconcileRemoteProgress() {
+        val coord = syncCoordinator ?: return
+        viewModelScope.launch {
+            coord.reconcileWork(workId).onSuccess { outcome ->
+                if (outcome.remoteCursorBanner != null) {
+                    _uiState.value = _uiState.value.copy(remoteCursorBanner = outcome.remoteCursorBanner)
+                }
+            }
+        }
+    }
+
+    fun jumpToRemoteCursor() {
+        val banner = _uiState.value.remoteCursorBanner ?: return
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(remoteCursorBanner = null)
+            readerEngine.goTo(banner.remoteCursor, highlightPulseMs = 1_500L)
+        }
+    }
+
+    fun dismissRemoteCursorBanner() {
+        _uiState.value = _uiState.value.copy(remoteCursorBanner = null)
     }
 
     private fun resolveChapterTitle(ordinal: ChapterOrdinal?): String {
@@ -353,6 +381,7 @@ class ReflowReaderViewModel(
             surfaceController: ReflowSurfaceController,
             fontManager: FontManager?,
             appPreferences: AppPreferencesPort,
+            syncCoordinator: SyncCoordinator? = null,
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T =
@@ -363,6 +392,7 @@ class ReflowReaderViewModel(
                     surfaceController = surfaceController,
                     fontManager = fontManager,
                     appPreferences = appPreferences,
+                    syncCoordinator = syncCoordinator,
                 ) as T
         }
     }
