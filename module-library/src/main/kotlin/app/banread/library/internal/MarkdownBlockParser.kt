@@ -32,6 +32,7 @@ internal data class ParsedBlock(
     val fnMarkerKey: String = "",
     val fnBackFile: String = "",
     val isTranslatorOrBib: Boolean = false,
+    val isBoldOnly: Boolean = false,
 )
 
 internal data class ParsedChapterMarkdown(

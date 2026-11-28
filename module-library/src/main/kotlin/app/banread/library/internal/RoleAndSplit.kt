@@ -13,6 +13,7 @@ internal object RoleAndSplit {
     private const val BODY_MIN_CHARS = 500
     private const val BODY_STEM_PREFIX = "前置页"
     private const val NON_TOC_FRONT_BACK_BODY_LIMIT = 1_200
+    private const val NON_TOC_PRAISE_PREFACE_LIMIT = 6_000
     private const val TOC_BODY_CHECK_MIN_CHARS = 2_000
     private const val TOC_BODY_MAX_CHARS = 15_000
 
@@ -27,7 +28,12 @@ internal object RoleAndSplit {
     )
 
     private val TOC_TITLE_RE = Regex(
-        """^(?:总目录|简目|详细目录|插图目录|图表目录|目\s*录|table\s*of\s*contents|contents)$""",
+        """^(?:总目录|简目|详细目录|插图目录|图表目录|目\s*录|table\s*of\s*contents|contents|document\s*outline)$""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private val PRAISE_OR_PREFACE_TITLE_RE = Regex(
+        """^(?:(?:各界|媒体)?赞誉|推荐赞誉|推荐语|译者序|推荐序|代序|序言|praise|endorsements|preface|foreword|translator'?s?\s*(?:note|preface))$""",
         RegexOption.IGNORE_CASE,
     )
 
@@ -97,6 +103,16 @@ internal object RoleAndSplit {
             (stemNorm.isNotEmpty() && FRONT_BACK_TITLE_RE.matches(stemNorm))
         ) {
             return if (plainChars >= NON_TOC_FRONT_BACK_BODY_LIMIT) {
+                ChapterRole.BODY
+            } else {
+                ChapterRole.FRONT_BACK
+            }
+        }
+
+        if ((cleanTitle.isNotEmpty() && PRAISE_OR_PREFACE_TITLE_RE.matches(cleanTitle)) ||
+            (stemNorm.isNotEmpty() && PRAISE_OR_PREFACE_TITLE_RE.matches(stemNorm))
+        ) {
+            return if (plainChars >= NON_TOC_PRAISE_PREFACE_LIMIT) {
                 ChapterRole.BODY
             } else {
                 ChapterRole.FRONT_BACK

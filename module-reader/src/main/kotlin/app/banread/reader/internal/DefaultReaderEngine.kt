@@ -101,10 +101,19 @@ internal class DefaultReaderEngine(
                 val savedCursor = decodeAnchor(saved.cursorJson)
                 val savedMode = runCatching { ReadingSurfaceMode.valueOf(saved.surfaceMode) }
                     .getOrDefault(effectiveMode)
-                resolvedInitial = if (savedMode == effectiveMode) {
+                val allOrdinals = (outline.bodyChapters + outline.notesChapters + outline.frontBackChapters)
+                    .map { it.ordinal }
+                    .toSet()
+                val firstChapterOrd = outline.bodyChapters.firstOrNull()?.ordinal
+                    ?: (outline.frontBackChapters + outline.notesChapters)
+                        .minByOrNull { it.ordinal }?.ordinal
+                    ?: ChapterOrdinal(1)
+                val cursorOrdValid = allOrdinals.isEmpty() || savedCursor.ordinal in allOrdinals
+                resolvedInitial = if (savedMode == effectiveMode && cursorOrdValid) {
                     savedCursor
                 } else {
-                    adaptAnchorForMode(workId, savedCursor.ordinal, effectiveMode)
+                    val targetOrd = if (cursorOrdValid) savedCursor.ordinal else firstChapterOrd
+                    adaptAnchorForMode(workId, targetOrd, effectiveMode)
                 }
             } else {
                 val firstChapterOrd = outline.bodyChapters.firstOrNull()?.ordinal
