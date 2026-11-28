@@ -128,7 +128,7 @@ class WebViewVizHost(
         when (val signal = VizBridgeMessageParser.parse(rawJson)) {
             VizBridgeSignal.HostReady -> flushOnHostReady()
             is VizBridgeSignal.RenderReady -> dispatchHostEvent(
-                VizHostEvent.Rendered(widthPx = signal.width, heightPx = signal.height),
+                VizHostEvent.Rendered(widthDp = signal.width, heightDp = signal.height),
             )
             is VizBridgeSignal.Event -> {
                 if (signal.hostEvent is VizHostEvent.Error) {

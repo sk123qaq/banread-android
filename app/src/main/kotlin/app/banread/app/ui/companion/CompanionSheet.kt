@@ -448,14 +448,9 @@ private fun CompanionStageBody(
     onRetryTool: () -> Unit,
 ) {
     val palette = BanReadTheme.palette
-    val vizDensity = LocalDensity.current
-    val vizViewportHeight = remember(state.vizContentHeightPx) {
-        val reported = state.vizContentHeightPx
-        if (reported <= 0) {
-            280.dp
-        } else {
-            with(vizDensity) { reported.toDp() }.coerceAtLeast(200.dp)
-        }
+    val vizViewportHeight = remember(state.vizContentHeightDp) {
+        val reported = state.vizContentHeightDp
+        if (reported <= 0) 280.dp else reported.dp.coerceAtLeast(200.dp)
     }
 
     if (state.streamingThinking.isNotBlank()) {

@@ -22,6 +22,7 @@ import app.banread.model.VizHostEvent
 import app.banread.model.WorkId
 import app.banread.model.registry.ProfileRegistry
 import app.banread.model.registry.ReadProfile
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -71,7 +72,7 @@ data class CompanionUiState(
     val tools: List<CompanionToolItem> = emptyList(),
     val activeToolId: ToolId = ToolId("chapter_map"),
     val isRunningTool: Boolean = false,
-    val vizContentHeightPx: Int = 0,
+    val vizContentHeightDp: Int = 0,
     val activeArtifact: AuditedArtifact? = null,
     val streamingThinking: String = "",
     val streamingMarkdown: String = "",
@@ -112,13 +113,14 @@ class CompanionViewModel(
                 is VizHostEvent.JumpToBlock -> jumpToBlock(event.blockId)
                 VizHostEvent.OpenFullscreen -> setFullscreenVizOpen(!_uiState.value.isFullscreenVizOpen)
                 is VizHostEvent.Rendered -> {
-                    if (!_uiState.value.isFullscreenVizOpen && event.heightPx > 0) {
-                        _uiState.value = _uiState.value.copy(vizContentHeightPx = event.heightPx)
+                    if (!_uiState.value.isFullscreenVizOpen && event.heightDp > 0) {
+                        _uiState.value = _uiState.value.copy(vizContentHeightDp = event.heightDp)
                     }
                 }
                 is VizHostEvent.Error -> {
                     _uiState.value = _uiState.value.copy(
                         toastMessage = "图解渲染提示：${event.message}",
+                        vizContentHeightDp = 0,
                     )
                 }
             }
@@ -277,8 +279,13 @@ class CompanionViewModel(
                     }
                     publish()
                 }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                tasks.failed(key, INTERRUPTED_FAILURE)
+                publish()
             } finally {
-                tasks.finish(key)
+                if (tasks.finishOrMarkFailed(key, INTERRUPTED_FAILURE)) publish()
             }
         }
     }
@@ -352,6 +359,12 @@ class CompanionViewModel(
                             }
                         }
                     }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                updateQaMessage(msgId) {
+                    it.copy(isStreaming = false, errorText = formatFailureMessage(INTERRUPTED_FAILURE))
                 }
             } finally {
                 updateQaMessage(msgId) {
@@ -446,8 +459,15 @@ class CompanionViewModel(
                 toolFailure = slot.failure,
             )
         }
-        _uiState.value = next
-        syncVizToDisplayedArtifact(next)
+        val projected = if (
+            next.activeArtifact == null || next.activeArtifact !== base.activeArtifact
+        ) {
+            next.copy(vizContentHeightDp = 0)
+        } else {
+            next
+        }
+        _uiState.value = projected
+        syncVizToDisplayedArtifact(projected)
     }
 
     private fun displayedKey(state: CompanionUiState): CompanionTaskKey? {
@@ -541,6 +561,8 @@ class CompanionViewModel(
     }
 
     companion object {
+        private val INTERRUPTED_FAILURE = AppFailure.NetworkOrSyncConflict("伴读生成中断，请重试")
+
         fun factory(
             companionEngine: CompanionEngine,
             libraryVault: LibraryVault,

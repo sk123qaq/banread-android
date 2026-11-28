@@ -7,6 +7,7 @@ import org.junit.Test
 class ChapterMapRendererAssetTest {
 
     private val renderer = File("src/main/assets/viz/diagram_renderer.js").readText()
+    private val hostCss = File("src/main/assets/viz/mobile_viz_host.css").readText()
 
     @Test
     fun `chapter map blueprint dispatches to its dedicated renderer`() {
@@ -29,5 +30,13 @@ class ChapterMapRendererAssetTest {
         assertTrue(node.contains("node.summary"))
         assertTrue(node.contains("node.blocks"))
         assertTrue(node.contains("renderAnchorPills"))
+    }
+
+    @Test
+    fun `fullscreen mode hides the duplicate exit control inside the host`() {
+        val fullscreen = hostCss.substringAfter(".viz-shell[data-mode=\"fullscreen\"] #btn-zoom-close")
+            .substringBefore(".viz-shell[data-mode=\"compact\"]")
+        assertTrue(fullscreen.contains("display: none"))
+        assertTrue(fullscreen.contains("#viz-btn-fullscreen"))
     }
 }

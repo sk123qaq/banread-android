@@ -4,6 +4,7 @@ import app.banread.app.ui.companion.CompanionDetent
 import app.banread.app.ui.companion.CompanionScopeChoice
 import app.banread.app.ui.companion.CompanionTaskKey
 import app.banread.app.ui.companion.CompanionTaskRegistry
+import app.banread.app.ui.companion.CompanionToolSlot
 import app.banread.app.ui.companion.CompanionViewModel
 import app.banread.model.AppFailure
 import app.banread.model.AuditedArtifact
@@ -26,6 +27,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -209,15 +211,111 @@ class CompanionConcurrencyTest {
         s.vm.openSheet(workId, ChapterOrdinal(1))
 
         s.viz.hostCallback?.invoke(VizHostEvent.Rendered(800, 520))
-        assertEquals(520, s.vm.uiState.value.vizContentHeightPx)
+        assertEquals(520, s.vm.uiState.value.vizContentHeightDp)
 
         s.vm.setFullscreenVizOpen(true)
         s.viz.hostCallback?.invoke(VizHostEvent.Rendered(1080, 4_000))
-        assertEquals(520, s.vm.uiState.value.vizContentHeightPx)
+        assertEquals(520, s.vm.uiState.value.vizContentHeightDp)
 
         s.vm.setFullscreenVizOpen(false)
         s.viz.hostCallback?.invoke(VizHostEvent.Rendered(800, 640))
-        assertEquals(640, s.vm.uiState.value.vizContentHeightPx)
+        assertEquals(640, s.vm.uiState.value.vizContentHeightDp)
+    }
+
+    @Test
+    fun `viz height resets when the displayed artifact changes or rendering fails`() = runTest {
+        val s = subject()
+        s.vm.openSheet(workId, ChapterOrdinal(1), initialToolId = ToolId("explain"))
+        s.viz.hostCallback?.invoke(VizHostEvent.Rendered(800, 620))
+        assertEquals(620, s.vm.uiState.value.vizContentHeightDp)
+
+        s.engine.release(ToolId("explain"))
+        advanceUntilIdle()
+        assertEquals(0, s.vm.uiState.value.vizContentHeightDp)
+
+        s.viz.hostCallback?.invoke(VizHostEvent.Rendered(800, 620))
+        s.vm.selectTool(ToolId("translate"))
+        assertEquals(0, s.vm.uiState.value.vizContentHeightDp)
+
+        s.viz.hostCallback?.invoke(VizHostEvent.Rendered(800, 620))
+        s.vm.onReaderChapterChanged(ChapterOrdinal(2))
+        assertEquals(0, s.vm.uiState.value.vizContentHeightDp)
+
+        s.viz.hostCallback?.invoke(VizHostEvent.Rendered(800, 620))
+        s.viz.hostCallback?.invoke(VizHostEvent.Error("budget"))
+        assertEquals(0, s.vm.uiState.value.vizContentHeightDp)
+        assertNotNull(s.vm.uiState.value.toastMessage)
+    }
+
+    @Test
+    fun `a thrown generation error fails the slot and stays retryable`() = runTest {
+        val s = subject()
+        s.engine.throwTools += "explain"
+        s.vm.openSheet(workId, ChapterOrdinal(1), initialToolId = ToolId("explain"))
+
+        assertEquals(1, s.engine.runToolRequests.size)
+        assertFalse(s.vm.uiState.value.isRunningTool)
+        assertNull(s.vm.uiState.value.activeArtifact)
+        assertNotNull(s.vm.uiState.value.toolFailure)
+
+        s.engine.throwTools.clear()
+        s.vm.selectTool(ToolId("explain"), forceRefresh = true)
+        assertEquals(2, s.engine.runToolRequests.size)
+        s.engine.release(ToolId("explain"))
+        advanceUntilIdle()
+        assertFalse(s.vm.uiState.value.isRunningTool)
+        assertNull(s.vm.uiState.value.toolFailure)
+        assertEquals(
+            "工具 explain",
+            (s.vm.uiState.value.activeArtifact as AuditedArtifact.MarkdownReadCard).caption,
+        )
+    }
+
+    @Test
+    fun `a stream without a terminal event does not leave the slot running`() = runTest {
+        val s = subject()
+        s.engine.silentTools += "translate"
+        s.vm.openSheet(workId, ChapterOrdinal(1), initialToolId = ToolId("translate"))
+
+        assertFalse(s.vm.uiState.value.isRunningTool)
+        assertNotNull(s.vm.uiState.value.toolFailure)
+        assertNull(s.vm.uiState.value.activeArtifact)
+
+        s.engine.silentTools.clear()
+        s.vm.selectTool(ToolId("translate"), forceRefresh = true)
+        assertTrue(s.vm.uiState.value.isRunningTool)
+        s.engine.release(ToolId("translate"))
+        advanceUntilIdle()
+        assertFalse(s.vm.uiState.value.isRunningTool)
+        assertEquals(
+            "工具 translate",
+            (s.vm.uiState.value.activeArtifact as AuditedArtifact.MarkdownReadCard).caption,
+        )
+    }
+
+    @Test
+    fun `a thrown follow-up error ends streaming with a message`() = runTest {
+        val s = subject()
+        s.vm.openSheet(workId, ChapterOrdinal(1))
+        s.engine.throwOnAsk = IllegalStateException("qa boom")
+        s.vm.askFollowUp("为什么")
+
+        val message = s.vm.uiState.value.qaMessages.single()
+        assertFalse(message.isStreaming)
+        assertNotNull(message.errorText)
+    }
+
+    @Test
+    fun `registry marks a still running slot as failed when the stream ends`() {
+        val registry = CompanionTaskRegistry()
+        val key = CompanionTaskKey.of(workId, ToolScope.Chapter(ChapterOrdinal(1)), ToolId("explain"))
+        val interrupted = AppFailure.NetworkOrSyncConflict("interrupted")
+
+        registry.begin(key, forceRefresh = false)
+        assertTrue(registry.finishOrMarkFailed(key, interrupted))
+        assertFalse(registry.isRunning(key))
+        assertTrue(registry.slot(key) is CompanionToolSlot.Failed)
+        assertFalse(registry.finishOrMarkFailed(key, interrupted))
     }
 
     @Test
@@ -231,7 +329,7 @@ class CompanionConcurrencyTest {
         assertEquals(1, registry.pendingCount())
 
         registry.ready(key, MarkdownReadCard("c", "m"))
-        registry.finish(key)
+        assertFalse(registry.finishOrMarkFailed(key, AppFailure.NetworkOrSyncConflict("interrupted")))
 
         assertFalse(registry.isRunning(key))
         assertTrue(registry.begin(key, forceRefresh = false) is CompanionTaskRegistry.Start.Reuse)
@@ -249,7 +347,7 @@ class CompanionConcurrencyTest {
         assertEquals(2, registry.pendingCount())
 
         registry.ready(first, MarkdownReadCard("c", "m"))
-        registry.finish(first)
+        registry.finishOrMarkFailed(first, AppFailure.NetworkOrSyncConflict("interrupted"))
         assertTrue(registry.isRunning(second))
         assertFalse(registry.isRunning(first))
     }
@@ -260,7 +358,7 @@ class CompanionConcurrencyTest {
         val key = CompanionTaskKey.of(workId, ToolScope.Chapter(ChapterOrdinal(1)), ToolId("explain"))
         registry.begin(key, forceRefresh = false)
         registry.failed(key, AppFailure.NetworkOrSyncConflict("offline"))
-        registry.finish(key)
+        registry.finishOrMarkFailed(key, AppFailure.NetworkOrSyncConflict("interrupted"))
 
         assertTrue(registry.begin(key, forceRefresh = false) is CompanionTaskRegistry.Start.Reuse)
         assertEquals(CompanionTaskRegistry.Start.Launch, registry.begin(key, forceRefresh = true))
@@ -299,6 +397,9 @@ internal class GatedCompanionEngine(
     val runToolRequests = mutableListOf<CompanionRequest>()
     val askQuestions = mutableListOf<String>()
     val failTools = mutableSetOf<String>()
+    val throwTools = mutableSetOf<String>()
+    val silentTools = mutableSetOf<String>()
+    var throwOnAsk: Throwable? = null
     val qaGates = mutableListOf<CompletableDeferred<Unit>>()
     private val toolGates = mutableMapOf<String, CompletableDeferred<Unit>>()
     var llmTokenCalls = 0
@@ -324,6 +425,8 @@ internal class GatedCompanionEngine(
         runToolRequests += request
         llmTokenCalls++
         emit(CompanionEvent.StreamingDelta("思考 ${request.tool.raw}", isThinking = true))
+        if (request.tool.raw in throwTools) throw IllegalStateException("runTool boom")
+        if (request.tool.raw in silentTools) return@flow
         gate(request.tool).await()
         if (request.tool.raw in failTools) {
             emit(CompanionEvent.Failure(AppFailure.DesktopConnectionRequired("offline")))
@@ -345,6 +448,7 @@ internal class GatedCompanionEngine(
         scope: ToolScope,
         question: String,
     ): Flow<CompanionEvent> = flow {
+        throwOnAsk?.let { throw it }
         askQuestions += question
         llmTokenCalls++
         val gate = CompletableDeferred<Unit>()

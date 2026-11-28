@@ -109,8 +109,13 @@ internal class CompanionTaskRegistry(private val maxSlots: Int = DEFAULT_MAX_SLO
     }
 
     @Synchronized
-    fun finish(key: CompanionTaskKey) {
+    fun finishOrMarkFailed(key: CompanionTaskKey, fallbackFailure: AppFailure): Boolean {
         running.remove(key)
+        if (slots[key] is CompanionToolSlot.Running) {
+            slots[key] = CompanionToolSlot.Failed(fallbackFailure)
+            return true
+        }
+        return false
     }
 
     @Synchronized
